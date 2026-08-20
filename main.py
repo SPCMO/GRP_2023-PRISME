@@ -100,24 +100,6 @@ class App(tk.Tk):
         webbrowser.open(f"file:///{chemin.replace(os.sep, '/')}")
 
     def _build_ui(self):
-        # Barre fine juste au-dessus du Notebook, avec le lien Aide aligné à droite — à
-        # la même hauteur visuelle que les onglets. Un ttk.Notebook ne permet pas
-        # d'insérer un widget directement dans sa bande d'onglets (dessinée en interne
-        # par le thème), d'où cette bande dédiée juste au-dessus plutôt qu'un overlay
-        # fragile en .place() par-dessus le Notebook.
-        barre_haut = tk.Frame(self)
-        barre_haut.pack(fill=tk.X, padx=8, pady=(6, 0))
-        # Bouton bleu/blanc, taille d'un onglet — bien plus visible que le lien discret
-        # d'origine. tk.Button (pas ttk.Button) pour garder la main sur bg/fg, un thème
-        # ttk ignorerait ces couleurs.
-        lien_aide = tk.Button(
-            barre_haut, text="📖  Aide", command=self._ouvrir_aide,
-            bg="#1A5276", fg="white", activebackground="#21618C", activeforeground="white",
-            font=("TkDefaultFont", 11, "bold"), relief=tk.FLAT, cursor="hand2",
-            padx=18, pady=6,
-        )
-        lien_aide.pack(side=tk.RIGHT)
-
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
@@ -132,6 +114,22 @@ class App(tk.Tk):
         notebook.add(self.tab_crues, text="  Crues  ")
         notebook.add(self.tab_orchestration, text="  Campagne  ")
         notebook.add(self.tab_dashboard, text="  Dashboard  ")
+
+        # Bouton Aide superposé sur la bande d'onglets elle-même, coin haut-droit — un
+        # ttk.Notebook ne permet pas d'insérer un widget DANS sa bande d'onglets
+        # (dessinée en interne par le thème), donc on le place PAR-DESSUS avec .place(),
+        # calé sur le coin haut-droit du widget Notebook (in_=notebook, y=0) pour
+        # tomber exactement à la hauteur des onglets, à droite de "Dashboard".
+        # tk.Button (pas ttk.Button) pour garder la main sur bg/fg — un thème ttk les
+        # ignorerait.
+        lien_aide = tk.Button(
+            self, text="📖  Aide", command=self._ouvrir_aide,
+            bg="#1A5276", fg="white", activebackground="#21618C", activeforeground="white",
+            font=("TkDefaultFont", 10, "bold"), relief=tk.FLAT, cursor="hand2",
+            padx=14, pady=3,
+        )
+        lien_aide.place(in_=notebook, relx=1.0, x=0, y=0, anchor="ne")
+        lien_aide.lift()
 
         build_tab_config(self.tab_config, self)
         build_tab_parametrage(self.tab_parametrage, self)
