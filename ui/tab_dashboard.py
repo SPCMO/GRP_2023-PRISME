@@ -10,10 +10,12 @@ remplace l'unique graphique Excel du script d'origine par 3 vues complémentaire
      et méthode fixés.
 """
 
+import os
 import re
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -144,7 +146,6 @@ def _build_synthese(frame, app):
         horizons = sorted({s.horizon for s in scores}, key=_horizon_en_minutes)
         seuils = sorted({s.seuil_c1 for s in scores})
         if horizons and seuils:
-            import numpy as np
             grille = np.full((len(seuils), len(horizons)), np.nan)
             for s in scores:
                 if s.score is None:
@@ -275,7 +276,8 @@ def _build_detail(frame, app):
             return
 
         num_evt_str = f"{evt.num_evt:04d}"
-        chemin_serie = paths.evenements_dir(code_pdt) + f"\\{paths.code_site}-EV{num_evt_str}.DAT"
+        chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                     f"{paths.code_site}-EV{num_evt_str}.DAT")
         try:
             serie = parse_evenement_serie(chemin_serie)
         except (FileNotFoundError, CriteresPerfError) as e:
