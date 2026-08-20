@@ -6,7 +6,7 @@ onglets sur plusieurs fichiers (ui/tab_*.py) plutôt qu'un unique main.py monoli
 """
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 
 # Palette couleurs sections UI — (texte, fond), mêmes teintes qu'OPALE v2 pour rester
 # visuellement cohérent entre les outils du SPCMO.
@@ -167,6 +167,17 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
     cadre.rafraichir = _rafraichir  # exposé pour qu'un appelant externe (ex. changement
                                      # de pas de temps sélectionné) puisse forcer un refresh
     return cadre
+
+
+def bouton_info(parent, titre, texte, bg=None):
+    """Petit "ⓘ" cliquable qui affiche `texte` dans une messagebox — pour expliquer un
+    réglage sans encombrer l'écran d'un paragraphe d'aide permanent à côté de chaque
+    option. Retourne le Label, à placer par l'appelant (pack/grid)."""
+    kwargs = {"bg": bg} if bg is not None else {}
+    lbl = tk.Label(parent, text="ⓘ", fg="#1A5276", cursor="hand2",
+                   font=("TkDefaultFont", 10, "bold"), **kwargs)
+    lbl.bind("<Button-1>", lambda _evt: messagebox.showinfo(titre, texte, parent=parent.winfo_toplevel()))
+    return lbl
 
 
 def placeholder_tab(tab_frame, texte):

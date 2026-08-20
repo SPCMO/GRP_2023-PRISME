@@ -11,7 +11,18 @@ from tkinter import messagebox, ttk
 
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import GrpPaths
-from ui.widgets_common import make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import bouton_info, make_label, make_row, make_scrollable_tab, make_section
+
+TEXTE_INFO_TYPEVT_P = (
+    "GRP détecte deux types d'épisodes dans CRITERES_PERF.DAT :\n\n"
+    "• les crues (TypEvt=Q) : pic de débit significatif ;\n"
+    "• les épisodes de pluie (TypEvt=P) : pluie notable qui n'a pas forcément "
+    "généré un pic de débit marquant.\n\n"
+    "Par défaut, seules les crues (Q) sont affichées puisque c'est ce qui intéresse "
+    "le calage. Cocher cette case ajoute aussi les épisodes de pluie — utile pour "
+    "évaluer le comportement du modèle sur de la pluie sans crue (moins de faux "
+    "positifs, par exemple)."
+)
 
 VIGNETTES_PAR_LIGNE = 3
 
@@ -53,6 +64,8 @@ def build_tab_crues(tab_frame, app):
     tk.Checkbutton(r, text="Inclure aussi les événements de pluie (TypEvt=P)",
                    variable=var_inclure_pluie, bg=bg,
                    command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(12, 0))
+    bouton_info(r, "Événements de pluie (TypEvt=P)", TEXTE_INFO_TYPEVT_P, bg=bg).pack(
+        side=tk.LEFT, padx=(2, 0))
     ttk.Button(r, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(12, 0))
 
     r = make_row(inn, bg)
