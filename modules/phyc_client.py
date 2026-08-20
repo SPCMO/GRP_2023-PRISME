@@ -24,6 +24,8 @@ from lxml import etree as lxml_etree
 from zeep import Client as ZeepClient, Settings as ZeepSettings
 from zeep.transports import Transport
 
+from modules import proxy_utils
+
 WSDL_URL = "http://services.schapi.e2.rie.gouv.fr/phycop/bdtrv21.wsdl"
 ZEEP_SERVICE = "WebservicesBdtr"
 
@@ -75,16 +77,27 @@ class PhycClient:
 
     DT_FMT = "%Y-%m-%dT%H:%M:%S"
 
-    def __init__(self, wsdl_url=WSDL_URL, timeout=60):
+    def __init__(self, wsdl_url=WSDL_URL, timeout=60, proxies=None):
         self.wsdl_url = wsdl_url
         self.timeout = timeout
+        # PHyC (comme tout le reste du réseau SPCMO/RIE) n'est joignable qu'au travers du
+        # proxy sortant — sans lui, l'appel échoue typiquement par une erreur de
+        # résolution DNS ("notresolvable"), le nom de service RIE n'étant résolu que par
+        # le proxy. `proxies=None` (par défaut) déclenche l'auto-détection (voir
+        # modules.proxy_utils : variable d'environnement > proxy système > config.PROXY_RIE) ;
+        # passer un dict explicite ({} pour forcer l'absence de proxy) permet de la
+        # court-circuiter si besoin.
+        self.proxies = proxy_utils.dict_proxies() if proxies is None else proxies
         self._idsession = None
         self._client = None
         self._service_name = None
 
     def _make_client(self):
-        """Crée le client zeep avec le transport RIE."""
-        transport = _RieTransport(timeout=self.timeout)
+        """Crée le client zeep avec le transport RIE, proxy inclus (voir __init__)."""
+        session = _requests.Session()
+        if self.proxies:
+            session.proxies.update(self.proxies)
+        transport = _RieTransport(timeout=self.timeout, session=session)
         settings = ZeepSettings(strict=False, xml_huge_tree=True)
         return ZeepClient(wsdl=self.wsdl_url, transport=transport, settings=settings)
 
@@ -243,6 +256,7 @@ class PhycClient:
                 "SOAPAction": '"publierObservationsHydroPasDeTemps"',
             },
             timeout=self.timeout,
+            proxies=self.proxies,
         )
         resp.raise_for_status()
 
@@ -300,7 +314,7 @@ class PhycClient:
         resp = _requests.post(endpoint, data=soap_bytes,
                               headers={"Content-Type": "text/xml; charset=utf-8",
                                        "SOAPAction": '"publierSeuilHydro"'},
-                              timeout=self.timeout)
+                              timeout=self.timeout, proxies=self.proxies)
         resp.raise_for_status()
 
         root_soap = lxml_etree.fromstring(resp.content)

@@ -39,7 +39,18 @@ def build_tab_config(tab_frame, app):
         make_label(r, libelle, bg, width=30)
         var = tk.StringVar(value=app.config_data.get("chemins", {}).get(cle, ""))
         chemins_vars[cle] = var
-        ttk.Entry(r, textvariable=var, width=60).pack(side=tk.LEFT, padx=(2, 4))
+        ent = ttk.Entry(r, textvariable=var, width=60)
+        ent.pack(side=tk.LEFT, padx=(2, 4))
+
+        def _valider_chemin(_evt=None, cle=cle, var=var):
+            # Synchronise aussi une saisie/collage manuel dans le champ (pas seulement
+            # le bouton Parcourir…) — sans quoi le bouton Enregistrer ci-dessous
+            # sauvegarderait une valeur périmée pour ce champ.
+            app.config_data.setdefault("chemins", {})[cle] = var.get().strip()
+            app.persist_config()
+            app.on_config_changed()
+
+        ent.bind("<FocusOut>", _valider_chemin)
 
         def _parcourir(cle=cle, var=var):
             dossier = filedialog.askdirectory(title=f"Sélectionner : {cle}")
@@ -187,3 +198,27 @@ def build_tab_config(tab_frame, app):
 
     btn_identifier.config(command=_identifier)
     _afficher_seuils_existants()
+
+    # ── Bouton Enregistrer ───────────────────────────────────────────────────────
+    # config_data est un unique dict partagé, modifié en place par tous les onglets
+    # (Paramétrage, Crues...) qui persistent déjà chacun leurs propres changements
+    # immédiatement — ce bouton n'est donc pas la seule sauvegarde, mais une action
+    # explicite et rassurante qui écrit tout l'état actuel d'un coup (chemins,
+    # identifiants PHyC, station, horizons/seuils/méthodes sélectionnés...), pour ne
+    # jamais avoir à tout ressaisir après une fermeture ou une erreur (ex. échec
+    # d'identification PHyC).
+    cadre_bas = tk.Frame(frm)
+    cadre_bas.pack(fill=tk.X, padx=12, pady=14)
+    var_confirmation = tk.StringVar(value="")
+
+    def _enregistrer():
+        for cle, var in chemins_vars.items():
+            app.config_data.setdefault("chemins", {})[cle] = var.get().strip()
+        app.config_data.setdefault("station", {})["nom_station"] = var_nom_station.get().strip()
+        app.persist_config()
+        app.on_config_changed()
+        var_confirmation.set("Configuration enregistrée.")
+
+    ttk.Button(cadre_bas, text="Enregistrer", command=_enregistrer).pack(side=tk.LEFT)
+    tk.Label(cadre_bas, textvariable=var_confirmation, fg="#1D6A39",
+             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(10, 0))
