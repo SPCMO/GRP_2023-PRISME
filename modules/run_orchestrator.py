@@ -22,11 +22,12 @@ from datetime import datetime
 from itertools import product
 from typing import Callable, List, Optional, Tuple
 
-from modules import results_store
+from modules import grp_series, results_store
 from modules.config_prevision import ConfigPrevisionError, set_prevision
 from modules.fiche_controle_pdf import FicheControleError, extraire_resultat
 from modules.grp_paths import GrpPaths
 from modules.grp_runner import GrpRunError, nettoyer_bddtr, run_calage, run_prevision_bat
+from modules.grp_series import GrpSerieError
 from modules.liste_bassins import ListeBassinsFormatError, parse_liste_bassins, set_calage_params, write_liste_bassins
 
 logger = logging.getLogger("grp_2023.orchestrateur")
@@ -223,6 +224,24 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                     suspects=resultat.suspects,
                 )
             message = "suspect (hors bornes plausibles)" if resultat.est_suspect else ""
+
+            # Archivage best-effort des séries observée/simulée pour le dashboard (bloc 6
+            # > Détail par crue) — <BDDTR>/Temps_Reel/Sorties/ n'expose que le DERNIER
+            # rejeu effectué, donc sans cet archivage immédiat la série serait perdue dès
+            # la crue suivante. Un échec ici ne remet pas en cause le résultat dQP/dTP/VE/
+            # KGE déjà obtenu et persisté ci-dessus (source primaire des résultats) — la
+            # crue reste "success", juste sans courbe simulée disponible dans le dashboard.
+            try:
+                obs = grp_series.parser_observations(paths.sorties_dir)
+                sim = grp_series.parser_previsions(paths.sorties_dir)
+                with results_store.db_session(db_path) as conn:
+                    results_store.archiver_serie(conn, combinaison_id, crue_date, "obs", obs)
+                    results_store.archiver_serie(conn, combinaison_id, crue_date, "sim", sim)
+            except (FileNotFoundError, GrpSerieError) as e:
+                logger.warning("Archivage des séries observée/simulée impossible pour crue %s "
+                                "sous %s/%s/%s : %s", crue_date, horizon, seuil_c1, methode, e)
+                message = (message + " — " if message else "") + f"série non archivée : {e}"
+
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu",
                                         "success", message))
 

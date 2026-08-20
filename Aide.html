@@ -78,7 +78,7 @@
 
   <h3>Onglet Dashboard</h3>
   <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite combinant dQP/dTP/VE/KGE, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
-  <p><b>Détail par crue</b> : courbe du débit observé avec les seuils de vigilance PHyC superposés, pour la crue et la combinaison choisies.</p>
+  <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec la courbe du débit <b>simulé</b> superposée (archivée au moment du rejeu — voir Architecture) et les seuils de vigilance PHyC, pour la crue et la combinaison choisies. Si aucune courbe simulée n'apparaît, c'est que cette combinaison/crue précise n'a pas encore été rejouée (ou que le fichier GRP correspondant était absent au moment du run — message explicite affiché sous le graphique dans ce cas).</p>
   <p><b>Sensibilité au seuil</b> : évolution du score composite et du KGE moyen en fonction du seuil de calage, à horizon et méthode fixés — utile pour la phase d'affinage évoquée ci-dessus.</p>
 </section>
 
@@ -109,7 +109,7 @@
 │   ├── fiche_controle_pdf.py   # extraction dQP/dTP/VE/KGE (source des résultats de campagne)
 │   ├── grp_series.py           # séries observée/simulée (GRP_Obs.txt / GRP_Prev_*.txt)
 │   ├── run_orchestrator.py     # boucle horizon×seuil×méthode×crue, reprise sur échec
-│   ├── results_store.py        # persistance SQLite (data/runs.sqlite3)
+│   ├── results_store.py        # persistance SQLite (data/runs.sqlite3) + séries archivées
 │   ├── score.py                # score composite de performance
 │   └── export_excel.py         # export à la demande
 ├── ui/
@@ -125,6 +125,9 @@
 
   <h3>Pourquoi deux sources de performance différentes</h3>
   <p><code>CRITERES_PERF.DAT</code> (calage complet, exe 01+03) mesure la qualité de la simulation <b>en connaissant tout l'épisode</b>, en un seul passage pour tous les événements détectés. Le PDF <i>Fiche_controle</i> (rejeu, exe 04 + <code>.bat</code>) mesure la <b>vraie performance de prévision opérationnelle</b> à un instant donné, avec seulement les données disponibles jusque-là — un run par crue testée. Ce sont deux mesures complémentaires, pas interchangeables ; l'outil n'utilise la première que pour repérer les crues (onglet Crues), jamais comme résultat de campagne.</p>
+
+  <h3>Archivage des séries observée/simulée</h3>
+  <p><code>&lt;BDDTR&gt;/Temps_Reel/Sorties/GRP*Obs.txt</code> et <code>GRP*Prev_*.txt</code> (voir <code>modules/grp_series.py</code>) n'exposent que le <b>dernier</b> rejeu effectué — insuffisant pour retracer après coup la courbe simulée d'une combinaison/crue précise une fois la campagne terminée. <code>run_orchestrator.py</code> les archive donc immédiatement après chaque rejeu réussi (table <code>series_archivees</code>, liée à la combinaison et à la crue), et c'est cette copie archivée que le Dashboard relit — jamais le fichier « live » de <code>Sorties/</code>, qui pourrait correspondre à un tout autre run au moment de la consultation. Cet archivage est best-effort : un échec (fichier absent ou format inattendu) ne fait pas échouer la crue, qui garde son résultat dQP/dTP/VE/KGE (source primaire) — seule la courbe simulée manque alors dans le Dashboard, avec un message explicite.</p>
 
   <h3>Réutiliser pour un autre bassin</h3>
   <p>Rien n'est codé en dur : renseigner les 4 dossiers et le code station d'un autre bassin dans l'onglet Configuration suffit. Le seul réglage global figé par défaut est l'absence de module neige CemaNeige (<code>avec_neige=False</code> dans <code>modules.liste_bassins.set_calage_params</code>), validé pour Moussoulens — à passer à <code>True</code> dans le code pour un bassin de montagne qui en aurait besoin.</p>
@@ -170,6 +173,21 @@
   <div class="changelog-entry">
     <div class="changelog-date">20 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Mise en ligne initiale : interface Tkinter complète (Configuration, Paramétrage, Crues, Campagne, Dashboard), détection automatique des crues via <code>CRITERES_PERF.DAT</code>, orchestrateur de campagne fiabilisé avec reprise sur échec fine, dashboard (heatmap horizon×seuil, score composite, sensibilité au seuil), export Excel, réutilisable pour n'importe quel bassin.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Bouton <b>Annuler</b> sur une campagne en cours (onglet Campagne) — vérifié entre chaque étape, jamais en cours d'exécution d'un exe GRP ; les combinaisons/crues non traitées restent reprenables normalement.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Trouvé lors d'une relecture à froid du code : le nettoyage final du dossier BDTR (confirmé sans risque, déjà implémenté dans <code>modules/grp_runner.py</code>) n'était jamais appelé par l'orchestrateur — corrigé, appelé désormais à toute sortie de la campagne (fin normale ou annulation).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Courbe <b>Q simulé</b> superposée à l'observée dans le Dashboard &gt; Détail par crue. La série est archivée en base à chaque rejeu réussi (table <code>series_archivees</code>) plutôt que relue depuis <code>Sorties/</code>, qui n'expose que le dernier run — voir Architecture &gt; Archivage des séries observée/simulée.</p>
   </div>
 
   <div class="changelog-entry">

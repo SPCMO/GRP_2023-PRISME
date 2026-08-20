@@ -218,12 +218,15 @@ def _build_detail(frame, app):
 
     def _combinaisons_disponibles():
         lignes, _ = _charger_resultats(app)
-        vues = sorted({(l["horizon"], l["seuil_c1"], l["methode"]) for l in lignes})
+        # combinaison_id est constant pour un (horizon, seuil, méthode) donné (contrainte
+        # UNIQUE en base) — inclus ici pour retrouver la série simulée archivée.
+        vues = sorted({(l["horizon"], l["seuil_c1"], l["methode"], l["combinaison_id"])
+                       for l in lignes})
         return vues
 
     def _rafraichir_combos(*_evt):
         combis = _combinaisons_disponibles()
-        combo_combi["values"] = [f"{h} / seuil {s:.2f} / {m}" for h, s, m in combis]
+        combo_combi["values"] = [f"{h} / seuil {s:.2f} / {m}" for h, s, m, _cid in combis]
         combo_combi._valeurs = combis
         if combis and var_combi.get() not in combo_combi["values"]:
             var_combi.set(combo_combi["values"][0])
@@ -235,7 +238,7 @@ def _build_detail(frame, app):
             combo_crue["values"] = []
             return
         idx = list(combo_combi["values"]).index(var_combi.get())
-        horizon, seuil, methode = combis[idx]
+        horizon, seuil, methode, _cid = combis[idx]
         lignes, _ = _charger_resultats(app)
         dates = sorted({l["crue_date"] for l in lignes
                         if l["horizon"] == horizon and l["seuil_c1"] == seuil
@@ -289,8 +292,26 @@ def _build_detail(frame, app):
             qobs = [p[2] for p in serie]
             ax.plot(dates, qobs, color="#1F618D", lw=1.3, label="Q observé")
 
+        # Série simulée archivée pour cette combinaison précise (voir
+        # modules.run_orchestrator, archivage à chaque rejeu — Sorties/ n'expose que le
+        # dernier rejeu effectué, donc on relit l'archive plutôt que le fichier GRP brut,
+        # qui correspondrait presque toujours à un autre run que celui affiché ici).
+        combis = getattr(combo_combi, "_valeurs", [])
+        combinaison_id = None
+        if combis and var_combi.get() in combo_combi["values"]:
+            idx = list(combo_combi["values"]).index(var_combi.get())
+            combinaison_id = combis[idx][3]
+        qsim = []
+        if combinaison_id is not None:
+            with results_store.db_session() as conn:
+                serie_sim = results_store.charger_serie(conn, combinaison_id, crue_iso, "sim")
+            if serie_sim:
+                qsim = [p[1] for p in serie_sim]
+                ax.plot([p[0] for p in serie_sim], qsim, color="#CC5500", lw=1.3,
+                        ls="--", label="Q simulé")
+
         seuils = app.config_data.get("seuils_q", {})
-        y_max = max([p[2] for p in serie], default=None)
+        y_max = max([p[2] for p in serie] + qsim, default=None)
         for cle, couleur, label in (("jaune", "#D4AC0D", "Jaune"), ("orange", "#CA6F1E", "Orange"),
                                      ("rouge", "#C0392B", "Rouge")):
             val = seuils.get(cle)
@@ -306,11 +327,14 @@ def _build_detail(frame, app):
         fig.autofmt_xdate()
         canvas.draw_idle()
 
-        var_indicateurs.set(
+        texte = (
             f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — configuration en place : "
             f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
             + ("  ⚠ suspect" if evt.suspects else "")
         )
+        if combinaison_id is not None and not qsim:
+            texte += "  —  Q simulé indisponible pour cette combinaison/crue (pas encore rejouée, ou série non archivée)."
+        var_indicateurs.set(texte)
 
     combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_combos())
     combo_combi.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())

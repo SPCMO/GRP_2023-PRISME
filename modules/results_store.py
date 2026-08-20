@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """Persistance SQLite des résultats de campagne (data/runs.sqlite3).
 
-Deux niveaux, qui reflètent le déroulement réel d'une campagne (voir
+Trois niveaux, qui reflètent le déroulement réel d'une campagne (voir
 modules.run_orchestrator) :
   - `combinaisons` : une ligne par (horizon, seuil_c1, méthode) — le calage (exe 04)
     n'est lancé qu'UNE fois par combinaison, réutilisé pour toutes les crues rejouées.
   - `resultats_crues` : une ligne par (combinaison, crue rejouée) — statut et indicateurs
     dQP/dTP/VE/KGE du rejeu opérationnel de cette crue précise sous cette combinaison.
+  - `series_archivees` : les points (date, débit, pluie) des séries observée et simulée
+    d'un rejeu (voir modules.grp_series), archivés au moment du run — car
+    <BDDTR>/Temps_Reel/Sorties/ n'expose que le dernier rejeu effectué, jamais assez pour
+    retrouver après coup la simulation d'une combinaison/crue précise dans le dashboard.
 
-Cette double granularité permet la reprise sur échec demandée par l'utilisateur : si le
-calage d'une combinaison échoue, aucune crue n'est tentée sous cette combinaison ; si le
-calage réussit mais qu'une seule crue échoue (ex. .bat qui plante), on peut relancer
-uniquement cette crue sans refaire le calage.
+Cette double granularité (combinaisons/résultats) permet la reprise sur échec demandée
+par l'utilisateur : si le calage d'une combinaison échoue, aucune crue n'est tentée sous
+cette combinaison ; si le calage réussit mais qu'une seule crue échoue (ex. .bat qui
+plante), on peut relancer uniquement cette crue sans refaire le calage.
 """
 
 import os
@@ -46,6 +50,18 @@ CREATE TABLE IF NOT EXISTS resultats_crues (
     date_maj TEXT NOT NULL,
     UNIQUE (combinaison_id, crue_date)
 );
+
+CREATE TABLE IF NOT EXISTS series_archivees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    combinaison_id INTEGER NOT NULL REFERENCES combinaisons(id) ON DELETE CASCADE,
+    crue_date TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('obs', 'sim')),
+    point_date TEXT NOT NULL,
+    debit REAL,
+    pluie REAL
+);
+CREATE INDEX IF NOT EXISTS idx_series_archivees
+    ON series_archivees(combinaison_id, crue_date, type);
 """
 
 
@@ -154,13 +170,61 @@ def list_resultats(conn, combinaison_id=None, statut=None):
 
 def list_resultats_avec_combinaison(conn):
     """Jointure complète — une ligne par (combinaison, crue), utilisée par le dashboard
-    (bloc 6) pour croiser horizon × seuil × méthode sans requêtes séparées."""
+    (bloc 6) pour croiser horizon × seuil × méthode sans requêtes séparées.
+    `combinaison_id` est inclus pour retrouver la série archivée correspondante
+    (voir archiver_serie/charger_serie)."""
     return conn.execute(
         """
-        SELECT c.horizon, c.seuil_c1, c.methode, c.statut AS statut_combinaison,
+        SELECT c.id AS combinaison_id, c.horizon, c.seuil_c1, c.methode,
+               c.statut AS statut_combinaison,
                r.crue_date, r.statut AS statut_crue, r.dqp, r.dtp, r.ve, r.kge, r.suspects
         FROM combinaisons c
         JOIN resultats_crues r ON r.combinaison_id = c.id
         ORDER BY c.horizon, c.seuil_c1, c.methode, r.crue_date
         """
     ).fetchall()
+
+
+def archiver_serie(conn, combinaison_id, crue_date, type_serie, points):
+    """Archive une série observée ('obs') ou simulée ('sim') — `points` : itérable de
+    (datetime, debit, pluie), typiquement le retour de modules.grp_series.parser_*.
+
+    Remplace toute archive précédente pour ce (combinaison_id, crue_date, type) plutôt
+    que d'accumuler des doublons si la même crue est rejouée plusieurs fois (reprise sur
+    échec, nouvelle campagne testant à nouveau la même combinaison).
+    """
+    crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+    conn.execute(
+        "DELETE FROM series_archivees WHERE combinaison_id = ? AND crue_date = ? AND type = ?",
+        (combinaison_id, crue_date_str, type_serie),
+    )
+    conn.executemany(
+        """
+        INSERT INTO series_archivees (combinaison_id, crue_date, type, point_date, debit, pluie)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (combinaison_id, crue_date_str, type_serie,
+             date.isoformat() if hasattr(date, "isoformat") else date, debit, pluie)
+            for date, debit, pluie in points
+        ],
+    )
+
+
+def charger_serie(conn, combinaison_id, crue_date, type_serie):
+    """Recharge une série archivée — retourne une liste de (datetime, debit, pluie)
+    triée chronologiquement, vide si rien n'a été archivé pour ce (combinaison, crue,
+    type) (ex. rejeu antérieur à l'ajout de cette fonctionnalité, ou séries GRP absentes
+    au moment du run — voir modules.grp_series)."""
+    from datetime import datetime as _datetime
+
+    crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+    lignes = conn.execute(
+        """
+        SELECT point_date, debit, pluie FROM series_archivees
+        WHERE combinaison_id = ? AND crue_date = ? AND type = ?
+        ORDER BY point_date
+        """,
+        (combinaison_id, crue_date_str, type_serie),
+    ).fetchall()
+    return [(_datetime.fromisoformat(l["point_date"]), l["debit"], l["pluie"]) for l in lignes]
