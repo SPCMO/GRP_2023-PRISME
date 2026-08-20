@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 
 echo.
 echo ============================================================
-echo   GRP_2023 - Verification / installation de l'environnement
+echo   GRP_2023-PRISME - Verification / installation de l'environnement
 echo ============================================================
 
 set "PYTHON_EXE="
@@ -77,7 +77,7 @@ if %errorlevel% neq 0 (
     goto saisie_manuelle
 )
 echo !PYTHON_EXE!>python_exe.txt
-echo   Choix enregistre dans python_exe.txt (Lancer_GRP_2023.bat l'utilisera aussi).
+echo   Choix enregistre dans python_exe.txt (Lancer_GRP_2023-PRISME.bat l'utilisera aussi).
 
 :lancer_test
 echo.

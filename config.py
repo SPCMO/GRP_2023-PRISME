@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Constantes globales de l'outil GRP_2023 (chemins internes, proxy réseau)."""
+"""Constantes globales de GRP_2023-PRISME (chemins internes, proxy réseau)."""
 
 import os
 

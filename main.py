@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Point d'entrée — Outil GRP_2023 (remplacement de la « boucle magique »).
+"""Point d'entrée — GRP_2023-PRISME (remplacement de la « boucle magique »).
 
+PRISME : Paramétrage, Recherche Itérative et Sélection du Meilleur Étalonnage.
 Campagnes de calage GRP multi-horizons/seuils/méthodes, avec détection automatique des
 crues et dashboard de synthèse. L'outil est générique : la station (Moussoulens ou toute
 autre) se configure entièrement depuis l'onglet Configuration (chemins + code station),
@@ -25,7 +26,7 @@ from ui.tab_orchestration import build_tab_orchestration
 from ui.tab_parametrage import build_tab_parametrage
 from ui.widgets_common import init_styles
 
-TITRE_BASE = "GRP_2023 — Campagnes de calage GRP"
+TITRE_BASE = "GRP_2023-PRISME — Campagnes de calage GRP"
 
 
 class App(tk.Tk):

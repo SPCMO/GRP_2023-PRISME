@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GRP_2023 — Aide</title>
+<title>GRP_2023-PRISME — Aide</title>
 <style>
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
@@ -57,7 +57,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023 — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -73,10 +73,11 @@
   <h2>Utilisation</h2>
 
   <h3>À quoi sert cet outil</h3>
-  <p>GRP_2023 remplace la « boucle magique » (<code>boucle_magique_relatif_absolu_HOR1_pdf.py</code>) : un collègue avait écrit un script qui boucle sur des horizons de calage et rejoue des crues historiques pour trouver le meilleur horizon/seuil de calage du modèle hydrologique continu GRP (INRAE). Ce script contenait un bug critique (voir <b>Correctifs</b>) et n'était utilisable qu'en éditant le code Python à la main. Cet outil offre la même logique via une interface graphique, fiabilisée, et réutilisable pour n'importe quel bassin (pas seulement Moussoulens).</p>
+  <p class="muted"><b>PRISME</b> : <b>P</b>aramétrage, <b>R</b>echerche <b>I</b>térative et <b>S</b>élection du <b>M</b>eilleur Étalonnage.</p>
+  <p>GRP_2023-PRISME remplace la « boucle magique » (<code>boucle_magique_relatif_absolu_HOR1_pdf.py</code>) : un collègue avait écrit un script qui boucle sur des horizons de calage et rejoue des crues historiques pour trouver le meilleur horizon/seuil de calage du modèle hydrologique continu GRP (INRAE). Ce script contenait un bug critique (voir <b>Correctifs</b>) et n'était utilisable qu'en éditant le code Python à la main. Cet outil offre la même logique via une interface graphique, fiabilisée, et réutilisable pour n'importe quel bassin (pas seulement Moussoulens).</p>
 
   <h3>Premier lancement</h3>
-  <p>Double-cliquer sur <code>Test_pr_install.bat</code> (vérifie/installe l'environnement Python), puis sur <code>Lancer_GRP_2023.bat</code>.</p>
+  <p>Double-cliquer sur <code>Test_pr_install.bat</code> (vérifie/installe l'environnement Python), puis sur <code>Lancer_GRP_2023-PRISME.bat</code>.</p>
 
   <h3>Onglet Configuration</h3>
   <p><b>Dossiers de travail</b> : 4 boutons Parcourir pour désigner <code>00_GRP_v2023</code>, <code>00_Donnees_&lt;station&gt;</code>, <code>00_BDDTR_&lt;station&gt;</code> et <code>00_Resultats_&lt;station&gt;</code> — leurs sous-arborescences sont fixes (imposées par les exécutables GRP), l'outil les déduit automatiquement une fois ces 4 chemins renseignés.</p>
@@ -164,7 +165,7 @@
   </div>
 
   <h3>Ce qui est différent de GMAO (pas de front/back séparés)</h3>
-  <p>GMAO est une application <b>web</b> : deux programmes séparés qui se parlent par le réseau. GRP_2023 est une application <b>desktop</b> : un seul programme, tout tourne dans le même processus. Ni serveur à démarrer, ni navigateur, ni port à ouvrir.</p>
+  <p>GMAO est une application <b>web</b> : deux programmes séparés qui se parlent par le réseau. GRP_2023-PRISME est une application <b>desktop</b> : un seul programme, tout tourne dans le même processus. Ni serveur à démarrer, ni navigateur, ni port à ouvrir.</p>
   <div class="compare">
     <div class="col">
       <h4>GMAO — application web</h4>
@@ -176,7 +177,7 @@
       </ul>
     </div>
     <div class="col">
-      <h4>GRP_2023 — application desktop</h4>
+      <h4>GRP_2023-PRISME — application desktop</h4>
       <ul>
         <li>Un seul programme : <code>main.py</code> (fenêtre Tkinter)</li>
         <li>Pas de serveur, pas de navigateur, pas de port réseau</li>
@@ -230,7 +231,7 @@
   </ul>
 
   <h3>Arborescence du projet</h3>
-  <pre>GRP_2023/
+  <pre>GRP_2023-PRISME/
 ├── main.py                     # point d'entrée Tkinter
 ├── config.py                   # proxy réseau SPCMO/RIE en dur, constantes
 ├── config/config.exemple.json  # gabarit — copié en config.json (jamais versionné) au 1er lancement
@@ -278,14 +279,14 @@
 
   <h3>Installer l'outil sur un nouveau poste</h3>
   <ol>
-    <li>Copier le dossier <code>GRP_2023</code> (ou cloner le dépôt git).</li>
+    <li>Copier le dossier <code>GRP_2023-PRISME</code> (ou cloner le dépôt git).</li>
     <li>Double-cliquer <code>Test_pr_install.bat</code> — détecte/mémorise le Python à utiliser, vérifie et installe les dépendances manquantes (proxy RIE automatique si besoin).</li>
-    <li>Double-cliquer <code>Lancer_GRP_2023.bat</code>.</li>
+    <li>Double-cliquer <code>Lancer_GRP_2023-PRISME.bat</code>.</li>
     <li>Onglet Configuration : renseigner les 4 dossiers de travail et identifier la station via PHyC.</li>
   </ol>
 
   <h3>Dépôt GitHub</h3>
-  <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023</code>. Authentification par token dans l'URL du remote git, comme les dépôts GMAO et OPALE v2 (voir la remarque de sécurité ci-dessous).</p>
+  <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023-PRISME</code>. Authentification par token dans l'URL du remote git, comme les dépôts GMAO et OPALE v2 (voir la remarque de sécurité ci-dessous).</p>
   <div class="warn">⚠️ Ce pattern d'authentification stocke le token en clair dans <code>.git/config</code>, lisible par quiconque a accès au dossier local. Choix assumé pour rester cohérent avec l'existant (GMAO, OPALE v2) — l'alternative plus sûre (Git Credential Manager, token jamais stocké en clair) a été proposée et écartée en connaissance de cause.</div>
 </section>
 

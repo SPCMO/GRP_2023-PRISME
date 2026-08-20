@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Test_pr_install.py — Vérification de l'environnement Python pour l'outil GRP_2023.
+Test_pr_install.py — Vérification de l'environnement Python pour GRP_2023-PRISME.
 
 Usage :  python Test_pr_install.py
          (ou double-clic via Test_pr_install.bat)
@@ -234,7 +234,7 @@ def bilan(py_ok, manquants_req, manquants_fich):
     if py_ok and not manquants_req and not manquants_fich:
         print("  [OK] Tout est en ordre - l'outil peut etre lance.")
         print()
-        print("  Double-cliquez sur  Lancer_GRP_2023.bat")
+        print("  Double-cliquez sur  Lancer_GRP_2023-PRISME.bat")
     else:
         print("  [!!] Des problemes ont ete detectes :")
         if not py_ok:
@@ -249,7 +249,7 @@ def bilan(py_ok, manquants_req, manquants_fich):
 if __name__ == "__main__":
     print()
     print(SEP2)
-    print("  TEST D'INSTALLATION - GRP_2023 (campagnes de calage GRP)")
+    print("  TEST D'INSTALLATION - GRP_2023-PRISME (campagnes de calage GRP)")
     print(SEP2)
 
     py_ok      = check_python()

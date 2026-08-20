@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Helpers UI Tkinter partagés entre les onglets — sections colorées, lignes de formulaire,
 onglet défilable. Pattern repris d'OPALE v2/main.py (_make_section/_row/_lbl/
-_make_scrollable_tab), extrait ici en module réutilisable car GRP_2023 répartit ses
+_make_scrollable_tab), extrait ici en module réutilisable car GRP_2023-PRISME répartit ses
 onglets sur plusieurs fichiers (ui/tab_*.py) plutôt qu'un unique main.py monolithique.
 """
 
