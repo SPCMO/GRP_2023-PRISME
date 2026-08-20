@@ -26,7 +26,7 @@ from modules import results_store
 from modules.config_prevision import ConfigPrevisionError, set_prevision
 from modules.fiche_controle_pdf import FicheControleError, extraire_resultat
 from modules.grp_paths import GrpPaths
-from modules.grp_runner import GrpRunError, run_calage, run_prevision_bat
+from modules.grp_runner import GrpRunError, nettoyer_bddtr, run_calage, run_prevision_bat
 from modules.liste_bassins import ListeBassinsFormatError, parse_liste_bassins, set_calage_params, write_liste_bassins
 
 logger = logging.getLogger("grp_2023.orchestrateur")
@@ -122,6 +122,19 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
         if callback:
             callback(evt)
 
+    def _nettoyer_bddtr_final():
+        """Supprime le dossier BDDTR de travail — confirmé sans risque par l'utilisateur
+        (entièrement régénéré par l'exe 04 à chaque calage). Appelé à toute sortie de
+        cette fonction (fin normale, annulation) : les résultats déjà obtenus sont de
+        toute façon persistés en base avant cet appel, un échec de nettoyage ne doit pas
+        faire perdre la campagne — juste être signalé."""
+        try:
+            nettoyer_bddtr(paths.dossier_bddtr)
+        except GrpRunError as e:
+            logger.error("Nettoyage final de %s échoué : %s", paths.dossier_bddtr, e)
+            _notifier(ProgressionEvent("", 0.0, "", None, "campagne", "failed",
+                                        f"Nettoyage final du dossier BDTR échoué : {e}"))
+
     with results_store.db_session(db_path) as conn:
         combinaisons_a_faire = _combinaisons_a_traiter(conn, combinaisons, crues_dates,
                                                         seulement_echecs)
@@ -130,6 +143,7 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
         if _annule():
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "campagne",
                                         "annule", "Campagne annulée par l'utilisateur."))
+            _nettoyer_bddtr_final()
             return
         with results_store.db_session(db_path) as conn:
             row_existant = conn.execute(
@@ -184,6 +198,7 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             if _annule():
                 _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "campagne",
                                             "annule", "Campagne annulée par l'utilisateur."))
+                _nettoyer_bddtr_final()
                 return
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu", "running"))
             try:
@@ -210,3 +225,5 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             message = "suspect (hors bornes plausibles)" if resultat.est_suspect else ""
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu",
                                         "success", message))
+
+    _nettoyer_bddtr_final()

@@ -188,9 +188,12 @@ def build_tab_orchestration(tab_frame, app):
 
     def _traiter_evenement(evt):
         if evt.etape == "campagne":
-            # Événement global (ex. annulation) — pas lié à une ligne du tableau.
+            # Événement global (annulation, échec du nettoyage final...) — pas lié à
+            # une ligne du tableau.
             if evt.statut == "annule":
                 _log(f"[ANNULÉ] {evt.message}")
+            elif evt.statut == "failed":
+                _log(f"[ÉCHEC] {evt.message}")
             return
         iid = f"{evt.horizon}|{evt.seuil_c1}|{evt.methode}"
         if evt.etape == "calage":
