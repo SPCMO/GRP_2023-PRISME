@@ -1,0 +1,7 @@
+matplotlib
+numpy
+requests
+lxml
+zeep
+pdfplumber
+openpyxl

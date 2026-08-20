@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRP_2023 — Aide</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; background: #f4f5f7; color: #1a1a1a; }
+  header { background: #14314f; color: #fff; padding: 1.2rem 1.5rem; }
+  header h1 { margin: 0; font-size: 1.3rem; }
+  header p { margin: .3rem 0 0; font-size: .85rem; opacity: .8; }
+  nav { display: flex; background: #1d4569; overflow-x: auto; }
+  nav button { background: none; border: none; color: #cbd5e1; padding: .8rem 1.2rem; font-size: .9rem; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; }
+  nav button:hover { color: #fff; }
+  nav button.active { color: #fff; border-bottom-color: #4dabf7; font-weight: 600; }
+  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  section { display: none; background: #fff; border-radius: 10px; padding: 1.5rem 1.8rem; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  section.active { display: block; }
+  h2 { font-size: 1.15rem; margin-top: 0; color: #14314f; }
+  h3 { font-size: 1rem; color: #14314f; margin-bottom: .4rem; }
+  p, li { line-height: 1.55; font-size: .95rem; }
+  p.muted, li.muted { color: #4b5563; font-size: .88rem; }
+  code, pre { font-family: "Cascadia Code", Consolas, monospace; font-size: .85rem; }
+  code { background: #eef1f5; padding: .15rem .4rem; border-radius: 4px; }
+  pre { background: #1d2733; color: #e6edf3; padding: .9rem 1rem; border-radius: 8px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; margin: .8rem 0; }
+  th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid #e5e7eb; font-size: .88rem; }
+  th { background: #eef1f5; }
+  .tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: .1rem .5rem; border-radius: 999px; margin-right: .4rem; }
+  .tag-fix { background: #fee2e2; color: #991b1b; }
+  .tag-feat { background: #dcfce7; color: #166534; }
+  .changelog-entry { border-left: 3px solid #d9dde3; padding: .3rem 0 .3rem 1rem; margin-bottom: 1rem; }
+  .changelog-date { font-size: .78rem; color: #6b7280; font-weight: 600; }
+  .warn { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: .8rem 1rem; font-size: .88rem; }
+</style>
+</head>
+<body>
+<header>
+  <h1>GRP_2023 — Campagnes de calage GRP</h1>
+  <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
+</header>
+<nav>
+  <button class="tab-btn active" data-tab="utilisation">Utilisation</button>
+  <button class="tab-btn" data-tab="architecture">Architecture</button>
+  <button class="tab-btn" data-tab="parametrage">Paramétrage</button>
+  <button class="tab-btn" data-tab="changelog">Correctifs &amp; nouveautés</button>
+</nav>
+<main>
+
+<section id="utilisation" class="active">
+  <h2>Utilisation</h2>
+
+  <h3>À quoi sert cet outil</h3>
+  <p>GRP_2023 remplace la « boucle magique » (<code>boucle_magique_relatif_absolu_HOR1_pdf.py</code>) : un collègue avait écrit un script qui boucle sur des horizons de calage et rejoue des crues historiques pour trouver le meilleur horizon/seuil de calage du modèle hydrologique continu GRP (INRAE). Ce script contenait un bug critique (voir <b>Correctifs</b>) et n'était utilisable qu'en éditant le code Python à la main. Cet outil offre la même logique via une interface graphique, fiabilisée, et réutilisable pour n'importe quel bassin (pas seulement Moussoulens).</p>
+
+  <h3>Premier lancement</h3>
+  <p>Double-cliquer sur <code>Test_pr_install.bat</code> (vérifie/installe l'environnement Python), puis sur <code>Lancer_GRP_2023.bat</code>.</p>
+
+  <h3>Onglet Configuration</h3>
+  <p><b>Dossiers de travail</b> : 4 boutons Parcourir pour désigner <code>00_GRP_v2023</code>, <code>00_Donnees_&lt;station&gt;</code>, <code>00_BDDTR_&lt;station&gt;</code> et <code>00_Resultats_&lt;station&gt;</code> — leurs sous-arborescences sont fixes (imposées par les exécutables GRP), l'outil les déduit automatiquement une fois ces 4 chemins renseignés.</p>
+  <p><b>Identification station (PHyC)</b> : saisir le <b>code station</b> (10 caractères : 1 lettre + 9 chiffres, ex. <code>Y161202001</code>) puis cliquer sur « Identifier via PHyC ». L'outil en déduit automatiquement le <b>code site</b> (8 caractères, les 2 derniers chiffres retirés — ex. <code>Y1612020</code>), qui est le code réellement utilisé dans <code>LISTE_BASSINS.DAT</code> et dans les noms de fichiers/dossiers générés par GRP. Le nom de la station, son code BNBV et ses 6 seuils de vigilance en débit (ZT jaune/Jaune/ZT orange/Orange/ZT rouge/Rouge) sont récupérés et affichés.</p>
+  <p class="muted">⚠️ Ces seuils PHyC sont <b>différents</b> des champs SeuilV1/SeuilV2/SeuilV3 internes à <code>LISTE_BASSINS.DAT</code> (utilisés par GRP pour sa propre analyse des résultats) — ne pas les confondre. Les deux sont affichés séparément dans le Dashboard.</p>
+  <p class="muted">Les identifiants PHyC (idcontact/mot de passe) sont demandés à la première identification et enregistrés dans <code>config/config.json</code> (jamais versionné dans le dépôt git).</p>
+
+  <h3>Onglet Paramétrage</h3>
+  <p>Choisir un <b>pas de temps de calage</b>, puis cocher les <b>horizons</b> à tester parmi ceux définis pour ce pas de temps (boutons « Tout sélectionner »/« Tout désélectionner »). Le bouton <b>Paramètres…</b> ouvre un écran dédié pour ajouter/modifier/supprimer/réorganiser aussi bien la liste des pas de temps que, pour chacun, la liste de ses horizons possibles — rien n'est codé en dur dans le programme.</p>
+  <p>Définir ensuite les <b>seuils de calage</b> (SeuilC1, en m³/s — débit minimal au-dessus duquel le calage est effectué, pour éviter de perturber le modèle en basses eaux) via une liste éditable, et cocher la ou les <b>méthodes de correction</b> à tester (Tangara / RNA — les deux cochées lancent les runs successivement pour chaque méthode, GRP n'acceptant qu'une seule méthode à la fois en mode BDTR).</p>
+  <p class="muted"><b>Conseil</b> : une campagne complète (tous les horizons × tous les seuils × toutes les crues) peut être très longue. Lancez d'abord une campagne sur quelques horizons/seuils espacés (grille grossière), consultez le Dashboard pour repérer la zone prometteuse, puis affinez avec une seconde campagne resserrée — les résultats des deux campagnes se cumulent automatiquement, pas besoin de tout refaire.</p>
+
+  <h3>Onglet Crues</h3>
+  <p>Les crues ne sont plus une liste figée dans le code : elles sont <b>détectées automatiquement par GRP lui-même</b>, lues depuis <code>CRITERES_PERF.DAT</code> (généré par le calage complet, exe 01 + exe 03) — chaque vignette affiche la date, le débit de pointe, les seuils de vigilance PHyC et les indicateurs dQP/dTP/VE/KGE de référence pour la configuration de calage actuellement en place. Une case « Inclure aussi les événements de pluie » élargit la liste aux événements pluviométriques (par défaut, seuls les événements de débit sont affichés). Cocher les crues à inclure dans la campagne.</p>
+
+  <h3>Onglet Campagne</h3>
+  <p>Bouton <b>Lancer la campagne</b> : boucle sur toutes les combinaisons horizon × seuil × méthode sélectionnées, et pour chacune, rejoue chaque crue cochée (mode opérationnel temps différé, comme la boucle magique d'origine mais avec le bug du <code>.bat</code> corrigé). La campagne tourne en arrière-plan, la fenêtre reste utilisable. La progression, un tableau des combinaisons avec leur statut, et un journal détaillé s'affichent en temps réel.</p>
+  <p>Si des combinaisons ou des crues ont échoué (erreur explicite dans le journal), le bouton <b>Relancer les échecs</b> ne refait que le nécessaire : si le calage d'une combinaison a déjà réussi, il n'est pas relancé — seules les crues manquantes ou en échec le sont.</p>
+
+  <h3>Onglet Dashboard</h3>
+  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite combinant dQP/dTP/VE/KGE, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
+  <p><b>Détail par crue</b> : courbe du débit observé avec les seuils de vigilance PHyC superposés, pour la crue et la combinaison choisies.</p>
+  <p><b>Sensibilité au seuil</b> : évolution du score composite et du KGE moyen en fonction du seuil de calage, à horizon et méthode fixés — utile pour la phase d'affinage évoquée ci-dessus.</p>
+</section>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+
+  <h3>Choix structurants</h3>
+  <ul>
+    <li><b>Interface Tkinter desktop</b> (comme OPALE v2), pas d'application web.</li>
+    <li><b>Source des résultats de campagne</b> : exclusivement le rejeu opérationnel (exe 04 + <code>GRP_PREVISION.BAT</code>, comme la boucle magique d'origine — bug corrigé). <code>CRITERES_PERF.DAT</code> (exe 01 + exe 03) sert uniquement, en lecture seule, à la <b>détection automatique des crues</b> (onglet Crues) — ce n'est pas la même mesure de performance (calage complet vs prévision opérationnelle réelle à un instant donné).</li>
+    <li><b>Outil générique, pas figé sur Moussoulens</b> : voir <code>modules/station_codes.py</code> et la section « Réutiliser pour un autre bassin » ci-dessous.</li>
+  </ul>
+
+  <h3>Arborescence du projet</h3>
+  <pre>GRP_2023/
+├── main.py                     # point d'entrée Tkinter
+├── config.py                   # proxy réseau SPCMO/RIE en dur, constantes
+├── config/config.exemple.json  # gabarit — copié en config.json (jamais versionné) au 1er lancement
+├── modules/
+│   ├── config_manager.py       # chargement/sauvegarde config.json
+│   ├── phyc_client.py          # client SOAP PHyC (repris d'OPALE v2)
+│   ├── station_codes.py        # code station (10c) → code site (8c)
+│   ├── grp_paths.py            # résolution des chemins dérivés des 4 dossiers de travail
+│   ├── liste_bassins.py        # parseur/écrivain LISTE_BASSINS.DAT (colonnes nommées)
+│   ├── config_prevision.py     # édition ciblée de config_prevision.ini
+│   ├── grp_runner.py           # lancement exe04/.bat — bug historique corrigé ici
+│   ├── criteres_perf.py        # détection des crues (CRITERES_PERF.DAT, lecture seule)
+│   ├── fiche_controle_pdf.py   # extraction dQP/dTP/VE/KGE (source des résultats de campagne)
+│   ├── grp_series.py           # séries observée/simulée (GRP_Obs.txt / GRP_Prev_*.txt)
+│   ├── run_orchestrator.py     # boucle horizon×seuil×méthode×crue, reprise sur échec
+│   ├── results_store.py        # persistance SQLite (data/runs.sqlite3)
+│   ├── score.py                # score composite de performance
+│   └── export_excel.py         # export à la demande
+├── ui/
+│   ├── tab_config.py           # onglet Configuration
+│   ├── tab_parametrage.py      # onglet Paramétrage (+ écran Paramètres)
+│   ├── tab_crues.py            # onglet Crues
+│   ├── tab_orchestration.py    # onglet Campagne
+│   ├── tab_dashboard.py        # onglet Dashboard (3 sous-onglets)
+│   └── widgets_common.py       # helpers UI partagés (sections colorées, listes réordonnables)
+├── data/runs.sqlite3           # gitignored
+└── logs/                       # gitignored
+</pre>
+
+  <h3>Pourquoi deux sources de performance différentes</h3>
+  <p><code>CRITERES_PERF.DAT</code> (calage complet, exe 01+03) mesure la qualité de la simulation <b>en connaissant tout l'épisode</b>, en un seul passage pour tous les événements détectés. Le PDF <i>Fiche_controle</i> (rejeu, exe 04 + <code>.bat</code>) mesure la <b>vraie performance de prévision opérationnelle</b> à un instant donné, avec seulement les données disponibles jusque-là — un run par crue testée. Ce sont deux mesures complémentaires, pas interchangeables ; l'outil n'utilise la première que pour repérer les crues (onglet Crues), jamais comme résultat de campagne.</p>
+
+  <h3>Réutiliser pour un autre bassin</h3>
+  <p>Rien n'est codé en dur : renseigner les 4 dossiers et le code station d'un autre bassin dans l'onglet Configuration suffit. Le seul réglage global figé par défaut est l'absence de module neige CemaNeige (<code>avec_neige=False</code> dans <code>modules.liste_bassins.set_calage_params</code>), validé pour Moussoulens — à passer à <code>True</code> dans le code pour un bassin de montagne qui en aurait besoin.</p>
+</section>
+
+<section id="parametrage">
+  <h2>Paramétrage</h2>
+
+  <h3>Proxy sortant du réseau RIE</h3>
+  <p>Comme GMAO et OPALE v2, le proxy réseau SPCMO/RIE est en dur dans <code>config.py</code> (<code>PROXY_RIE</code>) car <code>pip</code>/<code>git</code> ne le détectent pas automatiquement contrairement à un navigateur. Une variable d'environnement <code>HTTPS_PROXY</code>, si définie, reste prioritaire.</p>
+
+  <h3>Installer l'outil sur un nouveau poste</h3>
+  <ol>
+    <li>Copier le dossier <code>GRP_2023</code> (ou cloner le dépôt git).</li>
+    <li>Double-cliquer <code>Test_pr_install.bat</code> — détecte/mémorise le Python à utiliser, vérifie et installe les dépendances manquantes (proxy RIE automatique si besoin).</li>
+    <li>Double-cliquer <code>Lancer_GRP_2023.bat</code>.</li>
+    <li>Onglet Configuration : renseigner les 4 dossiers de travail et identifier la station via PHyC.</li>
+  </ol>
+
+  <h3>Dépôt GitHub</h3>
+  <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023</code>. Authentification par token dans l'URL du remote git, comme les dépôts GMAO et OPALE v2 (voir la remarque de sécurité ci-dessous).</p>
+  <div class="warn">⚠️ Ce pattern d'authentification stocke le token en clair dans <code>.git/config</code>, lisible par quiconque a accès au dossier local. Choix assumé pour rester cohérent avec l'existant (GMAO, OPALE v2) — l'alternative plus sûre (Git Credential Manager, token jamais stocké en clair) a été proposée et écartée en connaissance de cause.</div>
+</section>
+
+<section id="changelog">
+  <h2>Correctifs &amp; nouvelles fonctionnalités</h2>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Le script d'origine (<code>boucle_magique_relatif_absolu_HOR1_pdf.py</code>) pointait <code>bat_file</code> vers le <b>dossier</b> <code>Temps_Reel</code> au lieu du fichier <code>GRP_PREVISION.BAT</code> lui-même. Sur Windows, exécuter via <code>shell=True</code> une commande qui est un chemin de dossier valide revient à un <code>cd</code> implicite : la commande « réussissait » (code retour 0) sans jamais lancer réellement le rejeu — le script relisait alors un PDF périmé. <b>Tous les résultats produits par le script d'origine sont donc potentiellement invalides.</b> Corrigé dans <code>modules/grp_runner.py</code> : chemin de fichier exigé explicitement, et garde-fou supplémentaire vérifiant qu'un nouveau PDF apparaît bien après le lancement.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> <code>SELECTION_EVT.DAT</code> s'est révélé encodé en UTF-8 alors que <code>LISTE_BASSINS.DAT</code> et <code>config_prevision.ini</code> sont en cp1252 — le pipeline GRP mélange les encodages selon l'étape qui génère le fichier. <code>modules/criteres_perf.py</code> détecte désormais l'encodage automatiquement (UTF-8 en priorité, repli cp1252) plutôt que de supposer un encodage fixe.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Le mécanisme de reprise sur échec ignorait à tort les crues en échec d'une combinaison dont le calage avait par ailleurs réussi. <code>modules/run_orchestrator.py</code> distingue maintenant explicitement le statut du calage (par combinaison) et celui de chaque crue rejouée, avec reprise à la bonne granularité.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">20 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Mise en ligne initiale : interface Tkinter complète (Configuration, Paramétrage, Crues, Campagne, Dashboard), détection automatique des crues via <code>CRITERES_PERF.DAT</code>, orchestrateur de campagne fiabilisé avec reprise sur échec fine, dashboard (heatmap horizon×seuil, score composite, sensibilité au seuil), export Excel, réutilisable pour n'importe quel bassin.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">à venir</div>
+    <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
+  </div>
+</section>
+
+</main>
+
+<script>
+document.querySelectorAll('.tab-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+    document.querySelectorAll('main > section').forEach(function(s) { s.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

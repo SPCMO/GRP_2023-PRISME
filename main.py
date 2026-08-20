@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""Point d'entrée — Outil GRP_2023 (remplacement de la « boucle magique »).
+
+Campagnes de calage GRP multi-horizons/seuils/méthodes, avec détection automatique des
+crues et dashboard de synthèse. L'outil est générique : la station (Moussoulens ou toute
+autre) se configure entièrement depuis l'onglet Configuration (chemins + code station),
+rien n'est codé en dur. Voir Aide.html pour la documentation utilisateur complète et
+l'architecture de l'outil.
+"""
+
+import os
+import sys
+import tkinter as tk
+import webbrowser
+from tkinter import messagebox, ttk
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import config as app_config
+from modules import config_manager
+from ui.tab_config import build_tab_config
+from ui.tab_crues import build_tab_crues
+from ui.tab_dashboard import build_tab_dashboard
+from ui.tab_orchestration import build_tab_orchestration
+from ui.tab_parametrage import build_tab_parametrage
+from ui.widgets_common import init_styles
+
+TITRE_BASE = "GRP_2023 — Campagnes de calage GRP"
+
+
+class App(tk.Tk):
+    """Fenêtre principale — un ttk.Notebook avec un onglet par étape du workflow.
+
+    `config_data` (dict chargé depuis config/config.json) est l'état partagé entre tous
+    les onglets : chemins de travail, identifiants PHyC, station, seuils de vigilance,
+    paramétrage des horizons/seuils de calage à tester. Chaque onglet lit/modifie
+    directement ce dict et appelle `persist_config()` pour sauvegarder immédiatement
+    (pas d'état "non sauvegardé" qui pourrait se perdre en cas de fermeture inattendue).
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.resizable(True, True)
+        self.minsize(950, 700)
+
+        os.makedirs(app_config.DATA_DIR, exist_ok=True)
+        os.makedirs(app_config.LOGS_DIR, exist_ok=True)
+
+        try:
+            self.config_data = config_manager.load_config()
+        except FileNotFoundError as e:
+            # Installation incomplète (config.exemple.json manquant) — erreur bloquante
+            # explicite plutôt qu'un plantage silencieux plus loin dans l'appli.
+            messagebox.showerror("Erreur au démarrage", str(e))
+            self.destroy()
+            raise
+
+        init_styles(self)
+        self._build_menu()
+        self._build_ui()
+        self._maj_titre()
+
+    # ------------------------------------------------------------------------
+    # État partagé — appelé par les onglets
+    # ------------------------------------------------------------------------
+
+    def persist_config(self):
+        config_manager.save_config(self.config_data)
+
+    def _maj_titre(self):
+        """Le titre de la fenêtre reflète la station actuellement configurée (l'outil
+        n'est pas figé sur Moussoulens) — mis à jour à chaque changement de config."""
+        nom_station = self.config_data.get("station", {}).get("nom_station", "").strip()
+        self.title(f"{TITRE_BASE} ({nom_station})" if nom_station else TITRE_BASE)
+
+    def on_config_changed(self):
+        """Notifie les onglets dépendants (Paramétrage, Crues) qu'un chemin ou la station
+        a changé — branché aux Phases 3+ lorsqu'ils liront LISTE_BASSINS.DAT /
+        CRITERES_PERF.DAT. Le titre de la fenêtre, lui, est déjà tenu à jour ici."""
+        self._maj_titre()
+
+    # ------------------------------------------------------------------------
+    # Construction de l'interface
+    # ------------------------------------------------------------------------
+
+    def _build_menu(self):
+        menubar = tk.Menu(self)
+        menu_aide = tk.Menu(menubar, tearoff=0)
+        menu_aide.add_command(label="Ouvrir l'aide (Aide.html)", command=self._ouvrir_aide)
+        menubar.add_cascade(label="Aide", menu=menu_aide)
+        self.config(menu=menubar)
+        self.bind("<F1>", lambda _evt: self._ouvrir_aide())
+
+    def _ouvrir_aide(self):
+        chemin = os.path.join(app_config.BASE_DIR, "Aide.html")
+        if not os.path.isfile(chemin):
+            messagebox.showerror("Aide", f"Fichier introuvable : {chemin}")
+            return
+        webbrowser.open(f"file:///{chemin.replace(os.sep, '/')}")
+
+    def _build_ui(self):
+        notebook = ttk.Notebook(self)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        self.tab_config = ttk.Frame(notebook)
+        self.tab_parametrage = ttk.Frame(notebook)
+        self.tab_crues = ttk.Frame(notebook)
+        self.tab_orchestration = ttk.Frame(notebook)
+        self.tab_dashboard = ttk.Frame(notebook)
+
+        notebook.add(self.tab_config, text="  Configuration  ")
+        notebook.add(self.tab_parametrage, text="  Paramétrage  ")
+        notebook.add(self.tab_crues, text="  Crues  ")
+        notebook.add(self.tab_orchestration, text="  Campagne  ")
+        notebook.add(self.tab_dashboard, text="  Dashboard  ")
+
+        build_tab_config(self.tab_config, self)
+        build_tab_parametrage(self.tab_parametrage, self)
+        build_tab_crues(self.tab_crues, self)
+        build_tab_orchestration(self.tab_orchestration, self)
+        build_tab_dashboard(self.tab_dashboard, self)
+
+
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()

@@ -1,0 +1,32 @@
+# ── Données GRP de travail (chemins renseignés via l'onglet Configuration,
+#    jamais versionnées : trop volumineuses, spécifiques à chaque poste/station) ──
+00_GRP_v2023/
+00_Donnees_*/
+00_BDDTR_*/
+00_Resultats_*/
+
+# ── Configuration sensible (identifiants PHyC, chemins locaux) ─────────────
+config/config.json
+
+# ── Données et logs générés par l'outil ─────────────────────────────────────
+data/
+logs/
+
+# ── Script historique remplacé par cet outil (conservé hors dépôt pour mémoire) ──
+boucle_magique_relatif_absolu_HOR1_pdf.py
+readme_boucle_magique.txt
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+
+# ── Choix Python local (machine-dépendant, écrit par Test_pr_install.bat) ────
+python_exe.txt
+
+# ── Windows ──────────────────────────────────────────────────────────────────
+*.lnk
+Thumbs.db
+desktop.ini
