@@ -40,8 +40,8 @@ class ProgressionEvent:
     seuil_c1: float
     methode: str
     crue_date: Optional[datetime]
-    etape: str      # "calage" ou "rejeu"
-    statut: str      # "running" / "success" / "failed"
+    etape: str      # "calage", "rejeu" ou "campagne" (événement global, ex. annulation)
+    statut: str      # "running" / "success" / "failed" / "annule"
     message: str = ""
 
 
@@ -95,13 +95,25 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                      crues_dates: List[datetime],
                      db_path: Optional[str] = None,
                      callback: Optional[ProgressionCallback] = None,
-                     seulement_echecs: bool = False):
+                     seulement_echecs: bool = False,
+                     annulation=None):
     """Lance la campagne complète. N'interrompt jamais la boucle sur une erreur
     individuelle : chaque combinaison/crue en échec est loguée et signalée, la campagne
     continue avec la suivante — c'est à l'utilisateur de décider, une fois la campagne
     terminée, s'il relance les échecs (`seulement_echecs=True`).
+
+    `annulation` (threading.Event optionnel) : vérifié entre chaque étape (calage ou
+    rejeu d'une crue) — s'il est activé, la campagne s'arrête proprement à la prochaine
+    étape (jamais en cours d'exécution d'un exécutable GRP, pour ne pas laisser un run
+    interrompu produire des fichiers à moitié écrits). Les combinaisons/crues non
+    encore traitées restent au statut où elles étaient (pending, ou success si déjà
+    faites lors d'un passage précédent) — une reprise ultérieure les reprendra
+    normalement.
     """
     results_store.init_db(db_path)
+
+    def _annule():
+        return annulation is not None and annulation.is_set()
 
     def _notifier(evt: ProgressionEvent):
         logger.info("%s | %s x %s (%s) crue=%s : %s — %s",
@@ -115,6 +127,10 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                                                         seulement_echecs)
 
     for horizon, seuil_c1, methode in combinaisons_a_faire:
+        if _annule():
+            _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "campagne",
+                                        "annule", "Campagne annulée par l'utilisateur."))
+            return
         with results_store.db_session(db_path) as conn:
             row_existant = conn.execute(
                 "SELECT id, statut FROM combinaisons WHERE horizon = ? AND seuil_c1 = ? AND methode = ?",
@@ -165,6 +181,10 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             crues_a_faire = _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs)
 
         for crue_date in crues_a_faire:
+            if _annule():
+                _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "campagne",
+                                            "annule", "Campagne annulée par l'utilisateur."))
+                return
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu", "running"))
             try:
                 set_prevision(paths.config_prevision_ini, instpr=crue_date)

@@ -50,7 +50,8 @@ def _construire_grp_paths(app):
 def build_tab_orchestration(tab_frame, app):
     frm = make_scrollable_tab(tab_frame)
     file_evenements = queue.Queue()
-    etat = {"thread": None, "total_etapes": 0, "etapes_faites": 0, "combinaisons": {}}
+    etat = {"thread": None, "total_etapes": 0, "etapes_faites": 0, "combinaisons": {},
+            "annulation": threading.Event()}
 
     inn, bg = make_section(frm, "Lancement de la campagne", "rouge")
 
@@ -63,7 +64,9 @@ def build_tab_orchestration(tab_frame, app):
     btn_lancer = ttk.Button(r, text="Lancer la campagne")
     btn_lancer.pack(side=tk.LEFT, padx=(0, 6))
     btn_reprise = ttk.Button(r, text="Relancer les échecs")
-    btn_reprise.pack(side=tk.LEFT)
+    btn_reprise.pack(side=tk.LEFT, padx=(0, 6))
+    btn_annuler = ttk.Button(r, text="Annuler", state="disabled")
+    btn_annuler.pack(side=tk.LEFT)
 
     r = make_row(inn, bg)
     var_resume = tk.StringVar(value="Aucune campagne lancée.")
@@ -154,12 +157,15 @@ def build_tab_orchestration(tab_frame, app):
              f"{len(crues_dates)} crue(s) — pas de temps {code_pdt} "
              f"{'(reprise échecs)' if seulement_echecs else ''} ---")
 
+        etat["annulation"].clear()
+
         def _travail():
             try:
                 run_orchestrator.lancer_campagne(
                     paths, code_pdt, combinaisons, crues_dates,
                     callback=lambda evt: file_evenements.put(("evt", evt)),
                     seulement_echecs=seulement_echecs,
+                    annulation=etat["annulation"],
                 )
             except Exception as e:
                 logging.getLogger("grp_2023.orchestrateur").exception("Erreur fatale de campagne")
@@ -169,11 +175,23 @@ def build_tab_orchestration(tab_frame, app):
 
         btn_lancer.config(state="disabled")
         btn_reprise.config(state="disabled")
+        btn_annuler.config(state="normal")
         etat["thread"] = threading.Thread(target=_travail, daemon=True)
         etat["thread"].start()
         app.after(100, _poll)
 
+    def _annuler():
+        if etat["thread"] and etat["thread"].is_alive():
+            etat["annulation"].set()
+            btn_annuler.config(state="disabled")
+            _log("--- Annulation demandée : arrêt à la fin de l'étape en cours ---")
+
     def _traiter_evenement(evt):
+        if evt.etape == "campagne":
+            # Événement global (ex. annulation) — pas lié à une ligne du tableau.
+            if evt.statut == "annule":
+                _log(f"[ANNULÉ] {evt.message}")
+            return
         iid = f"{evt.horizon}|{evt.seuil_c1}|{evt.methode}"
         if evt.etape == "calage":
             tag = evt.statut if evt.statut in ("running", "success", "failed") else ""
@@ -221,6 +239,7 @@ def build_tab_orchestration(tab_frame, app):
                                     f"{etat['total_etapes']} étapes.")
                     btn_lancer.config(state="normal")
                     btn_reprise.config(state="normal")
+                    btn_annuler.config(state="disabled")
         except queue.Empty:
             pass
         if etat["thread"] and etat["thread"].is_alive():
@@ -228,6 +247,7 @@ def build_tab_orchestration(tab_frame, app):
 
     btn_lancer.config(command=lambda: _lancer(seulement_echecs=False))
     btn_reprise.config(command=lambda: _lancer(seulement_echecs=True))
+    btn_annuler.config(command=_annuler)
 
     def _rafraichir_combo_pdt():
         pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
