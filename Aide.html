@@ -34,6 +34,25 @@
   .changelog-entry { border-left: 3px solid #d9dde3; padding: .3rem 0 .3rem 1rem; margin-bottom: 1rem; }
   .changelog-date { font-size: .78rem; color: #6b7280; font-weight: 600; }
   .warn { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: .8rem 1rem; font-size: .88rem; }
+
+  .legende { display: flex; flex-wrap: wrap; gap: .3rem 1.2rem; font-size: .85rem; color: #374151; margin: .6rem 0 1rem; }
+  .legende span.puce { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .4rem; vertical-align: middle; }
+  .schema { margin: .5rem 0 1.5rem; }
+  .schema-couche { border: 1px dashed #d9dde3; border-radius: 10px; padding: .8rem; margin-bottom: .3rem; }
+  .schema-titre-couche { font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; margin-bottom: .6rem; }
+  .schema-ligne { display: flex; flex-wrap: wrap; gap: .6rem; }
+  .schema-boite { flex: 1 1 150px; border-radius: 8px; padding: .6rem .8rem; font-size: .82rem; font-weight: 700; border: 1px solid; }
+  .schema-boite .note { display: block; font-weight: 400; font-size: .76rem; margin-top: .2rem; opacity: .85; }
+  .schema-fleche { text-align: center; color: #9ca3af; font-size: .95rem; padding: .3rem 0; }
+  .b-py   { background: #dbeafe; border-color: #60a5fa; color: #1e40af; }
+  .b-lib  { background: #ede9fe; border-color: #a78bfa; color: #5b21b6; }
+  .b-data { background: #d1fae5; border-color: #34d399; color: #065f46; }
+  .b-autre{ background: #f1f5f9; border-color: #94a3b8; color: #334155; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .compare .col { border: 1px solid #d9dde3; border-radius: 10px; padding: .8rem 1rem; }
+  .compare .col h4 { margin: 0 0 .5rem; font-size: .9rem; color: #14314f; }
+  .compare .col ul { margin: 0; padding-left: 1.1rem; font-size: .85rem; }
+  @media (max-width: 640px) { .compare { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
@@ -43,6 +62,7 @@
 </header>
 <nav>
   <button class="tab-btn active" data-tab="utilisation">Utilisation</button>
+  <button class="tab-btn" data-tab="archi-simple">Architecture simplifiée</button>
   <button class="tab-btn" data-tab="architecture">Architecture</button>
   <button class="tab-btn" data-tab="parametrage">Paramétrage</button>
   <button class="tab-btn" data-tab="changelog">Correctifs &amp; nouveautés</button>
@@ -80,6 +100,123 @@
   <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite combinant dQP/dTP/VE/KGE, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
   <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec la courbe du débit <b>simulé</b> superposée (archivée au moment du rejeu — voir Architecture) et les seuils de vigilance PHyC, pour la crue et la combinaison choisies. Si aucune courbe simulée n'apparaît, c'est que cette combinaison/crue précise n'a pas encore été rejouée (ou que le fichier GRP correspondant était absent au moment du run — message explicite affiché sous le graphique dans ce cas).</p>
   <p><b>Sensibilité au seuil</b> : évolution du score composite et du KGE moyen en fonction du seuil de calage, à horizon et méthode fixés — utile pour la phase d'affinage évoquée ci-dessus.</p>
+</section>
+
+<section id="archi-simple">
+  <h2>Architecture simplifiée</h2>
+  <p>Vue d'ensemble en images, avant le détail technique de l'onglet Architecture. Trois questions : qui parle à qui, à quoi ressemble une campagne de bout en bout, et en quoi c'est différent de GMAO.</p>
+
+  <h3>Qui parle à qui</h3>
+  <div class="legende">
+    <span><span class="puce" style="background:#60a5fa;"></span>Code de l'outil (Python)</span>
+    <span><span class="puce" style="background:#a78bfa;"></span>Bibliothèque externe</span>
+    <span><span class="puce" style="background:#94a3b8;"></span>Hors de l'outil (programmes, réseau)</span>
+    <span><span class="puce" style="background:#34d399;"></span>Données stockées</span>
+  </div>
+
+  <div class="schema">
+    <div class="schema-couche">
+      <div class="schema-titre-couche">Poste de l'utilisateur — un seul programme (aucun serveur à lancer)</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">Interface Tkinter<span class="note">main.py + ui/tab_*.py — 5 onglets (Configuration, Paramétrage, Crues, Campagne, Dashboard)</span></div>
+      </div>
+    </div>
+
+    <div class="schema-fleche">↕ appels de fonctions directs, en mémoire (même processus)</div>
+
+    <div class="schema-couche">
+      <div class="schema-titre-couche">Logique métier — modules/*.py</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">run_orchestrator.py + results_store.py<span class="note">boucle de campagne, reprise sur échec, persistance</span></div>
+        <div class="schema-boite b-py">liste_bassins.py + config_prevision.py + grp_runner.py<span class="note">pilotage des exécutables GRP</span></div>
+        <div class="schema-boite b-py">criteres_perf.py + fiche_controle_pdf.py + grp_series.py<span class="note">lecture des résultats GRP</span></div>
+        <div class="schema-boite b-py">phyc_client.py + proxy_utils.py<span class="note">connexion PHyC (station, seuils)</span></div>
+        <div class="schema-boite b-py">score.py + export_excel.py<span class="note">scoring et export du Dashboard</span></div>
+      </div>
+      <div class="schema-ligne" style="margin-top:.6rem;">
+        <div class="schema-boite b-lib">matplotlib<span class="note">graphiques du Dashboard</span></div>
+        <div class="schema-boite b-lib">zeep + lxml + requests<span class="note">appel SOAP à PHyC</span></div>
+        <div class="schema-boite b-lib">pdfplumber<span class="note">lecture des PDF Fiche_controle</span></div>
+        <div class="schema-boite b-lib">openpyxl<span class="note">export Excel</span></div>
+      </div>
+    </div>
+
+    <div class="schema-fleche">↕ lance des programmes externes / lit-écrit leurs fichiers</div>
+
+    <div class="schema-couche">
+      <div class="schema-titre-couche">Hors de l'outil — programmes et services tiers</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-autre">Exécutables GRP<span class="note">00_GRP_v2023\*.exe + GRP_PREVISION.BAT (Fortran/R, INRAE — non modifiables)</span></div>
+        <div class="schema-boite b-autre">Service PHyC<span class="note">SOAP, réseau RIE — joignable uniquement via le proxy SPCMO</span></div>
+      </div>
+    </div>
+
+    <div class="schema-fleche">↕ stocke / relit</div>
+
+    <div class="schema-couche">
+      <div class="schema-titre-couche">Données locales</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-data">config/config.json<span class="note">chemins, identifiants PHyC, paramétrage — jamais versionné</span></div>
+        <div class="schema-boite b-data">data/runs.sqlite3<span class="note">résultats de campagne + séries archivées</span></div>
+        <div class="schema-boite b-data">Fichiers GRP<span class="note">LISTE_BASSINS.DAT, PDF, .DAT/.txt — dans les 4 dossiers de travail choisis en Configuration</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Ce qui est différent de GMAO (pas de front/back séparés)</h3>
+  <p>GMAO est une application <b>web</b> : deux programmes séparés qui se parlent par le réseau. GRP_2023 est une application <b>desktop</b> : un seul programme, tout tourne dans le même processus. Ni serveur à démarrer, ni navigateur, ni port à ouvrir.</p>
+  <div class="compare">
+    <div class="col">
+      <h4>GMAO — application web</h4>
+      <ul>
+        <li><b>Front</b> : navigateur (pages HTML + Leaflet.js)</li>
+        <li><b>Back</b> : serveur Flask (<code>run.py</code>), à lancer séparément</li>
+        <li>Front ↔ Back : requêtes HTTP sur <code>localhost:5000</code></li>
+        <li>Utilisable depuis plusieurs postes via le réseau</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h4>GRP_2023 — application desktop</h4>
+      <ul>
+        <li>Un seul programme : <code>main.py</code> (fenêtre Tkinter)</li>
+        <li>Pas de serveur, pas de navigateur, pas de port réseau</li>
+        <li>L'interface et la logique s'appellent directement en mémoire</li>
+        <li>Un seul poste à la fois (comme OPALE v2)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Le cycle d'une campagne, de bout en bout</h3>
+  <div class="schema">
+    <div class="schema-couche">
+      <div class="schema-titre-couche">1. Préparation (onglets Paramétrage + Crues)</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">Sélection horizons × seuils × méthodes + crues à tester<span class="note">enregistré dans config.json</span></div>
+      </div>
+    </div>
+    <div class="schema-fleche">↓</div>
+    <div class="schema-couche">
+      <div class="schema-titre-couche">2. Exécution (onglet Campagne → run_orchestrator.py)</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">Pour chaque combinaison : écrit LISTE_BASSINS.DAT → lance l'exe de calage<span class="note">une seule fois par combinaison</span></div>
+        <div class="schema-boite b-py">Pour chaque crue : configure config_prevision.ini → lance GRP_PREVISION.BAT<span class="note">rejeu opérationnel, un run par crue</span></div>
+      </div>
+    </div>
+    <div class="schema-fleche">↓</div>
+    <div class="schema-couche">
+      <div class="schema-titre-couche">3. Lecture des résultats</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">Extraction dQP/dTP/VE/KGE du PDF + archivage des séries observée/simulée<span class="note">écrit dans data/runs.sqlite3</span></div>
+      </div>
+    </div>
+    <div class="schema-fleche">↓</div>
+    <div class="schema-couche">
+      <div class="schema-titre-couche">4. Analyse (onglet Dashboard)</div>
+      <div class="schema-ligne">
+        <div class="schema-boite b-py">Relit data/runs.sqlite3<span class="note">heatmap, classement, courbes, export Excel</span></div>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="architecture">
