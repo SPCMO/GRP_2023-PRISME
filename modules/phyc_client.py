@@ -79,27 +79,32 @@ class PhycClient:
         self.wsdl_url = wsdl_url
         self.timeout = timeout
         # ⚠️ PHyC est un service INTERNE au RIE (services.schapi.e2.rie.gouv.fr) : sur un
-        # poste déjà raccordé au réseau SPCMO/RIE, il est joignable EN DIRECT, sans proxy.
-        # Un essai précédent forçait ici le proxy sortant RIE (config.PROXY_RIE, celui
-        # utilisé par pip/git pour atteindre l'internet PUBLIC) en pensant fiabiliser la
-        # connexion — en réalité ce proxy sortant n'a pas de route vers ce nom interne et
-        # ça CASSAIT la connexion (erreur 502 "notresolvable" : le proxy répond, mais ne
-        # sait pas résoudre le nom RIE-interne derrière lui). Confirmé en reproduisant
-        # l'échec ici alors qu'OPALE v2 — qui n'utilise aucun proxy pour PHyC — fonctionne
-        # au même instant sur le même poste. Par défaut : AUCUN proxy (comme OPALE v2).
-        # `proxies` reste disponible pour un usage explicite si un jour nécessaire (ex.
-        # poste hors RIE avec un proxy dédié), voir modules.proxy_utils.
+        # poste déjà raccordé au réseau SPCMO/RIE, il est joignable EN DIRECT. Deux essais
+        # précédents ont écarté (1) forcer le proxy sortant RIE explicitement dans le code
+        # et (2) ne rien faire de spécial — les DEUX échouaient avec un 502 "notresolvable",
+        # car les variables d'environnement HTTPS_PROXY/HTTP_PROXY (réglées au niveau du
+        # compte Windows, invisibles dans le code, probablement héritées des réglages
+        # faits pour GMAO) forcent `requests` à passer par le proxy sortant RIE MÊME SANS
+        # AUCUN CODE QUI LE DEMANDE — et ce proxy n'a pas de route vers ce nom RIE-interne.
+        # Confirmé avec Test_PHyC.py : login + libellé fonctionnent dès que la session
+        # ignore ces variables d'environnement (`trust_env=False`), échouent sinon — sur
+        # OPALE v2 aussi (identique, ce n'est pas spécifique à cet outil). Solution
+        # définitive : une session dédiée, `trust_env=False`, réutilisée pour TOUS les
+        # appels HTTP de ce client (zeep ET les appels POST bruts ci-dessous) — un
+        # correctif au niveau du code, indépendant de ce qui est réglé sur le poste.
         self.proxies = proxies or {}
+        self._session = _requests.Session()
+        self._session.trust_env = False
+        if self.proxies:
+            self._session.proxies.update(self.proxies)
         self._idsession = None
         self._client = None
         self._service_name = None
 
     def _make_client(self):
-        """Crée le client zeep avec le transport RIE, proxy inclus (voir __init__)."""
-        session = _requests.Session()
-        if self.proxies:
-            session.proxies.update(self.proxies)
-        transport = _RieTransport(timeout=self.timeout, session=session)
+        """Crée le client zeep avec le transport RIE, sur la session dédiée (voir
+        __init__) qui ignore les variables d'environnement proxy ambiantes."""
+        transport = _RieTransport(timeout=self.timeout, session=self._session)
         settings = ZeepSettings(strict=False, xml_huge_tree=True)
         return ZeepClient(wsdl=self.wsdl_url, transport=transport, settings=settings)
 
@@ -250,7 +255,7 @@ class PhycClient:
             # Fallback : déduire l'endpoint depuis l'URL du WSDL
             endpoint = self.wsdl_url.rsplit("/", 1)[0] + "/"
 
-        resp = _requests.post(
+        resp = self._session.post(
             endpoint,
             data=soap_bytes,
             headers={
@@ -258,7 +263,6 @@ class PhycClient:
                 "SOAPAction": '"publierObservationsHydroPasDeTemps"',
             },
             timeout=self.timeout,
-            proxies=self.proxies,
         )
         resp.raise_for_status()
 
@@ -313,10 +317,10 @@ class PhycClient:
             raise Exception("Port SeuilHydroPublicationPort introuvable dans le WSDL.")
         endpoint = port.binding_options["address"]
 
-        resp = _requests.post(endpoint, data=soap_bytes,
+        resp = self._session.post(endpoint, data=soap_bytes,
                               headers={"Content-Type": "text/xml; charset=utf-8",
                                        "SOAPAction": '"publierSeuilHydro"'},
-                              timeout=self.timeout, proxies=self.proxies)
+                              timeout=self.timeout)
         resp.raise_for_status()
 
         root_soap = lxml_etree.fromstring(resp.content)
