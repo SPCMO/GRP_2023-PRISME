@@ -107,10 +107,16 @@ class App(tk.Tk):
         # fragile en .place() par-dessus le Notebook.
         barre_haut = tk.Frame(self)
         barre_haut.pack(fill=tk.X, padx=8, pady=(6, 0))
-        lien_aide = tk.Label(barre_haut, text="📖 Aide", fg="#1A5276", cursor="hand2",
-                              font=("TkDefaultFont", 9, "underline"))
+        # Bouton bleu/blanc, taille d'un onglet — bien plus visible que le lien discret
+        # d'origine. tk.Button (pas ttk.Button) pour garder la main sur bg/fg, un thème
+        # ttk ignorerait ces couleurs.
+        lien_aide = tk.Button(
+            barre_haut, text="📖  Aide", command=self._ouvrir_aide,
+            bg="#1A5276", fg="white", activebackground="#21618C", activeforeground="white",
+            font=("TkDefaultFont", 11, "bold"), relief=tk.FLAT, cursor="hand2",
+            padx=18, pady=6,
+        )
         lien_aide.pack(side=tk.RIGHT)
-        lien_aide.bind("<Button-1>", lambda _evt: self._ouvrir_aide())
 
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)

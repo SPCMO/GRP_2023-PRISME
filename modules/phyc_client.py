@@ -24,8 +24,6 @@ from lxml import etree as lxml_etree
 from zeep import Client as ZeepClient, Settings as ZeepSettings
 from zeep.transports import Transport
 
-from modules import proxy_utils
-
 WSDL_URL = "http://services.schapi.e2.rie.gouv.fr/phycop/bdtrv21.wsdl"
 ZEEP_SERVICE = "WebservicesBdtr"
 
@@ -80,14 +78,18 @@ class PhycClient:
     def __init__(self, wsdl_url=WSDL_URL, timeout=60, proxies=None):
         self.wsdl_url = wsdl_url
         self.timeout = timeout
-        # PHyC (comme tout le reste du réseau SPCMO/RIE) n'est joignable qu'au travers du
-        # proxy sortant — sans lui, l'appel échoue typiquement par une erreur de
-        # résolution DNS ("notresolvable"), le nom de service RIE n'étant résolu que par
-        # le proxy. `proxies=None` (par défaut) déclenche l'auto-détection (voir
-        # modules.proxy_utils : variable d'environnement > proxy système > config.PROXY_RIE) ;
-        # passer un dict explicite ({} pour forcer l'absence de proxy) permet de la
-        # court-circuiter si besoin.
-        self.proxies = proxy_utils.dict_proxies() if proxies is None else proxies
+        # ⚠️ PHyC est un service INTERNE au RIE (services.schapi.e2.rie.gouv.fr) : sur un
+        # poste déjà raccordé au réseau SPCMO/RIE, il est joignable EN DIRECT, sans proxy.
+        # Un essai précédent forçait ici le proxy sortant RIE (config.PROXY_RIE, celui
+        # utilisé par pip/git pour atteindre l'internet PUBLIC) en pensant fiabiliser la
+        # connexion — en réalité ce proxy sortant n'a pas de route vers ce nom interne et
+        # ça CASSAIT la connexion (erreur 502 "notresolvable" : le proxy répond, mais ne
+        # sait pas résoudre le nom RIE-interne derrière lui). Confirmé en reproduisant
+        # l'échec ici alors qu'OPALE v2 — qui n'utilise aucun proxy pour PHyC — fonctionne
+        # au même instant sur le même poste. Par défaut : AUCUN proxy (comme OPALE v2).
+        # `proxies` reste disponible pour un usage explicite si un jour nécessaire (ex.
+        # poste hors RIE avec un proxy dédié), voir modules.proxy_utils.
+        self.proxies = proxies or {}
         self._idsession = None
         self._client = None
         self._service_name = None

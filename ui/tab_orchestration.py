@@ -21,7 +21,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import config as app_config
 from modules import results_store, run_orchestrator
 from modules.grp_paths import GrpPaths
-from ui.widgets_common import make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import bouton_enregistrer, make_label, make_row, make_scrollable_tab, make_section
 
 COLONNES_TABLEAU = ("horizon", "seuil", "methode", "statut", "crues_ok", "crues_ko")
 
@@ -259,3 +259,6 @@ def build_tab_orchestration(tab_frame, app):
             var_pdt_libelle.set(pdt_list[0]["libelle"])
 
     _rafraichir_combo_pdt()
+
+    # ── Bouton Enregistrer ───────────────────────────────────────────────────────
+    bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

@@ -185,3 +185,24 @@ def placeholder_tab(tab_frame, texte):
     l'application reste lançable et démontrable dès la Phase 1."""
     tk.Label(tab_frame, text=texte, font=("TkDefaultFont", 11), fg="#777777").pack(
         expand=True, pady=40)
+
+
+def bouton_enregistrer(parent, app, texte_confirmation="Configuration enregistrée."):
+    """Bouton "Enregistrer" générique pour un onglet — persiste app.config_data (déjà à
+    jour : les widgets de l'onglet appelant le mettent à jour en direct à chaque
+    interaction) et affiche une confirmation brève. Action explicite et rassurante en
+    plus des sauvegardes automatiques déjà en place, pour ne jamais avoir à ressaisir
+    une sélection après une fermeture ou une erreur. Retourne le Frame conteneur, à
+    placer par l'appelant (pack/grid)."""
+    cadre = tk.Frame(parent)
+    var_confirmation = tk.StringVar(value="")
+
+    def _enregistrer():
+        app.persist_config()
+        app.on_config_changed()
+        var_confirmation.set(texte_confirmation)
+
+    ttk.Button(cadre, text="Enregistrer", command=_enregistrer).pack(side=tk.LEFT)
+    tk.Label(cadre, textvariable=var_confirmation, fg="#1D6A39",
+             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(10, 0))
+    return cadre

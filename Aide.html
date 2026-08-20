@@ -131,7 +131,7 @@
         <div class="schema-boite b-py">run_orchestrator.py + results_store.py<span class="note">boucle de campagne, reprise sur échec, persistance</span></div>
         <div class="schema-boite b-py">liste_bassins.py + config_prevision.py + grp_runner.py<span class="note">pilotage des exécutables GRP</span></div>
         <div class="schema-boite b-py">criteres_perf.py + fiche_controle_pdf.py + grp_series.py<span class="note">lecture des résultats GRP</span></div>
-        <div class="schema-boite b-py">phyc_client.py + proxy_utils.py<span class="note">connexion PHyC (station, seuils)</span></div>
+        <div class="schema-boite b-py">phyc_client.py<span class="note">connexion PHyC (station, seuils) — en direct, sans proxy (service RIE-interne)</span></div>
         <div class="schema-boite b-py">score.py + export_excel.py<span class="note">scoring et export du Dashboard</span></div>
       </div>
       <div class="schema-ligne" style="margin-top:.6rem;">
@@ -148,7 +148,7 @@
       <div class="schema-titre-couche">Hors de l'outil — programmes et services tiers</div>
       <div class="schema-ligne">
         <div class="schema-boite b-autre">Exécutables GRP<span class="note">00_GRP_v2023\*.exe + GRP_PREVISION.BAT (Fortran/R, INRAE — non modifiables)</span></div>
-        <div class="schema-boite b-autre">Service PHyC<span class="note">SOAP, réseau RIE — joignable uniquement via le proxy SPCMO</span></div>
+        <div class="schema-boite b-autre">Service PHyC<span class="note">SOAP, RIE-interne — joignable en direct sur un poste raccordé au réseau SPCMO (jamais via le proxy sortant, voir Paramétrage)</span></div>
       </div>
     </div>
 
@@ -326,6 +326,16 @@
   <div class="changelog-entry">
     <div class="changelog-date">20 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Courbe <b>Q simulé</b> superposée à l'observée dans le Dashboard &gt; Détail par crue. La série est archivée en base à chaque rejeu réussi (table <code>series_archivees</code>) plutôt que relue depuis <code>Sorties/</code>, qui n'expose que le dernier run — voir Architecture &gt; Archivage des séries observée/simulée.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Identification PHyC en échec ("502 notresolvable"). Diagnostic en deux temps : un premier essai a forcé le proxy sortant RIE (utilisé par pip/git pour l'internet public) sur les appels PHyC, en pensant fiabiliser la connexion — <b>ça a en réalité cassé une connexion qui fonctionnait déjà</b>, PHyC étant un service RIE-interne joignable en direct sur un poste raccordé au réseau SPCMO, sans passer par ce proxy (confirmé en observant qu'OPALE v2, qui n'utilise aucun proxy pour PHyC, fonctionnait au même instant sur le même poste). Revenu au comportement d'origine : aucun proxy pour PHyC.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Bouton "Enregistrer" en bas de l'onglet Configuration (et désormais aussi Paramétrage, Crues, Campagne) — sauvegarde explicite de tout l'état courant en un clic.</p>
   </div>
 
   <div class="changelog-entry">

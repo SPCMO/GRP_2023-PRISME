@@ -11,7 +11,7 @@ from tkinter import messagebox, ttk
 
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import GrpPaths
-from ui.widgets_common import bouton_info, make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section
 
 TEXTE_INFO_TYPEVT_P = (
     "GRP détecte deux types d'épisodes dans CRITERES_PERF.DAT :\n\n"
@@ -191,3 +191,6 @@ def build_tab_crues(tab_frame, app):
 
     combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir())
     _rafraichir_combo_pdt()
+
+    # ── Bouton Enregistrer ───────────────────────────────────────────────────────
+    bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

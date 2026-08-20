@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Détection du proxy réseau SPCMO/RIE pour les appels HTTP effectués directement par
-l'outil (PHyC — voir modules.phyc_client).
+"""Détection du proxy réseau SPCMO/RIE, pour un éventuel appel HTTP sortant vers
+l'internet public effectué directement par l'outil (aucun cas d'usage actuel — voir
+remarque ci-dessous).
 
-pip/git ont leur propre détection de proxy (voir Test_pr_install.py::detecter_proxy,
-même logique), mais les appels `requests`/`zeep` internes à l'application ne lisent PAS
-automatiquement le proxy système Windows configuré via les Options Internet — seules les
-variables d'environnement HTTP_PROXY/HTTPS_PROXY sont lues nativement par `requests`. Sur
-le réseau SPCMO/RIE, où le proxy est réglé au niveau système (WinINET) et pas via ces
-variables d'environnement, un appel PHyC sans proxy explicite échoue typiquement par une
-erreur de résolution DNS (le nom de service PHyC n'est joignable qu'via le proxy).
+⚠️ **PAS utilisé par modules.phyc_client** : PHyC (services.schapi.e2.rie.gouv.fr) est un
+service INTERNE au RIE, joignable en direct sans proxy sur un poste déjà raccordé au
+réseau SPCMO — passer par le proxy sortant RIE casse au contraire la connexion (celui-ci
+n'a pas de route vers ce nom interne, l'appel échoue par un 502 "notresolvable"). Constaté
+en pratique : forcer ce proxy dans phyc_client.py provoquait l'échec alors qu'OPALE v2
+(sans aucune gestion de proxy) fonctionnait au même instant, sur le même poste — voir le
+correctif dans phyc_client.py. Ce module reste disponible pour un futur appel HTTP vers
+un site public (par analogie avec pip/git, qui ont besoin du proxy sortant pour ça — voir
+Test_pr_install.py::detecter_proxy, même logique), pas pour les services RIE-internes.
 """
 
 import os

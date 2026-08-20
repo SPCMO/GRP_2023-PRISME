@@ -13,7 +13,7 @@ import re
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
-from ui.widgets_common import build_liste_reordonnable, make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import bouton_enregistrer, build_liste_reordonnable, make_label, make_row, make_scrollable_tab, make_section
 
 _MOTIF_DUREE_GRP = re.compile(r"^\d{2}J\d{2}H\d{2}M$")
 
@@ -185,6 +185,9 @@ def build_tab_parametrage(tab_frame, app):
              text="Les deux cochées : la campagne lance les runs pour T puis pour R "
                   "successivement (GRP n'accepte qu'une seule méthode par run en mode BDTR).").pack(
         anchor="w", pady=(2, 0))
+
+    # ── Bouton Enregistrer ───────────────────────────────────────────────────────
+    bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════════
