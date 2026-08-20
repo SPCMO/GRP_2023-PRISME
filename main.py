@@ -99,6 +99,18 @@ class App(tk.Tk):
         webbrowser.open(f"file:///{chemin.replace(os.sep, '/')}")
 
     def _build_ui(self):
+        # Barre fine juste au-dessus du Notebook, avec le lien Aide aligné à droite — à
+        # la même hauteur visuelle que les onglets. Un ttk.Notebook ne permet pas
+        # d'insérer un widget directement dans sa bande d'onglets (dessinée en interne
+        # par le thème), d'où cette bande dédiée juste au-dessus plutôt qu'un overlay
+        # fragile en .place() par-dessus le Notebook.
+        barre_haut = tk.Frame(self)
+        barre_haut.pack(fill=tk.X, padx=8, pady=(6, 0))
+        lien_aide = tk.Label(barre_haut, text="📖 Aide", fg="#1A5276", cursor="hand2",
+                              font=("TkDefaultFont", 9, "underline"))
+        lien_aide.pack(side=tk.RIGHT)
+        lien_aide.bind("<Button-1>", lambda _evt: self._ouvrir_aide())
+
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
