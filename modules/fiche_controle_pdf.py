@@ -117,9 +117,20 @@ def extraire_resultat(chemin_pdf):
             break
 
     if not indicateurs_trouves:
+        # Le dossier Fiches_Controle est vidé avant chaque rejeu (voir grp_runner.
+        # run_prevision_bat) : impossible de rouvrir ce PDF précis une fois la campagne
+        # passée à l'étape suivante pour diagnostiquer après coup. Le texte de la page 2
+        # est donc inclus directement dans l'erreur — auto-diagnostic dans le journal de
+        # campagne au lieu d'un message générique qu'il faudrait reproduire pour
+        # comprendre (constaté en conditions réelles : hypothèse la plus probable est
+        # une valeur "NA" GRP pour un indicateur sur certaines crues, qui fait tomber le
+        # nombre de nombres détectés sur la ligne en dessous de 4 — à confirmer avec le
+        # texte réel ci-dessous avant de changer la logique d'extraction).
         raise FicheControleError(
             f"{chemin_pdf} : indicateurs dQP/dTP/VE/KGE introuvables sur la page 2 — "
-            "format de PDF inattendu (mise à jour de GRP ?)."
+            "format de PDF inattendu (mise à jour de GRP ? valeur non numérique type "
+            "'NA' pour un indicateur ?).\n--- Texte brut de la page 2 ---\n"
+            f"{texte_p2 or '(page 2 vide)'}"
         )
 
     _valider_plausibilite(resultat)

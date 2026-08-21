@@ -394,6 +394,11 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Diagnostic renforcé</span> Constaté sur une vraie campagne : 2 crues sur la combinaison 00J06H00M/0.0/R ont échoué avec "indicateurs dQP/dTP/VE/KGE introuvables sur la page 2" — impossible de rouvrir le PDF en cause après coup (le dossier Fiches_Controle est vidé avant chaque rejeu). L'erreur inclut désormais le texte brut de la page 2 directement dans le message, pour un auto-diagnostic dans le journal de campagne dès la prochaine occurrence — hypothèse à confirmer : une valeur "NA" de GRP pour un indicateur sur certaines crues (événement trop court/atypique ?) ferait tomber le nombre de valeurs numériques détectées sur la ligne en dessous du seuil de 4 actuellement exigé.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
