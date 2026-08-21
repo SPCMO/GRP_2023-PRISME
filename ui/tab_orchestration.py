@@ -97,8 +97,13 @@ def build_tab_orchestration(tab_frame, app):
     zone_log.pack(fill=tk.BOTH, expand=True)
 
     def _log(message):
+        """Chaque ligne est horodatée (heure locale, précision seconde) — demandé pour
+        pouvoir mesurer, en relisant le journal, le temps réellement pris par chaque
+        combinaison (écart entre le "Nouvelle combinaison" et son calage réussi/échoué,
+        puis entre chaque crue rejouée)."""
+        horodatage = datetime.now().strftime("%H:%M:%S")
         zone_log.config(state="normal")
-        zone_log.insert(tk.END, message + "\n")
+        zone_log.insert(tk.END, f"[{horodatage}] {message}\n")
         zone_log.see(tk.END)
         zone_log.config(state="disabled")
 
@@ -335,6 +340,12 @@ def build_tab_orchestration(tab_frame, app):
                 _log(f"[ÉCHEC] {evt.message}")
             return
         iid = f"{evt.horizon}|{evt.seuil_c1}|{evt.methode}"
+        if evt.etape == "calage" and evt.statut == "running":
+            # Marque le passage à une nouvelle combinaison — pas de ligne équivalente
+            # avant : sans elle, seule l'heure de FIN du calage était visible, impossible
+            # de mesurer combien de temps le calage lui-même a pris.
+            _log(f"--- Nouvelle combinaison : {evt.horizon}/{evt.seuil_c1}/{evt.methode} "
+                 "(calage en cours) ---")
         if evt.etape == "calage":
             tag = evt.statut if evt.statut in ("running", "success", "failed") else ""
             vals = list(tableau.item(iid, "values")) if tableau.exists(iid) else [evt.horizon, f"{evt.seuil_c1:.2f}", evt.methode, "pending", 0, 0]
