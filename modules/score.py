@@ -16,6 +16,29 @@ from typing import Dict, List, Optional
 INDICATEURS = ("dqp", "dtp", "ve", "kge")
 POIDS_PAR_DEFAUT = {"dqp": 1.0, "dtp": 1.0, "ve": 1.0, "kge": 1.0}
 
+# Explication affichée à l'utilisateur (bouton "ⓘ" à côté de chaque "Score composite"
+# dans le Dashboard, voir ui/tab_dashboard.py et ui/tab_orchestration.py) — centralisée
+# ici pour rester la description exacte du calcul réellement fait ci-dessous.
+EXPLICATION_SCORE = (
+    "Score composite (0 = meilleur, 1 = pire)\n\n"
+    "Calculé UNIQUEMENT sur les combinaisons actuellement affichées à l'écran (jamais "
+    "sur une seule, ni sur toute la base) :\n\n"
+    "1. Pour chaque combinaison, on calcule l'erreur moyenne (sur ses crues réussies) "
+    "de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en pas de "
+    "temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et (1 − KGE) "
+    "(KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
+    "2. Chaque indicateur est normalisé entre 0 (la MEILLEURE valeur observée parmi "
+    "TOUTES les combinaisons affichées) et 1 (la pire) — c'est une échelle RELATIVE à "
+    "ce qui est affiché : ajouter ou retirer des combinaisons du graphique/tableau peut "
+    "donc changer le score de toutes les autres.\n\n"
+    "3. Le score final est la MOYENNE des 4 indicateurs normalisés, à POIDS ÉGAUX "
+    "(25% chacun).\n\n"
+    "4. dTP est traité de façon SYMÉTRIQUE : une avance de 2 pas de temps compte "
+    "exactement comme un retard de 2 pas de temps — le score ne privilégie pas l'avance "
+    "sur le retard, ni l'inverse.\n\n"
+    "Voir modules/score.py (fonction calculer_scores) pour le détail du calcul."
+)
+
 
 @dataclass
 class ScoreCombinaison:

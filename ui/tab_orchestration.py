@@ -21,7 +21,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import config as app_config
 from modules import results_store, run_orchestrator, score
 from modules.grp_paths import GrpPaths
-from ui.widgets_common import bouton_enregistrer, make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section
 
 COLONNES_TABLEAU = ("horizon", "seuil", "methode", "statut", "crues_ok", "crues_ko")
 
@@ -267,9 +267,12 @@ def build_tab_orchestration(tab_frame, app):
         fenetre.title("Combinaisons déjà réalisées (calage + toutes les crues réussies)")
         fenetre.geometry("980x460")
 
+        ligne_entete = tk.Frame(fenetre)
+        ligne_entete.pack(fill=tk.X, padx=8)
         entete_var = tk.StringVar()
-        tk.Label(fenetre, textvariable=entete_var, anchor="w", pady=6,
-                  wraplength=960, justify="left").pack(fill=tk.X, padx=8)
+        tk.Label(ligne_entete, textvariable=entete_var, anchor="w", pady=6,
+                  wraplength=940, justify="left").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        bouton_info(ligne_entete, "Score composite", score.EXPLICATION_SCORE).pack(side=tk.RIGHT, anchor="n")
 
         # Le score composite seul n'est pas interprétable avec peu de combinaisons
         # complètes (il est normalisé min-max SUR CET ENSEMBLE : avec une seule

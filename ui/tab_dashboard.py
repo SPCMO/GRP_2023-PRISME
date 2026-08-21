@@ -23,9 +23,9 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour proje
 from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
 from modules.grp_paths import GrpPaths
-from modules.score import calculer_scores
+from modules.score import EXPLICATION_SCORE, calculer_scores
 from ui.tab_config import LIBELLES_SEUILS_Q
-from ui.widgets_common import make_label, make_row, make_section
+from ui.widgets_common import bouton_info, make_label, make_row, make_section
 
 # Palette qualitative pour différencier les courbes simulées superposées (Q observé
 # garde toujours sa propre couleur fixe, jamais piochée ici, pour rester reconnaissable
@@ -100,6 +100,7 @@ def _build_synthese(frame, app):
     barre.pack(fill=tk.X, padx=8, pady=6)
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
+    bouton_info(barre, "Score composite", EXPLICATION_SCORE).pack(side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT, padx=4)
     ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter()).pack(side=tk.RIGHT)
 
@@ -449,6 +450,7 @@ def _build_sensibilite(frame, app):
     combo_methode = ttk.Combobox(r, textvariable=var_methode, state="readonly", width=6)
     combo_methode.pack(side=tk.LEFT, padx=(2, 12))
     ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, anchor="n")
+    bouton_info(r, "Score composite", EXPLICATION_SCORE, bg=bg).pack(side=tk.LEFT, padx=(8, 0), anchor="n")
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
@@ -526,6 +528,7 @@ def _build_vue3d(frame, app):
     barre.pack(fill=tk.X, padx=8, pady=6)
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
+    bouton_info(barre, "Score composite", EXPLICATION_SCORE).pack(side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT)
 
     tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#555555",
