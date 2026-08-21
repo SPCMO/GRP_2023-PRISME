@@ -2,17 +2,15 @@
 """
 Test_Fiche_PDF.py — Diagnostic autonome d'un PDF Fiche_controle_<code_site>_<pas_de_temps>.
 
-Usage :
-  python Test_Fiche_PDF.py                     -> auto-détecte le PDF le plus récent
-                                                    dans le dossier Fiches_Controle de
-                                                    config/config.json (pratique depuis
-                                                    une console interactive, sans avoir
-                                                    à taper un chemin)
-  python Test_Fiche_PDF.py "chemin\\vers\\le.pdf"  -> inspecte ce PDF précis
+Usage le plus simple : ouvrir ce fichier dans Thonny (ou tout autre éditeur) et cliquer
+sur Exécuter/Run (ou F5) — rien d'autre à faire, aucun chemin à taper. Le script détecte
+tout seul le PDF le plus récent dans le dossier Fiches_Controle de config/config.json,
+lit son contenu, l'affiche, et s'arrête proprement (jamais d'attente de saisie).
 
-⚠️ L'usage avec chemin explicite ne fonctionne QUE lancé depuis un terminal (Invite de
-commandes / PowerShell), jamais depuis l'invite interactive ">>>" d'IDLE ou d'une
-console Python nue — celle-ci ne transmet aucun argument au script.
+Usage avancé (terminal uniquement — PowerShell/Invite de commandes, jamais l'invite
+">>>" d'IDLE, qui ne transmet aucun argument) : pour inspecter un PDF précis au lieu du
+plus récent :
+  python Test_Fiche_PDF.py "chemin\\vers\\le.pdf"
 
 Affiche le nombre de pages et le texte brut extrait de chacune (sans rien interpréter),
 pour vérifier que modules.fiche_controle_pdf.extraire_resultat lit la bonne ligne
@@ -26,18 +24,33 @@ import json
 import os
 import sys
 
+# La console Windows par défaut (cp1252) plante sur certains caractères que GRP produit
+# dans ses PDF (ex. le signe moins unicode "−", U+2212, différent du tiret ASCII "-") —
+# reconfigurée en UTF-8 avec repli explicite plutôt que de laisser le script planter sur
+# un simple print() de diagnostic.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-import pdfplumber
+try:
+    import pdfplumber
+except ImportError:
+    print("Le paquet 'pdfplumber' n'est pas installé dans l'interpréteur Python utilisé "
+          "par Thonny (Outils > Gérer les paquets... > installer 'pdfplumber'), ou "
+          "Thonny utilise un interpréteur différent de celui de l'outil GRP_2023-PRISME "
+          "(Exécuter > Configurer l'interpréteur...).")
+    sys.exit(1)
 
 from modules.fiche_controle_pdf import FicheControleError, extraire_resultat
 
 
 def _pdf_le_plus_recent():
     """Cherche, dans <dossier_bddtr>/Temps_Reel/Sorties/Fiches_Controle (config.json),
-    le PDF le plus récent qui n'est PAS le "Fiche_controle_Hydrogrammes.pdf" générique
-    (voir modules.grp_runner — 2 PDF sont produits à chaque rejeu, celui-ci est
-    l'autre : celui propre à la station/pas de temps)."""
+    le PDF "Fiche_controle_Hydrogrammes.pdf" le plus récent — voir modules.grp_runner :
+    2 PDF sont produits à chaque rejeu, et malgré son nom "générique", c'est CELUI-CI
+    (pas celui nommé par station/pas de temps) qui contient le tableau d'indicateurs
+    dQP/dTP/VE/KGE, confirmé par inspection directe d'un vrai rejeu."""
     chemin_config = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "config", "config.json")
     try:
@@ -55,10 +68,10 @@ def _pdf_le_plus_recent():
     dossier_fiches = os.path.join(dossier_bddtr, "Temps_Reel", "Sorties", "Fiches_Controle")
     candidats = [
         p for p in glob.glob(os.path.join(dossier_fiches, "*.pdf"))
-        if "hydrogrammes" not in os.path.basename(p).lower()
+        if "hydrogrammes" in os.path.basename(p).lower()
     ]
     if not candidats:
-        print(f"Aucun PDF Fiche_controle (hors Hydrogrammes) trouvé dans {dossier_fiches}.\n"
+        print(f"Aucun PDF Fiche_controle_Hydrogrammes trouvé dans {dossier_fiches}.\n"
               "Lancez un rejeu depuis l'onglet Campagne au préalable, ou passez un chemin "
               "explicite en argument.")
         return None

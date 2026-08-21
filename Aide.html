@@ -374,6 +374,11 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Les deux entrées précédentes sur les 2 PDF et le nombre de pages reposaient sur une hypothèse fausse. Inspection directe des 2 PDF d'un vrai rejeu (via <code>Test_Fiche_PDF.py</code>, exécuté par Claude directement sur le poste) : <b>c'est <code>Fiche_controle_Hydrogrammes.pdf</code> qui contient le tableau des indicateurs</b> (page 2, "Valeurs des critères de performance", dQP/dTP/VE/KGE) — malgré son nom "générique" — alors que <code>Fiche_controle_&lt;code_site&gt;_&lt;pas_de_temps&gt;.pdf</code> (choisi à tort précédemment sur la seule foi de son nom "spécifique") ne contient QUE des graphiques, aucun tableau. <code>modules/grp_runner.run_prevision_bat</code> sélectionne désormais le PDF "Hydrogrammes", et <code>modules/fiche_controle_pdf.extraire_resultat</code> redemande bien 2 pages (l'hypothèse d'origine était en réalité correcte, seul le PDF lu était le mauvais). Résultat vérifié sur un vrai rejeu : dQP=39.9%, dTP=-2 pdt, VE=20.8%, KGE=-0.06 — plausible.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
