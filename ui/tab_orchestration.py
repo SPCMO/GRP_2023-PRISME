@@ -210,12 +210,16 @@ def build_tab_orchestration(tab_frame, app):
             # grisés jusqu'à ce que CETTE étape se termine (quelques minutes en général,
             # jamais plus que le délai maximum d'un calage/rejeu) : c'est attendu, pas
             # bloqué.
-            var_resume.set("Annulation demandée — arrêt dès la fin de l'étape en cours "
-                            "(la ligne en jaune doit terminer, cela peut prendre "
-                            "quelques minutes).")
-            _log("--- Annulation demandée : arrêt à la fin de l'étape en cours "
-                 "(l'exécutable GRP actuellement lancé n'est jamais interrompu en "
-                 "plein milieu) ---")
+            var_resume.set("Annulation DEMANDÉE, pas encore effective — en attente de la "
+                            "fin de l'étape en jaune dans le tableau ci-dessous. Les "
+                            "boutons se réactiveront quand le journal affichera "
+                            "'[ANNULÉ] Campagne annulée...' puis 'Campagne terminée'.")
+            _log("--- Annulation DEMANDÉE (pas encore effective) : la campagne ne "
+                 "s'arrêtera réellement qu'à la fin de l'étape actuellement en cours "
+                 "(ligne jaune 'running' dans le tableau ci-dessous) — l'exécutable GRP "
+                 "déjà lancé n'est jamais interrompu en plein milieu. Cette ligne "
+                 "n'annonce PAS un arrêt déjà effectif : attendez les lignes "
+                 "'[ANNULÉ] ...' puis 'Campagne terminée' qui suivront pour confirmation. ---")
 
     # ── Fenêtre "Combinaisons déjà réalisées" ────────────────────────────────────
     def _charger_combinaisons_completes():
