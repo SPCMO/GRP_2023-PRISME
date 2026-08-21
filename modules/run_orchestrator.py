@@ -204,7 +204,8 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu", "running"))
             try:
                 set_prevision(paths.config_prevision_ini, instpr=crue_date)
-                chemin_pdf = run_prevision_bat(paths.grp_prevision_bat, paths.fiches_controle_dir)
+                chemin_pdf = run_prevision_bat(paths.grp_prevision_bat, paths.fiches_controle_dir,
+                                                code_site=paths.code_site, pas_de_temps=pas_de_temps)
                 resultat = extraire_resultat(chemin_pdf)
             except (ConfigPrevisionError, GrpRunError, FicheControleError, FileNotFoundError) as e:
                 message = str(e)

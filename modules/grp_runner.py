@@ -91,7 +91,8 @@ def _nettoyer_dossier_pdf(dossier):
                 ) from e
 
 
-def run_prevision_bat(bat_path, fiches_controle_dir, timeout=600):
+def run_prevision_bat(bat_path, fiches_controle_dir, code_site=None, pas_de_temps=None,
+                       timeout=600):
     """Lance GRP_PREVISION.BAT (rejeu opérationnel, config_prevision.ini déjà positionné
     par modules.config_prevision.set_prevision) et retourne le chemin du PDF Fiche_controle
     produit.
@@ -102,6 +103,17 @@ def run_prevision_bat(bat_path, fiches_controle_dir, timeout=600):
       - le .bat se termine en erreur (returncode != 0) ;
       - le .bat se termine en code 0 mais qu'aucun nouveau PDF n'apparaît (le garde-fou
         qui aurait détecté le bug historique même sans corriger le chemin).
+
+    ⚠️ Constaté en conditions réelles : GRP_PREVISION.BAT produit systématiquement DEUX
+    PDF par rejeu, avec des informations très proches — ex. `GRP(<horodatage>)
+    Fiche_controle_Hydrogrammes.pdf` (générique, graphes) et `GRP(<horodatage>)
+    Fiche_controle_<code_site>_<pas_de_temps>.pdf` (propre à la station/pas de temps) —
+    seul ce second contient le tableau des indicateurs dQP/dTP/VE/KGE attendu par
+    modules.fiche_controle_pdf.extraire_resultat. Si `code_site`/`pas_de_temps` sont
+    fournis, on choisit sans ambiguïté celui dont le nom les contient tous les deux ;
+    sinon (ou si aucun/plusieurs PDF ne correspondent), on refuse de deviner et on lève
+    une erreur explicite listant les candidats — mieux vaut un échec visible qu'un
+    résultat lu dans le mauvais PDF.
     """
     bat_path = Path(bat_path)
     if not bat_path.is_file():
@@ -151,6 +163,11 @@ def run_prevision_bat(bat_path, fiches_controle_dir, timeout=600):
             "non reflétée dans le code retour)."
         )
     if len(pdfs_recents) > 1:
+        motif = f"{code_site}_{pas_de_temps}" if code_site and pas_de_temps else None
+        candidats_site = ([p for p in pdfs_recents if motif in os.path.basename(p)]
+                           if motif else [])
+        if len(candidats_site) == 1:
+            return candidats_site[0]
         raise GrpRunError(
             f"{bat_path.name} a produit {len(pdfs_recents)} PDF simultanément dans "
             f"{fiches_controle_dir}, impossible de déterminer sans ambiguïté lequel "

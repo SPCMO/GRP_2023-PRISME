@@ -354,6 +354,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Colonne <b>Score</b> (composite, même calcul que le Dashboard &gt; Vue synthèse) ajoutée dans la fenêtre "Combinaisons déjà réalisées" — les combinaisons y sont désormais triées de la meilleure à la moins bonne, plutôt que par ordre horizon/seuil/méthode.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Constaté sur une vraie campagne (28 combinaisons × 10 crues) : <b>chaque rejeu échouait</b> avec "2 PDF produits simultanément" — <code>GRP_PREVISION.BAT</code> génère en réalité systématiquement DEUX PDF par rejeu (<code>Fiche_controle_Hydrogrammes.pdf</code>, générique/graphes, et <code>Fiche_controle_&lt;code_site&gt;_&lt;pas_de_temps&gt;.pdf</code>, propre à la station — celui qui contient le tableau dQP/dTP/VE/KGE), pas un seul comme le garde-fou anti-ambiguïté le supposait. <code>modules/grp_runner.run_prevision_bat</code> choisit désormais sans ambiguïté le PDF dont le nom contient le code site et le pas de temps ; si aucun ou plusieurs PDF ne correspondent, l'erreur explicite d'origine reste levée plutôt que de deviner.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
