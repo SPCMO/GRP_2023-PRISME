@@ -80,7 +80,9 @@ def build_tab_orchestration(tab_frame, app):
 
     # ── Tableau des combinaisons ────────────────────────────────────────────────
     inn2, bg2 = make_section(frm, "Combinaisons testées", "bleu", expand=True)
-    tableau = ttk.Treeview(inn2, columns=COLONNES_TABLEAU, show="headings", height=8)
+    cadre_tableau = tk.Frame(inn2, bg=bg2)
+    cadre_tableau.pack(fill=tk.BOTH, expand=True)
+    tableau = ttk.Treeview(cadre_tableau, columns=COLONNES_TABLEAU, show="headings", height=8)
     entetes = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
                "statut": "Statut calage", "crues_ok": "Crues OK", "crues_ko": "Crues échec"}
     for col in COLONNES_TABLEAU:
@@ -89,7 +91,10 @@ def build_tab_orchestration(tab_frame, app):
     tableau.tag_configure("failed", background="#F5B7B1")
     tableau.tag_configure("success", background="#D5F5E3")
     tableau.tag_configure("running", background="#F9E79F")
-    tableau.pack(fill=tk.BOTH, expand=True)
+    ascenseur_tableau = ttk.Scrollbar(cadre_tableau, orient=tk.VERTICAL, command=tableau.yview)
+    tableau.configure(yscrollcommand=ascenseur_tableau.set)
+    tableau.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    ascenseur_tableau.pack(side=tk.RIGHT, fill=tk.Y)
 
     # ── Journal ──────────────────────────────────────────────────────────────────
     inn3, bg3 = make_section(frm, "Journal de la campagne", "gris", expand=True)
