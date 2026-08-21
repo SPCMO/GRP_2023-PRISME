@@ -81,7 +81,8 @@ def make_scrollable_tab(tab_frame):
 
 
 def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
-                              on_ajouter, on_modifier=None, hauteur=6, largeur=40):
+                              on_ajouter, on_modifier=None, hauteur=6, largeur=40,
+                              couleur_item=None):
     """Listbox + boutons Ajouter/Modifier/Supprimer/Monter/Descendre pour une liste
     Python arbitraire — portage Tkinter du pattern "ajouter/supprimer/monter/descendre"
     de GMAO/app/routes/parametres.py, réutilisé ici pour les pas de temps, les horizons
@@ -95,8 +96,13 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
     - `on_ajouter()` ouvre un dialogue de saisie et renvoie le nouvel item (ou None si
       annulé) ; `on_modifier(item)` fait de même pour l'édition d'un item existant
       (bouton Modifier masqué si non fourni).
+    - `couleur_item(item) -> str|None` optionnel : couleur de texte à appliquer à la
+      ligne (ex. code couleur de couverture des tests déjà réalisés, voir
+      ui/tab_parametrage.py) — None ou omis pour la couleur par défaut.
 
-    Retourne le Frame conteneur, à placer par l'appelant (pack/grid).
+    Retourne le Frame conteneur, à placer par l'appelant (pack/grid). Le Listbox lui-
+    même reste accessible via `cadre.winfo_children()[0]` pour un appelant qui a besoin
+    d'y réagir (ex. `<<ListboxSelect>>`).
     """
     cadre = tk.Frame(parent)
     lb = tk.Listbox(cadre, height=hauteur, width=largeur, exportselection=False)
@@ -106,8 +112,12 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
 
     def _rafraichir(index_a_selectionner=None):
         lb.delete(0, tk.END)
-        for item in obtenir_liste():
+        for i, item in enumerate(obtenir_liste()):
             lb.insert(tk.END, formatter(item))
+            if couleur_item is not None:
+                couleur = couleur_item(item)
+                if couleur:
+                    lb.itemconfig(i, foreground=couleur)
         if index_a_selectionner is not None and 0 <= index_a_selectionner < lb.size():
             lb.selection_set(index_a_selectionner)
 

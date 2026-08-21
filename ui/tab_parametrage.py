@@ -13,6 +13,7 @@ import re
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+from modules import results_store
 from ui.widgets_common import bouton_enregistrer, build_liste_reordonnable, make_label, make_row, make_scrollable_tab, make_section
 
 _MOTIF_DUREE_GRP = re.compile(r"^\d{2}J\d{2}H\d{2}M$")
@@ -22,8 +23,43 @@ NOTE_STRATEGIE = (
     "crues) peut être très longue. Il est recommandé de lancer d'abord une campagne sur "
     "quelques horizons et seuils espacés (grille grossière), puis d'affiner avec une "
     "seconde campagne resserrée autour de la meilleure zone repérée dans le Dashboard — "
-    "les résultats des deux campagnes se cumulent automatiquement."
+    "les résultats des deux campagnes se cumulent automatiquement. Les indicateurs "
+    "[complets/tentés] à côté de chaque horizon/seuil/méthode (vert = tout ce qui a été "
+    "tenté est complet, orange = tenté mais pas encore tout complet) aident à repérer ce "
+    "qui a déjà été suffisamment exploré, pour ne pas le retester inutilement en phase "
+    "d'affinage."
 )
+
+# Vert : tout ce qui a été tenté pour cette valeur est complet (calage + toutes les crues
+# réussies). Orange : au moins une combinaison tentée pour cette valeur, mais pas encore
+# toutes complètes (en cours, ou échecs restants). Pas de couleur : jamais tenté.
+_COULEUR_COUVERTURE_OK = "#1E8449"
+_COULEUR_COUVERTURE_PARTIEL = "#B9770E"
+
+
+def _couleur_couverture(info):
+    if not info or info.get("tentes", 0) == 0:
+        return None
+    return _COULEUR_COUVERTURE_OK if info["complets"] == info["tentes"] else _COULEUR_COUVERTURE_PARTIEL
+
+
+def _texte_badge(info):
+    if not info or info.get("tentes", 0) == 0:
+        return ""
+    return f"  [{info['complets']}/{info['tentes']}]"
+
+
+def _charger_couverture():
+    """Relit l'état actuel des combinaisons déjà tentées en base — voir
+    results_store.resume_couverture. Ne lève jamais : une base absente ou illisible
+    donne juste une couverture vide (aucun badge affiché), pas une erreur bloquante
+    dans un onglet qui n'a normalement rien à voir avec les campagnes déjà lancées."""
+    try:
+        results_store.init_db()
+        with results_store.db_session() as conn:
+            return results_store.resume_couverture(conn)
+    except Exception:
+        return {"horizons": {}, "seuils": {}, "methodes": {}}
 
 
 def _valider_duree_grp(valeur):
@@ -52,6 +88,8 @@ def build_tab_parametrage(tab_frame, app):
              fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
         anchor="w", padx=14, pady=(6, 0))
 
+    couverture = {"data": _charger_couverture()}
+
     # ── Pas de temps + horizons ──────────────────────────────────────────────────
     inn, bg = make_section(frm, "Horizons de calage à tester", "vert")
 
@@ -62,6 +100,15 @@ def build_tab_parametrage(tab_frame, app):
     combo_pdt.pack(side=tk.LEFT, padx=(2, 8))
     ttk.Button(r, text="Paramètres…",
                command=lambda: _ouvrir_parametres(app, _rafraichir_combo_pdt)).pack(side=tk.LEFT)
+
+    ttk.Button(r, text="🔄 Couverture des tests",
+               command=lambda: _rafraichir_couverture()).pack(side=tk.RIGHT)
+    tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "italic"), fg="#555555",
+             text=f"[complets/tentés]  ").pack(side=tk.RIGHT)
+    tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "bold"), fg=_COULEUR_COUVERTURE_PARTIEL,
+             text="partiel  ").pack(side=tk.RIGHT)
+    tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "bold"), fg=_COULEUR_COUVERTURE_OK,
+             text="complet  ").pack(side=tk.RIGHT)
 
     cadre_horizons = tk.Frame(inn, bg=bg)
     cadre_horizons.pack(fill=tk.X, pady=(6, 2))
@@ -109,9 +156,12 @@ def build_tab_parametrage(tab_frame, app):
         for i, h in enumerate(horizons):
             v = tk.BooleanVar(value=h in deja_selectionnes)
             horizon_vars[h] = v
-            tk.Checkbutton(grille, text=h, variable=v, bg=bg,
-                           command=_sauver_selection_horizons).grid(
-                row=i // 5, column=i % 5, sticky="w", padx=4, pady=2)
+            info = couverture["data"]["horizons"].get(h)
+            tk.Checkbutton(
+                grille, text=h + _texte_badge(info), variable=v, bg=bg,
+                fg=_couleur_couverture(info) or "black", selectcolor="white",
+                command=_sauver_selection_horizons,
+            ).grid(row=i // 4, column=i % 4, sticky="w", padx=4, pady=2)
 
     def _tout_horizons(valeur):
         for v in horizon_vars.values():
@@ -156,10 +206,13 @@ def build_tab_parametrage(tab_frame, app):
             messagebox.showerror("Seuil de calage", f"Valeur non numérique : {texte!r}")
             return None
 
-    build_liste_reordonnable(
-        inn2, _obtenir_seuils, _definir_seuils, formatter=lambda v: f"{v:.2f}",
-        on_ajouter=_saisir_seuil, on_modifier=_saisir_seuil, hauteur=4, largeur=20,
-    ).pack(anchor="w", pady=4)
+    liste_seuils = build_liste_reordonnable(
+        inn2, _obtenir_seuils, _definir_seuils,
+        formatter=lambda v: f"{v:.2f}" + _texte_badge(couverture["data"]["seuils"].get(v)),
+        couleur_item=lambda v: _couleur_couverture(couverture["data"]["seuils"].get(v)),
+        on_ajouter=_saisir_seuil, on_modifier=_saisir_seuil, hauteur=4, largeur=24,
+    )
+    liste_seuils.pack(anchor="w", pady=4)
 
     # ── Méthode(s) de correction ─────────────────────────────────────────────────
     inn3, bg3 = make_section(frm, "Méthode(s) de correction des sorties", "teal")
@@ -177,14 +230,34 @@ def build_tab_parametrage(tab_frame, app):
         parametrage["methodes_selectionnees"] = methodes
         app.persist_config()
 
-    tk.Checkbutton(r, text="Tangara (T)", variable=var_t, bg=bg3,
-                   command=_sauver_methodes).pack(side=tk.LEFT, padx=(0, 12))
-    tk.Checkbutton(r, text="Réseau de neurones artificiels (R)", variable=var_r, bg=bg3,
-                   command=_sauver_methodes).pack(side=tk.LEFT)
+    chk_t = tk.Checkbutton(r, variable=var_t, bg=bg3, selectcolor="white",
+                            command=_sauver_methodes)
+    chk_t.pack(side=tk.LEFT, padx=(0, 12))
+    chk_r = tk.Checkbutton(r, variable=var_r, bg=bg3, selectcolor="white",
+                            command=_sauver_methodes)
+    chk_r.pack(side=tk.LEFT)
+
+    def _rafraichir_methodes():
+        info_t = couverture["data"]["methodes"].get("T")
+        info_r = couverture["data"]["methodes"].get("R")
+        chk_t.config(text="Tangara (T)" + _texte_badge(info_t),
+                     fg=_couleur_couverture(info_t) or "black")
+        chk_r.config(text="Réseau de neurones artificiels (R)" + _texte_badge(info_r),
+                     fg=_couleur_couverture(info_r) or "black")
+
+    _rafraichir_methodes()
+
     tk.Label(inn3, bg=bg3, fg="#555555", font=("TkDefaultFont", 8),
              text="Les deux cochées : la campagne lance les runs pour T puis pour R "
                   "successivement (GRP n'accepte qu'une seule méthode par run en mode BDTR).").pack(
         anchor="w", pady=(2, 0))
+
+    # ── Rafraîchissement combiné de la couverture (bouton en haut à droite) ───────
+    def _rafraichir_couverture():
+        couverture["data"] = _charger_couverture()
+        _rafraichir_horizons()
+        liste_seuils.rafraichir()
+        _rafraichir_methodes()
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

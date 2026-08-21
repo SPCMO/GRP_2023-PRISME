@@ -170,6 +170,50 @@ def etat_combinaisons(conn):
     }
 
 
+def resume_couverture(conn):
+    """Résumé de couverture des combinaisons déjà tentées, agrégé indépendamment par
+    valeur de chaque dimension (horizon, seuil_c1, méthode) — ex. pour l'horizon
+    "02J00H00M", toutes les combinaisons impliquant cet horizon, quel que soit le seuil
+    ou la méthode associés. Utilisé par l'onglet Paramétrage pour visualiser, à côté de
+    chaque case/valeur, ce qui a déjà été testé et réussi — support direct de la
+    stratégie grille grossière puis affinage (voir NOTE_STRATEGIE dans
+    ui/tab_parametrage.py) : repérer d'un coup d'œil les valeurs déjà bien couvertes
+    pour ne pas les retester inutilement lors de l'affinage.
+
+    Retourne {"horizons": {...}, "seuils": {...}, "methodes": {...}}, chaque sous-dict
+    associant la valeur à {"tentes": nb de combinaisons impliquant cette valeur,
+    "complets": nb de ces combinaisons entièrement réussies — calage + toutes les crues
+    tentées, même définition que list_combinaisons_completes}.
+
+    ⚠️ N'est PAS filtré par pas de temps (la table `combinaisons` n'a pas cette colonne
+    — un horizon donné n'est en pratique utilisé que par un seul pas de temps à la
+    fois). Si des codes d'horizon venaient à se recouper entre deux pas de temps
+    différents, ce résumé les confondrait — situation qui ne s'est pas encore présentée
+    (seul le pas de temps 15 min a des horizons renseignés à ce jour)."""
+    lignes = conn.execute(
+        """
+        SELECT c.horizon, c.seuil_c1, c.methode, c.statut,
+               COUNT(r.id) AS nb_crues,
+               SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok
+        FROM combinaisons c
+        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id
+        GROUP BY c.id
+        """
+    ).fetchall()
+
+    par_horizon, par_seuil, par_methode = {}, {}, {}
+    for l in lignes:
+        complet = (l["statut"] == "success" and l["nb_crues"] > 0
+                   and l["nb_crues"] == (l["crues_ok"] or 0))
+        for dico, cle in ((par_horizon, l["horizon"]), (par_seuil, l["seuil_c1"]),
+                          (par_methode, l["methode"])):
+            entree = dico.setdefault(cle, {"tentes": 0, "complets": 0})
+            entree["tentes"] += 1
+            if complet:
+                entree["complets"] += 1
+    return {"horizons": par_horizon, "seuils": par_seuil, "methodes": par_methode}
+
+
 def list_combinaisons_completes(conn):
     """Combinaisons dont le calage a réussi ET dont TOUTES les crues tentées sous cette
     combinaison ont réussi (aucun échec parmi les résultats déjà en base) — donc des
