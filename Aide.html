@@ -98,9 +98,20 @@
   <p>Si des combinaisons ou des crues ont échoué (erreur explicite dans le journal), le bouton <b>Relancer les échecs</b> ne refait que le nécessaire : si le calage d'une combinaison a déjà réussi, il n'est pas relancé — seules les crues manquantes ou en échec le sont.</p>
 
   <h3>Onglet Dashboard</h3>
-  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite combinant dQP/dTP/VE/KGE, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
-  <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec la courbe du débit <b>simulé</b> superposée (archivée au moment du rejeu — voir Architecture) et les seuils de vigilance PHyC, pour la crue et la combinaison choisies. Si aucune courbe simulée n'apparaît, c'est que cette combinaison/crue précise n'a pas encore été rejouée (ou que le fichier GRP correspondant était absent au moment du run — message explicite affiché sous le graphique dans ce cas).</p>
-  <p><b>Sensibilité au seuil</b> : évolution du score composite et du KGE moyen en fonction du seuil de calage, à horizon et méthode fixés — utile pour la phase d'affinage évoquée ci-dessus.</p>
+  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
+  <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec une ou plusieurs courbes <b>simulées</b> superposées (sélection multiple des combinaisons, une couleur/légende par combinaison), les 6 seuils de vigilance PHyC (jaune/orange/rouge + zones de transition), et un tableau du maximum + horodatage de chaque courbe tracée. Flèches ◀▶ à côté du menu "Crue" pour naviguer épisode par épisode (retrace automatiquement avec la même sélection de combinaisons). Si aucune courbe simulée n'apparaît pour une combinaison, c'est qu'elle n'a pas encore été rejouée pour cette crue précise.</p>
+  <p><b>Sensibilité au seuil</b> : évolution du score composite en fonction du seuil de calage, pour un ou plusieurs horizons superposés (sélection multiple, une couleur par horizon) à méthode fixée.</p>
+  <p><b>Vue 3D</b> : nuage de points horizon × seuil × score composite — couleur du point = score (vert = meilleur), forme du marqueur = méthode (rond T, triangle R), meilleure combinaison mise en évidence par une étoile dorée avec le détail de ses indicateurs. Vue orientable à la souris (clic-glisser).</p>
+
+  <h3>Score composite (Dashboard)</h3>
+  <p>Calculé <b>uniquement sur les combinaisons actuellement affichées</b> (jamais sur une seule, ni sur toute la base) :</p>
+  <ol style="margin:0 0 .6rem 1.2rem; padding:0;">
+    <li>Pour chaque combinaison, erreur moyenne (sur ses crues réussies) de 4 indicateurs : |dQP| (%), |dTP| (pas de temps), |VE| (%), et (1 − KGE).</li>
+    <li>Chaque indicateur normalisé entre 0 (meilleure valeur observée parmi <i>toutes</i> les combinaisons affichées) et 1 (la pire) — échelle <b>relative à ce qui est affiché</b>, pas absolue.</li>
+    <li>Score final = moyenne des 4 indicateurs normalisés, <b>à poids égaux</b> (25 % chacun).</li>
+    <li>dTP traité <b>symétriquement</b> : une avance compte comme un retard de même ampleur.</li>
+  </ol>
+  <p>Ce même texte est accessible dans l'outil via le bouton <b>ⓘ</b> à côté de chaque "Score composite" (voir <code>modules/score.EXPLICATION_SCORE</code>). Le calcul lui-même n'a volontairement <b>pas</b> été modifié pour privilégier dQP ou l'avance sur le retard (demande métier des modélisateurs) — voir plutôt l'analyse comparative dans le changelog ci-dessous, qui chiffre l'écart sans toucher au score utilisé par l'outil.</p>
 </section>
 
 <section id="archi-simple">
@@ -431,6 +442,21 @@
   <div class="changelog-entry">
     <div class="changelog-date">21 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Bouton "ⓘ" à côté de chaque "Score composite" (Dashboard &gt; Vue synthèse / Sensibilité au seuil / Vue 3D, et Campagne &gt; "Combinaisons déjà réalisées") expliquant la méthode de calcul exacte (normalisation min-max relative à l'ensemble affiché, moyenne à poids égaux des 4 indicateurs, dTP traité symétriquement avance/retard) — texte centralisé dans <code>modules/score.EXPLICATION_SCORE</code>.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Analyse (score non modifié)</span> Demande métier des modélisateurs : privilégier un |dQP| plus petit et une avance plutôt qu'un retard de même ampleur sur dTP. Le score composite réellement utilisé par l'outil n'a <b>pas</b> été modifié (poids égaux, dTP symétrique — voir ci-dessus). Une variante (poids dQP=3/dTP=2/VE=1/KGE=1, retard ×1,25, avance ×0,75) a été testée sur les 200 résultats réels alors en base (20 combinaisons) : le classement de tête est stable (n°1 et top 3 identiques dans les deux approches), mais 5 combinaisons du milieu de classement bougent de 4 à 5 rangs (ex. <code>00J12H00M/10.0/R</code> et <code>00J06H00M/0.0/T</code> progressent de 5 places, <code>00J06H00M/10.0/R</code> et <code>01J00H00M/0.0/T·10.0/T</code> reculent de 4 places) — ces combinaisons compensent un dQP/dTP moins bon par un VE/KGE meilleur, que le score actuel valorise autant mais que l'approche métier pénaliserait davantage.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Détail par crue : les flèches ◀▶ retracent désormais automatiquement (plus besoin de recliquer sur "Tracer") en conservant la même sélection de combinaisons — par identité horizon/seuil/méthode, pas par position dans la liste, qui peut différer d'une crue à l'autre. Idem pour une sélection manuelle dans le menu déroulant "Crue". Le débit maximum observé (valeur + horodatage) est désormais aussi annoté directement sur le graphique (point marqué + encart), en plus de la ligne déjà présente dans le tableau récapitulatif — même principe que OPALE v2.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue 3D : la légende affiche désormais, sous "Meilleure combinaison", le détail complet (horizon/seuil/méthode, score composite, |dQP|, |dTP|, |VE|, 1−KGE) de cette combinaison. Légende déplacée hors du graphique (ancrée à gauche des axes) pour ne plus jamais recouvrir le nuage de points.</p>
   </div>
 
   <div class="changelog-entry">

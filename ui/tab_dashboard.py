@@ -282,7 +282,9 @@ def _build_detail(frame, app):
     def _changer_crue(delta):
         """Passe à la crue précédente/suivante (ordre chronologique de la liste
         déroulante) — évite d'avoir à rouvrir le menu déroulant pour parcourir les
-        épisodes un par un."""
+        épisodes un par un. Conserve la même sélection de combinaisons (par identité
+        horizon/seuil/méthode, pas par position dans la liste — qui peut changer d'une
+        crue à l'autre) et retrace automatiquement, sans avoir à recliquer sur Tracer."""
         dates = list(combo_crue["values"])
         if not dates or var_crue.get() not in dates:
             return
@@ -291,15 +293,32 @@ def _build_detail(frame, app):
             return  # déjà au premier/dernier épisode, rien à faire
         var_crue.set(dates[nouvel_index])
         _rafraichir_combis()
+        _tracer()
 
-    def _rafraichir_combis(*_evt):
+    def _rafraichir_combis(*_evt, garder_selection=True):
+        # Mémorise la sélection actuelle PAR IDENTITÉ (horizon, seuil, méthode) avant de
+        # reconstruire la liste — la position dans la liste n'est pas stable d'une crue à
+        # l'autre (certaines combinaisons peuvent ne pas avoir réussi pour la nouvelle
+        # crue), donc se souvenir d'un simple index sélectionnerait la mauvaise ligne.
+        identites_gardees = set()
+        if garder_selection:
+            combis_avant = getattr(liste_combis, "_valeurs", [])
+            identites_gardees = {(combis_avant[i][0], combis_avant[i][1], combis_avant[i][2])
+                                  for i in liste_combis.curselection()}
+
         combis = _combinaisons_disponibles_pour_crue(var_crue.get())
         liste_combis.delete(0, tk.END)
         for h, s, m, _cid in combis:
             liste_combis.insert(tk.END, f"{h} / seuil {s:.2f} / {m}")
         liste_combis._valeurs = combis
-        if combis:
-            liste_combis.selection_set(0)  # au moins une courbe simulée par défaut
+
+        indices_a_restaurer = [i for i, (h, s, m, _cid) in enumerate(combis)
+                                if (h, s, m) in identites_gardees]
+        if indices_a_restaurer:
+            for i in indices_a_restaurer:
+                liste_combis.selection_set(i)
+        elif combis:
+            liste_combis.selection_set(0)  # repli : au moins une courbe simulée par défaut
 
     def _selectionner_toutes(valeur):
         if valeur:
@@ -359,6 +378,16 @@ def _build_detail(frame, app):
             if valeur_max is not None:
                 tableau_max.insert("", tk.END, values=(
                     "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}"))
+                # Annotation directement sur le graphique (même principe que OPALE v2 :
+                # point marqué + valeur/horodatage dans un encart), en plus de la ligne
+                # déjà présente dans le tableau récapitulatif ci-dessous.
+                ax.plot(date_max, valeur_max, "o", color="#1F1F1F", markersize=5, zorder=5)
+                ax.annotate(
+                    f"Q max obs\n{valeur_max:.1f} m³/s\n{date_max:%d/%m/%Y %H:%M}",
+                    xy=(date_max, valeur_max), xytext=(8, 10), textcoords="offset points",
+                    fontsize=7.5, color="#1F1F1F", fontweight="bold", linespacing=1.3,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#1F1F1F", alpha=0.85),
+                )
 
         # Une ou plusieurs séries simulées archivées (voir modules.run_orchestrator —
         # archivage à chaque rejeu, car Sorties/ n'expose que le DERNIER rejeu effectué)
@@ -418,7 +447,7 @@ def _build_detail(frame, app):
         var_indicateurs.set(texte)
 
     combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())
-    combo_crue.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_combis())
+    combo_crue.bind("<<ComboboxSelected>>", lambda *_: (_rafraichir_combis(), _tracer()))
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]
@@ -585,11 +614,22 @@ def _build_vue3d(frame, app):
             )
         fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1, label="Score composite (0=meilleur)")
 
-        # Meilleure combinaison mise en évidence (score le plus bas = le plus vert).
+        # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
+        # détail (paramètres + les 4 indicateurs moyens qui composent son score) est
+        # inclus directement dans le libellé de légende de cette étoile — matplotlib
+        # affiche un label multi-lignes comme une seule entrée de légende.
         meilleur = min(scores, key=lambda s: s.score)
+        m = meilleur.moyennes_erreur
+        libelle_meilleure = (
+            "Meilleure combinaison\n"
+            f"Horizon {meilleur.horizon} / seuil {meilleur.seuil_c1:.2f} / méthode {meilleur.methode}\n"
+            f"Score composite : {meilleur.score:.3f}\n"
+            f"|dQP| {m.get('dqp'):.2f}%   |dTP| {m.get('dtp'):.2f} pdt\n"
+            f"|VE| {m.get('ve'):.2f}%   (1−KGE) {m.get('kge'):.2f}"
+        )
         ax.scatter([_horizon_en_minutes(meilleur.horizon)], [meilleur.seuil_c1], [meilleur.score],
                    marker="*", s=400, color="gold", edgecolors="#333333", linewidths=0.8,
-                   label="Meilleure combinaison")
+                   label=libelle_meilleure)
         var_meilleure.set(
             f"★ Meilleure combinaison : horizon {meilleur.horizon} / seuil "
             f"{meilleur.seuil_c1:.2f} / méthode {meilleur.methode} — score "
@@ -603,7 +643,11 @@ def _build_vue3d(frame, app):
         ax.set_xlabel("Horizon", labelpad=14, fontsize=8)
         ax.set_ylabel("Seuil de calage (m³/s)", labelpad=8, fontsize=8)
         ax.set_zlabel("Score composite (0=meilleur)", fontsize=8)
-        ax.legend(loc="upper left", fontsize=7.5)
+        # Légende sortie du graphique, ancrée à gauche des axes (bbox_to_anchor avec un
+        # x négatif) pour ne jamais recouvrir le nuage de points — la marge de figure à
+        # gauche est agrandie en conséquence pour qu'elle reste entièrement visible.
+        fig.subplots_adjust(left=0.32)
+        ax.legend(loc="center left", bbox_to_anchor=(-0.55, 0.5), fontsize=7)
         canvas.draw_idle()
 
     _rafraichir()
