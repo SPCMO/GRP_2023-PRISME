@@ -170,6 +170,64 @@ def etat_combinaisons(conn):
     }
 
 
+def duree_moyenne_par_combinaison(conn, seuil_idle_minutes=35):
+    """Estime la durée réelle (calage + rejeu de toutes ses crues) prise par chaque
+    combinaison déjà traitée, à partir des horodatages `date_maj` déjà enregistrés —
+    aucun chronométrage dédié n'existe, donc on reconstitue une frise chronologique
+    unique de tous les événements (fin de calage d'une combinaison, fin de rejeu d'une
+    crue), tous combinaisons confondues, triée par date. L'écart entre deux événements
+    consécutifs est attribué comme durée de l'étape qui vient de se terminer — valide
+    tant que le traitement reste strictement séquentiel (jamais deux combinaisons/crues
+    en parallèle, voir modules.run_orchestrator).
+
+    ⚠️ Une session fermée puis relancée en plein milieu du traitement d'une
+    combinaison laisse un grand écart de temps qui n'a rien à voir avec un calcul réel
+    (l'app était juste fermée) — `seuil_idle_minutes` sert de garde-fou : un écart plus
+    grand n'est pas compté comme une durée d'étape. Une combinaison dont au moins une
+    étape a ainsi été ignorée est exclue de la moyenne (mesure incomplète, potentiellement
+    sous-estimée) plutôt que d'y contribuer avec un chiffre faussé.
+
+    Retourne {"moyenne_minutes": float|None, "nb_mesurees": int,
+    "moyenne_par_methode": {"T": float|None, "R": float|None}}."""
+    combos = conn.execute("SELECT id, methode, date_maj FROM combinaisons").fetchall()
+    crues = conn.execute("SELECT combinaison_id, date_maj FROM resultats_crues").fetchall()
+
+    methode_par_id = {c["id"]: c["methode"] for c in combos}
+    evenements = [(datetime.fromisoformat(c["date_maj"]), c["id"]) for c in combos]
+    evenements += [(datetime.fromisoformat(r["date_maj"]), r["combinaison_id"]) for r in crues]
+    evenements.sort(key=lambda e: e[0])
+
+    nb_pas_total = {}
+    for _date, cid in evenements:
+        nb_pas_total[cid] = nb_pas_total.get(cid, 0) + 1
+
+    durees_par_combo = {}
+    for i in range(1, len(evenements)):
+        t_prec, _cid_prec = evenements[i - 1]
+        t_cur, cid_cur = evenements[i]
+        delta_min = (t_cur - t_prec).total_seconds() / 60
+        if 0 < delta_min <= seuil_idle_minutes:
+            durees_par_combo.setdefault(cid_cur, []).append(delta_min)
+
+    totaux, totaux_par_methode = [], {"T": [], "R": []}
+    for cid, valeurs in durees_par_combo.items():
+        if len(valeurs) != nb_pas_total.get(cid, 0):
+            continue  # au moins une étape ignorée (coupure de session) -> mesure incomplète
+        total = sum(valeurs)
+        totaux.append(total)
+        methode = methode_par_id.get(cid)
+        if methode in totaux_par_methode:
+            totaux_par_methode[methode].append(total)
+
+    return {
+        "moyenne_minutes": (sum(totaux) / len(totaux)) if totaux else None,
+        "nb_mesurees": len(totaux),
+        "moyenne_par_methode": {
+            m: (sum(v) / len(v)) if v else None for m, v in totaux_par_methode.items()
+        },
+    }
+
+
 def resume_couverture(conn):
     """Résumé de couverture des combinaisons déjà tentées, agrégé indépendamment par
     valeur de chaque dimension (horizon, seuil_c1, méthode) — ex. pour l'horizon

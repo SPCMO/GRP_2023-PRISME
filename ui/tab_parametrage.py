@@ -62,6 +62,37 @@ def _charger_couverture():
         return {"horizons": {}, "seuils": {}, "methodes": {}}
 
 
+def _charger_duree():
+    """Relit l'estimation de durée moyenne par combinaison — voir
+    results_store.duree_moyenne_par_combinaison. Ne lève jamais, comme
+    _charger_couverture ci-dessus."""
+    try:
+        results_store.init_db()
+        with results_store.db_session() as conn:
+            return results_store.duree_moyenne_par_combinaison(conn)
+    except Exception:
+        return {"moyenne_minutes": None, "nb_mesurees": 0, "moyenne_par_methode": {"T": None, "R": None}}
+
+
+def _texte_duree(info):
+    if not info or not info.get("nb_mesurees"):
+        return ("Durée moyenne par combinaison (calage + rejeu de ses crues) : pas encore assez "
+                "de données mesurées.")
+    par_methode = info.get("moyenne_par_methode", {})
+    detail_methodes = []
+    for m, libelle in (("T", "Tangara"), ("R", "réseau de neurones")):
+        v = par_methode.get(m)
+        if v is not None:
+            detail_methodes.append(f"{libelle} ≈ {v:.0f} min")
+    texte_detail = f" ({', '.join(detail_methodes)})" if detail_methodes else ""
+    return (
+        f"Durée moyenne observée par combinaison (calage + rejeu de ses crues) : "
+        f"≈ {info['moyenne_minutes']:.0f} min{texte_detail} — sur {info['nb_mesurees']} "
+        "combinaison(s) mesurée(s) (estimation à partir des horodatages du journal, pas "
+        "un chronométrage dédié)."
+    )
+
+
 def _valider_duree_grp(valeur):
     """Valide le format xxJxxHxxM (horizons et codes de pas de temps GRP). Lève
     ValueError explicite plutôt que de laisser passer une valeur qui ferait échouer
@@ -87,6 +118,11 @@ def build_tab_parametrage(tab_frame, app):
     tk.Label(frm, text=NOTE_STRATEGIE, wraplength=820, justify=tk.LEFT,
              fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
         anchor="w", padx=14, pady=(6, 0))
+
+    var_duree = tk.StringVar(value=_texte_duree(_charger_duree()))
+    tk.Label(frm, textvariable=var_duree, wraplength=820, justify=tk.LEFT,
+             fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
+        anchor="w", padx=14, pady=(2, 0))
 
     couverture = {"data": _charger_couverture()}
 
@@ -258,6 +294,7 @@ def build_tab_parametrage(tab_frame, app):
         _rafraichir_horizons()
         liste_seuils.rafraichir()
         _rafraichir_methodes()
+        var_duree.set(_texte_duree(_charger_duree()))
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)
