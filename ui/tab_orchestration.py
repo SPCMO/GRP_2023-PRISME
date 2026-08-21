@@ -68,6 +68,9 @@ def build_tab_orchestration(tab_frame, app):
     btn_annuler = ttk.Button(r, text="Annuler", state="disabled")
     btn_annuler.pack(side=tk.LEFT)
 
+    btn_completes = ttk.Button(r, text="Combinaisons déjà réalisées")
+    btn_completes.pack(side=tk.RIGHT)
+
     r = make_row(inn, bg)
     var_resume = tk.StringVar(value="Aucune campagne lancée.")
     tk.Label(r, textvariable=var_resume, bg=bg, font=("TkDefaultFont", 9, "italic")).pack(anchor="w")
@@ -149,6 +152,7 @@ def build_tab_orchestration(tab_frame, app):
         etat["combinaisons"] = {}
         barre.config(maximum=max(etat["total_etapes"], 1), value=0)
         tableau.delete(*tableau.get_children())
+        results_store.init_db()  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
         with results_store.db_session() as conn:
             etats_connus = results_store.etat_combinaisons(conn)
         for h, s, m in combinaisons:
@@ -212,6 +216,50 @@ def build_tab_orchestration(tab_frame, app):
             _log("--- Annulation demandée : arrêt à la fin de l'étape en cours "
                  "(l'exécutable GRP actuellement lancé n'est jamais interrompu en "
                  "plein milieu) ---")
+
+    # ── Fenêtre "Combinaisons déjà réalisées" ────────────────────────────────────
+    def _afficher_combinaisons_completes():
+        """Ouvre une fenêtre listant les combinaisons dont le calage ET toutes les
+        crues tentées ont réussi (voir results_store.list_combinaisons_completes) — ce
+        qui est déjà acquis en base, persisté (data/runs.sqlite3), donc conservé même
+        après fermeture de l'outil ou entre plusieurs campagnes successives."""
+        try:
+            results_store.init_db()  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
+            with results_store.db_session() as conn:
+                lignes = results_store.list_combinaisons_completes(conn)
+        except Exception as e:
+            messagebox.showerror("Combinaisons déjà réalisées",
+                                  f"Impossible de lire les résultats déjà en base : {e}")
+            return
+
+        fenetre = tk.Toplevel(app)
+        fenetre.title("Combinaisons déjà réalisées (calage + toutes les crues réussies)")
+        fenetre.geometry("620x420")
+
+        if not lignes:
+            tk.Label(fenetre, text="Aucune combinaison entièrement réussie pour l'instant.",
+                      font=("TkDefaultFont", 10, "italic"), pady=20).pack()
+        else:
+            tk.Label(fenetre, text=f"{len(lignes)} combinaison(s) déjà réalisée(s) et complète(s) "
+                                    "(persistées en base, conservées entre les campagnes) :",
+                      anchor="w", pady=6).pack(fill=tk.X, padx=8)
+            colonnes = ("horizon", "seuil", "methode", "crues_ok", "date_maj")
+            arbre = ttk.Treeview(fenetre, columns=colonnes, show="headings", height=15)
+            entetes_c = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
+                         "crues_ok": "Crues réussies", "date_maj": "Dernière mise à jour"}
+            for col in colonnes:
+                arbre.heading(col, text=entetes_c[col])
+                arbre.column(col, width=110, anchor="center")
+            arbre.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+            for ligne in lignes:
+                arbre.insert("", tk.END, values=(
+                    ligne["horizon"], f"{ligne['seuil_c1']:.2f}", ligne["methode"],
+                    ligne["crues_ok"], ligne["date_maj"],
+                ))
+
+        ttk.Button(fenetre, text="Fermer", command=fenetre.destroy).pack(pady=(0, 10))
+
+    btn_completes.config(command=_afficher_combinaisons_completes)
 
     def _traiter_evenement(evt):
         if evt.etape == "campagne":

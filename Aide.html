@@ -344,6 +344,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Constaté sur une vraie campagne de 2800 étapes : après un clic sur <b>Annuler</b>, les boutons restaient grisés le temps que l'étape en cours se termine (l'exécutable GRP en cours n'est jamais interrompu en plein milieu, pour ne pas laisser de fichiers à moitié écrits) — comportement volontaire mais peu explicite. Le message d'annulation précise désormais clairement cette attente. Corrigé aussi : "Relancer les échecs" remettait <i>toutes</i> les lignes du tableau à "pending", y compris les combinaisons déjà réussies et non retouchées par ce relancement, laissant croire à tort que toute la campagne recommençait — le tableau affiche maintenant le vrai dernier statut connu en base au lancement (<code>modules/results_store.etat_combinaisons</code>).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Bouton <b>"Combinaisons déjà réalisées"</b> à droite du bandeau "Lancement de la campagne" (onglet Campagne) : liste, dans une fenêtre dédiée, toutes les combinaisons horizon×seuil×méthode dont le calage <i>et</i> toutes les crues tentées ont réussi — persisté en base (<code>data/runs.sqlite3</code>), donc conservé entre plusieurs campagnes successives et après fermeture de l'outil.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

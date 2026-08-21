@@ -170,6 +170,28 @@ def etat_combinaisons(conn):
     }
 
 
+def list_combinaisons_completes(conn):
+    """Combinaisons dont le calage a réussi ET dont TOUTES les crues tentées sous cette
+    combinaison ont réussi (aucun échec parmi les résultats déjà en base) — donc des
+    résultats acquis et exploitables tels quels, sans attendre la fin d'une campagne
+    entière. Affiché à l'utilisateur (onglet Campagne) pour qu'il sache ce qui est déjà
+    fait avant de relancer une nouvelle campagne, potentiellement avec une sélection de
+    crues différente."""
+    return conn.execute(
+        """
+        SELECT c.horizon, c.seuil_c1, c.methode, c.date_maj,
+               COUNT(r.id) AS nb_crues,
+               SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok
+        FROM combinaisons c
+        JOIN resultats_crues r ON r.combinaison_id = c.id
+        WHERE c.statut = 'success'
+        GROUP BY c.id
+        HAVING COUNT(r.id) = SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END)
+        ORDER BY c.horizon, c.seuil_c1, c.methode
+        """
+    ).fetchall()
+
+
 def list_combinaisons(conn, statut=None):
     if statut:
         return conn.execute(
