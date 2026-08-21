@@ -339,6 +339,11 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Trouvé lors du premier vrai calage sur poste réel : <code>04-Creation_Base_Temps_reel_GRP.exe</code> demande en réalité <b>3</b> réponses interactives, pas 2 — un dernier "Pressez la touche Entrée pour continuer" apparaît une fois le calage terminé <b>avec succès</b>. Le script d'origine (et la première version de <code>modules/grp_runner.py</code>) n'envoyait que 2 réponses, fermant l'entrée standard trop tôt : GRP plantait sur cette 3ᵉ lecture ("Fortran runtime error: End of file") et remontait un code d'erreur — alors que le calage avait réellement abouti (PARAM.DAT, fiches et incertitudes bien générés). Une 3ᵉ réponse vide a été ajoutée.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

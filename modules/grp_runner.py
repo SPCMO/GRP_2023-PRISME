@@ -36,6 +36,14 @@ def run_calage(exe04_path, timeout=1800):
     Reprend la séquence stdin du script d'origine ("2\\no\\n" — validation des options
     par défaut de l'exe interactif), mais vérifie explicitement le code retour au lieu de
     l'ignorer.
+
+    ⚠️ Un 3ᵉ prompt interactif ("Pressez la touche Entrée pour continuer") apparaît à la
+    toute fin de l'exécution, une fois le calage réellement terminé avec succès (constaté
+    en conditions réelles : PARAM.DAT écrit, fiches et incertitudes générées...). Le
+    script d'origine ne l'envoyait pas ("2\\no\\n" seulement) : stdin se fermait avant que
+    GRP ne le lise, provoquant un plantage Fortran ("End of file" sur l'unité stdin) et un
+    code retour non nul — alors que le calage avait en réalité abouti. D'où le "\\n" final
+    ci-dessous, absent du script d'origine.
     """
     exe04_path = Path(exe04_path)
     if not exe04_path.is_file():
@@ -44,7 +52,7 @@ def run_calage(exe04_path, timeout=1800):
     try:
         result = subprocess.run(
             [str(exe04_path)],
-            input="2\no\n",
+            input="2\no\n\n",
             capture_output=True,
             text=True,
             encoding=ENCODING_CONSOLE_GRP,
