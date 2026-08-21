@@ -364,6 +364,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Une fois le bug des 2 PDF corrigé, le premier vrai rejeu abouti a révélé que <code>Fiche_controle_&lt;code_site&gt;_&lt;pas_de_temps&gt;.pdf</code> tient en réalité sur UNE SEULE page (infos station et tableau d'indicateurs regroupés), et non 2 comme supposé jusqu'ici (hypothèse jamais vérifiée faute d'un rejeu abouti). <code>modules/fiche_controle_pdf.extraire_resultat</code> accepte désormais un PDF à 1 page (la même page sert alors aux deux recherches). Nouveau script <code>Test_Fiche_PDF.py</code> (lecture seule) pour inspecter le texte brut d'un PDF Fiche_controle et vérifier hors campagne que les bons indicateurs sont bien extraits.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> La fenêtre "Combinaisons déjà réalisées" a désormais un bouton <b>Rafraîchir</b> : utilisable pendant qu'une campagne tourne en arrière-plan pour voir apparaître les combinaisons au fur et à mesure qu'elles deviennent complètes, sans avoir à fermer/rouvrir la fenêtre.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

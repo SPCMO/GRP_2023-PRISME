@@ -65,16 +65,22 @@ def extraire_resultat(chemin_pdf):
     dQP/dTP/VE/KGE ne sont pas trouvés (jamais un résultat partiel silencieux : mieux
     vaut un échec explicite de cette crue que des statistiques faussées plus tard dans
     le dashboard).
+
+    ⚠️ Constaté en conditions réelles (premier rejeu réellement abouti, une fois le bug
+    des 2 PDF corrigé — voir modules.grp_runner) : le PDF `Fiche_controle_<code_site>_
+    <pas_de_temps>.pdf` tient en réalité sur UNE SEULE page (infos station ET tableau
+    d'indicateurs regroupés), contrairement à l'hypothèse "page 1 = station, page 2 =
+    indicateurs" — jamais vérifiée avant faute d'un rejeu abouti. On garde cette
+    hypothèse pour un éventuel PDF à 2 pages (rétro-compatibilité), mais un PDF à 1
+    page est désormais accepté : la même page sert alors de source pour les deux
+    recherches (station et indicateurs).
     """
     try:
         with pdfplumber.open(chemin_pdf) as pdf:
-            if len(pdf.pages) < 2:
-                raise FicheControleError(
-                    f"{chemin_pdf} : PDF à {len(pdf.pages)} page(s), 2 attendues "
-                    "(page 1 = infos station, page 2 = indicateurs de performance)."
-                )
+            if len(pdf.pages) < 1:
+                raise FicheControleError(f"{chemin_pdf} : PDF vide (0 page).")
             texte_p1 = pdf.pages[0].extract_text() or ""
-            texte_p2 = pdf.pages[1].extract_text() or ""
+            texte_p2 = (pdf.pages[1].extract_text() or "") if len(pdf.pages) >= 2 else texte_p1
     except FicheControleError:
         raise
     except Exception as e:
