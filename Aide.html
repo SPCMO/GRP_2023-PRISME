@@ -379,6 +379,11 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif ergonomie</span> Question légitime remontée par l'utilisateur : un score à 0.000 pour une combinaison unique dans la fenêtre "Combinaisons déjà réalisées" ressemblait à un signe de mauvaise extraction. C'est en fait un artefact attendu : le score est normalisé min-max SUR L'ENSEMBLE affiché — avec une seule combinaison, elle est à la fois le min et le max, donc 0 par construction, indépendamment de la qualité réelle du calage. Les moyennes brutes |dQP|/|dTP|/|VE|/(1-KGE) sont désormais affichées à côté du score pour vérifier la plausibilité des indicateurs sans attendre d'avoir plusieurs combinaisons à comparer.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

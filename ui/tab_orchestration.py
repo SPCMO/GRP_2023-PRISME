@@ -255,20 +255,30 @@ def build_tab_orchestration(tab_frame, app):
         temps réel dans le tableau "Combinaisons testées" ci-dessous."""
         fenetre = tk.Toplevel(app)
         fenetre.title("Combinaisons déjà réalisées (calage + toutes les crues réussies)")
-        fenetre.geometry("700x460")
+        fenetre.geometry("980x460")
 
         entete_var = tk.StringVar()
         tk.Label(fenetre, textvariable=entete_var, anchor="w", pady=6,
-                  wraplength=680, justify="left").pack(fill=tk.X, padx=8)
+                  wraplength=960, justify="left").pack(fill=tk.X, padx=8)
 
-        colonnes = ("horizon", "seuil", "methode", "score", "crues_ok", "date_maj")
+        # Le score composite seul n'est pas interprétable avec peu de combinaisons
+        # complètes (il est normalisé min-max SUR CET ENSEMBLE : avec une seule
+        # combinaison, min=max=elle-même, donc score=0 par construction, quelle que
+        # soit la qualité réelle du calage — pas une preuve de mauvaise/bonne
+        # extraction). Les moyennes brutes |dQP|/|dTP|/|VE|/(1-KGE) (mêmes valeurs que
+        # score.ScoreCombinaison.moyennes_erreur) sont donc affichées à côté, pour
+        # vérifier d'un coup d'œil que les indicateurs extraits sont plausibles,
+        # indépendamment du nombre de combinaisons déjà comparées.
+        colonnes = ("horizon", "seuil", "methode", "score", "dqp", "dtp", "ve", "kge",
+                    "crues_ok", "date_maj")
         arbre = ttk.Treeview(fenetre, columns=colonnes, show="headings", height=15)
         entetes_c = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
-                     "score": "Score (0=meilleur)", "crues_ok": "Crues réussies",
-                     "date_maj": "Dernière mise à jour"}
+                     "score": "Score (0=meilleur, relatif)", "dqp": "|dQP| moy (%)",
+                     "dtp": "|dTP| moy (pdt)", "ve": "|VE| moy (%)", "kge": "(1-KGE) moy",
+                     "crues_ok": "Crues réussies", "date_maj": "Dernière mise à jour"}
         for col in colonnes:
             arbre.heading(col, text=entetes_c[col])
-            arbre.column(col, width=110, anchor="center")
+            arbre.column(col, width=95, anchor="center")
         arbre.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
         def _rafraichir():
@@ -288,13 +298,22 @@ def build_tab_orchestration(tab_frame, app):
                 return
             entete_var.set(f"{len(scores)} combinaison(s) déjà réalisée(s) et complète(s), "
                             "triées de la meilleure à la moins bonne (score composite, "
-                            "voir Dashboard > Vue synthèse) :")
+                            "voir Dashboard > Vue synthèse). Avec 1 seule combinaison "
+                            "complète, un score à 0 est normal (rien à comparer) — fiez-"
+                            "vous aux moyennes |dQP|/|dTP|/|VE|/(1-KGE) tant qu'il n'y en "
+                            "a pas plusieurs.")
+
+            def _fmt(valeur):
+                return f"{valeur:.2f}" if valeur is not None else "—"
+
             for s in scores:  # déjà trié meilleur -> moins bon par score.calculer_scores
                 cle = (s.horizon, s.seuil_c1, s.methode)
                 texte_score = f"{s.score:.3f}" if s.score is not None else "—"
+                m = s.moyennes_erreur
                 arbre.insert("", tk.END, values=(
-                    s.horizon, f"{s.seuil_c1:.2f}", s.methode, texte_score, s.nb_crues,
-                    dates_maj.get(cle, ""),
+                    s.horizon, f"{s.seuil_c1:.2f}", s.methode, texte_score,
+                    _fmt(m.get("dqp")), _fmt(m.get("dtp")), _fmt(m.get("ve")), _fmt(m.get("kge")),
+                    s.nb_crues, dates_maj.get(cle, ""),
                 ))
 
         barre_boutons = tk.Frame(fenetre)
