@@ -10,11 +10,21 @@ from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.widgets_common import make_label, make_row, make_scrollable_tab, make_section
 
-# Libellés affichés à l'utilisateur pour chaque couleur de seuil de vigilance PHyC (débit).
+# Libellés affichés à l'utilisateur pour chaque couleur de seuil de vigilance PHyC (débit),
+# avec la couleur de texte associée — mêmes teintes que les zones de vigilance tracées
+# dans OPALE v2 (main.py, seuils sur les graphiques Q), pour rester cohérent visuellement
+# entre les outils du SPCMO. Organisés par paire (ZT/principal) pour l'affichage en grille
+# 2 colonnes × 3 lignes : une ligne par couleur de vigilance.
 LIBELLES_SEUILS_Q = (
-    ("zt_jaune", "ZT jaune"), ("jaune", "Jaune"),
-    ("zt_orange", "ZT orange"), ("orange", "Orange"),
-    ("zt_rouge", "ZT rouge"), ("rouge", "Rouge"),
+    ("zt_jaune", "ZT Jaune", "#9A7D0A"), ("jaune", "Jaune", "#9A7D0A"),
+    ("zt_orange", "ZT Orange", "#784212"), ("orange", "Orange", "#784212"),
+    ("zt_rouge", "ZT Rouge", "#641E16"), ("rouge", "Rouge", "#641E16"),
+)
+# Regroupées par ligne (ZT + principal d'une même couleur) pour la grille 2×3.
+LIGNES_SEUILS_Q = (
+    (LIBELLES_SEUILS_Q[0], LIBELLES_SEUILS_Q[1]),
+    (LIBELLES_SEUILS_Q[2], LIBELLES_SEUILS_Q[3]),
+    (LIBELLES_SEUILS_Q[4], LIBELLES_SEUILS_Q[5]),
 )
 
 
@@ -25,7 +35,7 @@ def build_tab_config(tab_frame, app):
     frm = make_scrollable_tab(tab_frame)
 
     # ── Bloc 1 — Dossiers de travail ────────────────────────────────────────────
-    inn, bg = make_section(frm, "Dossiers de travail", "bleu")
+    inn, bg = make_section(frm, "Dossiers de travail", "ocre")
 
     chemins_vars = {}
     champs_chemins = (
@@ -77,7 +87,7 @@ def build_tab_config(tab_frame, app):
     ent_nom.bind("<FocusOut>", _valider_nom_station)
 
     # ── Bloc 2 — Identification station via PHyC ────────────────────────────────
-    inn2, bg2 = make_section(frm, "Identification station (PHyC)", "rouge")
+    inn2, bg2 = make_section(frm, "Identification station (PHyC)", "gris")
 
     r = make_row(inn2, bg2)
     make_label(r, "Code station (ex. Y161202001) :", bg2, width=30)
@@ -98,15 +108,26 @@ def build_tab_config(tab_frame, app):
              font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT)
 
     # Grille des 6 seuils de vigilance en débit (m3/s) — remplie après identification.
-    r = make_row(inn2, bg2)
+    # 2 colonnes × 3 lignes (une ligne par couleur : ZT + seuil principal), texte coloré
+    # par couleur de vigilance (mêmes teintes que les seuils tracés dans OPALE v2).
+    grille_seuils = tk.Frame(inn2, bg=bg2)
+    grille_seuils.pack(anchor="w", pady=(2, 4))
     vars_seuils = {}
-    for cle, libelle in LIBELLES_SEUILS_Q:
-        cadre = tk.Frame(r, bg=bg2)
-        cadre.pack(side=tk.LEFT, padx=6)
-        tk.Label(cadre, text=libelle, bg=bg2, font=("TkDefaultFont", 8)).pack()
-        var = tk.StringVar(value="—")
-        vars_seuils[cle] = var
-        tk.Label(cadre, textvariable=var, bg=bg2, font=("TkDefaultFont", 9, "bold")).pack()
+    for num_ligne, ((cle_zt, libelle_zt, couleur), (cle_prin, libelle_prin, _)) in enumerate(LIGNES_SEUILS_Q):
+        for decalage_colonne, (cle, libelle) in enumerate(((cle_zt, libelle_zt), (cle_prin, libelle_prin))):
+            col0 = decalage_colonne * 3
+            tk.Label(grille_seuils, text=f"{libelle} :", bg=bg2, fg=couleur,
+                     font=("TkDefaultFont", 9, "bold"), anchor="e", width=10).grid(
+                row=num_ligne, column=col0, sticky="e", padx=(10 if decalage_colonne else 0, 2), pady=3)
+            var = tk.StringVar(value="—")
+            vars_seuils[cle] = var
+            tk.Label(grille_seuils, textvariable=var, bg="white", fg=couleur,
+                     font=("TkDefaultFont", 9), width=8, anchor="e",
+                     relief=tk.SOLID, borderwidth=1, padx=4).grid(
+                row=num_ligne, column=col0 + 1, sticky="w", pady=3)
+            tk.Label(grille_seuils, text="m³/s", bg=bg2, fg=couleur,
+                     font=("TkDefaultFont", 8)).grid(
+                row=num_ligne, column=col0 + 2, sticky="w", padx=(3, 0), pady=3)
 
     def _afficher_seuils_existants():
         seuils = app.config_data.get("seuils_q", {})
@@ -191,7 +212,7 @@ def build_tab_config(tab_frame, app):
         app.config_data["station"]["code_site"] = code_site
         app.config_data["station"]["nom_station"] = nom or app.config_data["station"].get("nom_station", "")
         app.config_data["station"]["code_bnbv"] = code_bnbv
-        app.config_data["seuils_q"] = {cle: seuils_q.get(cle) for cle, _ in LIBELLES_SEUILS_Q}
+        app.config_data["seuils_q"] = {cle: seuils_q.get(cle) for cle, _, _ in LIBELLES_SEUILS_Q}
         app.persist_config()
         app.on_config_changed()
         _afficher_seuils_existants()
