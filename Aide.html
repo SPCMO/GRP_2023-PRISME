@@ -409,6 +409,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Constaté sur une vraie reprise ("Relancer les échecs") : 12 rejeux ont échoué immédiatement avec "config_prevision.ini introuvable". Cause : le nettoyage de fin de campagne (<code>nettoyer_bddtr</code>, confirmé sans risque par l'utilisateur) vide tout le dossier BDTR à chaque fin de campagne — mais le statut "calage déjà réussi" reste en base indéfiniment, donc une reprise ultérieure sautait le calage (jugé inutile) sans jamais régénérer ce fichier. <code>modules/run_orchestrator.py</code> vérifie désormais aussi la présence physique de <code>config_prevision.ini</code> avant de sauter un calage — le statut en base seul ne suffit plus.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">21 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Grâce au texte de page 2 désormais inclus dans l'erreur (voir entrée précédente), cause confirmée pour "indicateurs introuvables" : quand GRP ne peut pas calculer un indicateur pour une crue, la cellule du PDF est VIDE (contrairement à CRITERES_PERF.DAT qui écrit "NA") — la lecture par simple ordre d'apparition décalait alors silencieusement les valeurs suivantes vers le mauvais indicateur dès qu'une seule manquait. <code>modules/fiche_controle_pdf.py</code> aligne désormais chaque valeur à son indicateur par POSITION HORIZONTALE réelle sur la page (<code>pdfplumber.extract_words()</code>), comme un tableau à colonnes fixes plutôt qu'un flux de texte — un indicateur manquant devient explicitement None (comme pour "NA" dans CRITERES_PERF.DAT) sans jamais décaler les autres. Validé par test de régression sur un vrai PDF (4 valeurs) et tests synthétiques reproduisant le cas à 2 valeurs manquantes.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

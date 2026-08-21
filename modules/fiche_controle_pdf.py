@@ -48,6 +48,62 @@ class ResultatFicheControle:
         return bool(self.suspects)
 
 
+_NOMS_INDICATEURS_PDF = (("dQP", "dqp"), ("dTP", "dtp"), ("VE", "ve"), ("KGE", "kge"))
+
+
+def _normaliser_nombre(texte):
+    texte = (texte.replace("‑", "-").replace("–", "-")
+             .replace("—", "-").replace("−", "-").replace(",", "."))
+    return texte if re.fullmatch(r"[-+]?\d+(\.\d+)?", texte) else None
+
+
+def _extraire_indicateurs_page2(page2):
+    """Associe chaque valeur numérique de la ligne de résultats (ex. "PP 35.3 −4 11.1
+    0.05") à son indicateur par POSITION HORIZONTALE sur la page (colonnes dQP/dTP/VE/
+    KGE), au lieu du simple ordre d'apparition dans le texte brut.
+
+    ⚠️ Nécessaire car constaté en conditions réelles : quand GRP ne peut pas calculer un
+    indicateur pour une crue donnée, la cellule correspondante du PDF est simplement
+    VIDE (contrairement à CRITERES_PERF.DAT, qui écrit le texte "NA" — voir
+    modules.criteres_perf) — un texte extrait à plat n'a alors plus que 2 ou 3 nombres
+    au lieu de 4, et les lire dans l'ordre décale silencieusement chaque valeur restante
+    vers le mauvais indicateur (ex. une KGE lue comme si c'était le dTP). L'alignement
+    par colonne détecte la valeur manquante et la représente par None (comme
+    modules.criteres_perf le fait déjà pour "NA"), sans jamais décaler les autres.
+
+    Retourne un dict {"dqp": float|None, ...}, ou None si les en-têtes de colonnes
+    eux-mêmes sont introuvables (page qui ne ressemble pas au format attendu).
+    """
+    mots = page2.extract_words()
+    entetes_x = {}
+    for texte_entete, cle in _NOMS_INDICATEURS_PDF:
+        mot = next((w for w in mots if w["text"] == texte_entete), None)
+        if mot is not None:
+            entetes_x[cle] = mot["x0"]
+    if len(entetes_x) < 4:
+        return None
+
+    top_entetes = min(w["top"] for w in mots if w["text"] in dict(_NOMS_INDICATEURS_PDF))
+    # Ligne de valeurs : nettement sous la ligne d'en-tête (au moins ~15pt, tolérance
+    # large car "Scénario" s'intercale parfois sur sa propre ligne entre les deux).
+    sous_entetes = [w for w in mots if w["top"] > top_entetes + 15]
+    if not sous_entetes:
+        return {cle: None for _entete, cle in _NOMS_INDICATEURS_PDF}
+    top_ligne_valeurs = min(w["top"] for w in sous_entetes)
+    ligne_valeurs = [w for w in sous_entetes if abs(w["top"] - top_ligne_valeurs) < 5]
+
+    resultat = {}
+    for mot in ligne_valeurs:
+        nombre = _normaliser_nombre(mot["text"])
+        if nombre is None:
+            continue  # ex. le label du scénario ("PP", "Obs"...), pas une valeur
+        cle_colonne = min(entetes_x, key=lambda c: abs(entetes_x[c] - mot["x0"]))
+        resultat[cle_colonne] = float(nombre)
+    for _entete, cle in _NOMS_INDICATEURS_PDF:
+        resultat.setdefault(cle, None)
+    return resultat
+
+
 def _valider_plausibilite(resultat: ResultatFicheControle):
     """Marque `suspects` pour chaque indicateur hors bornes plausibles — ne lève jamais,
     ne modifie jamais la valeur : l'utilisateur doit voir la vraie donnée extraite, avec
@@ -82,6 +138,7 @@ def extraire_resultat(chemin_pdf):
                 )
             texte_p1 = pdf.pages[0].extract_text() or ""
             texte_p2 = pdf.pages[1].extract_text() or ""
+            indicateurs = _extraire_indicateurs_page2(pdf.pages[1])
     except FicheControleError:
         raise
     except Exception as e:
@@ -95,42 +152,31 @@ def extraire_resultat(chemin_pdf):
     m_date = re.search(r"Sc\.\s+PP.*?\((?P<date>\d{2}/\d{2}\s+\d{2}:\d{2})\)", texte_p1)
     resultat.date_pic_prev = m_date.group("date") if m_date else None
 
-    indicateurs_trouves = False
-    for ligne in texte_p2.split("\n"):
-        ligne_normalisee = (
-            ligne.replace("‑", "-").replace("–", "-")
-            .replace("—", "-").replace("−", "-").replace(",", ".")
-        )
-        scores = re.findall(r"[-+]?\d+\.\d+|[-+]?\d+", ligne_normalisee)
-        if len(scores) >= 4:
-            try:
-                resultat.dqp = float(scores[0])
-                resultat.dtp = float(scores[1])
-                resultat.ve = float(scores[2])
-                resultat.kge = float(scores[3])
-            except ValueError as e:
-                raise FicheControleError(
-                    f"{chemin_pdf} : valeurs dQP/dTP/VE/KGE non numériques sur la ligne "
-                    f"{ligne!r} : {e}"
-                ) from e
-            indicateurs_trouves = True
-            break
-
-    if not indicateurs_trouves:
-        # Le dossier Fiches_Controle est vidé avant chaque rejeu (voir grp_runner.
-        # run_prevision_bat) : impossible de rouvrir ce PDF précis une fois la campagne
-        # passée à l'étape suivante pour diagnostiquer après coup. Le texte de la page 2
-        # est donc inclus directement dans l'erreur — auto-diagnostic dans le journal de
-        # campagne au lieu d'un message générique qu'il faudrait reproduire pour
-        # comprendre (constaté en conditions réelles : hypothèse la plus probable est
-        # une valeur "NA" GRP pour un indicateur sur certaines crues, qui fait tomber le
-        # nombre de nombres détectés sur la ligne en dessous de 4 — à confirmer avec le
-        # texte réel ci-dessous avant de changer la logique d'extraction).
+    if indicateurs is None:
+        # Les en-têtes de colonnes dQP/dTP/VE/KGE eux-mêmes sont introuvables — page qui
+        # ne ressemble pas du tout au format attendu (mise à jour de GRP ?), à distinguer
+        # d'un simple indicateur manquant (voir _extraire_indicateurs_page2). Le dossier
+        # Fiches_Controle étant vidé avant chaque rejeu, ce PDF ne sera plus consultable
+        # une fois la campagne passée à l'étape suivante — texte de la page 2 inclus
+        # directement dans l'erreur pour un auto-diagnostic dans le journal de campagne.
         raise FicheControleError(
-            f"{chemin_pdf} : indicateurs dQP/dTP/VE/KGE introuvables sur la page 2 — "
-            "format de PDF inattendu (mise à jour de GRP ? valeur non numérique type "
-            "'NA' pour un indicateur ?).\n--- Texte brut de la page 2 ---\n"
-            f"{texte_p2 or '(page 2 vide)'}"
+            f"{chemin_pdf} : en-têtes dQP/dTP/VE/KGE introuvables sur la page 2 — "
+            "format de PDF inattendu (mise à jour de GRP ?).\n"
+            f"--- Texte brut de la page 2 ---\n{texte_p2 or '(page 2 vide)'}"
+        )
+    resultat.dqp = indicateurs["dqp"]
+    resultat.dtp = indicateurs["dtp"]
+    resultat.ve = indicateurs["ve"]
+    resultat.kge = indicateurs["kge"]
+    if all(v is None for v in indicateurs.values()):
+        # En-têtes trouvés mais aucune valeur alignée dessous — distinct d'un NA isolé
+        # sur un seul indicateur (accepté, voir _extraire_indicateurs_page2), ici rien
+        # d'exploitable du tout pour cette crue : mieux vaut un échec explicite qu'un
+        # résultat entièrement vide silencieusement marqué "success" en base.
+        raise FicheControleError(
+            f"{chemin_pdf} : aucune valeur dQP/dTP/VE/KGE trouvée sous les en-têtes "
+            f"sur la page 2 (toutes NA/vides ?).\n"
+            f"--- Texte brut de la page 2 ---\n{texte_p2 or '(page 2 vide)'}"
         )
 
     _valider_plausibilite(resultat)

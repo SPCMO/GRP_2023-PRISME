@@ -16,6 +16,7 @@ Fiabilisation demandée explicitement par l'utilisateur :
 """
 
 import logging
+import os
 import traceback
 from dataclasses import dataclass
 from datetime import datetime
@@ -156,7 +157,20 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
         # le relance pas (inutile, potentiellement long) : seules les crues manquantes le
         # seront ci-dessous (_combinaisons_a_traiter n'a gardé cette combinaison que parce
         # qu'il reste au moins une crue non réussie).
-        calage_deja_ok = seulement_echecs and row_existant is not None and row_existant["statut"] == "success"
+        #
+        # ⚠️ Constaté en conditions réelles : ce statut "success" en base ne garantit PAS
+        # que le dossier BDTR est toujours dans l'état laissé par ce calage — le nettoyage
+        # de fin de campagne (nettoyer_bddtr, voir plus bas) vide ENTIÈREMENT ce dossier,
+        # y compris config_prevision.ini, à chaque fin de campagne (succès ou annulation),
+        # qu'elle date d'une session précédente ou de la précédente reprise. Si on
+        # relance ensuite "Relancer les échecs" sans jamais avoir refait tourner le
+        # calage entretemps, config_prevision.ini n'existe plus et TOUS les rejeux de la
+        # combinaison échouent immédiatement ("fichier introuvable"). On vérifie donc en
+        # plus la présence physique du fichier — le statut en base seul ne suffit pas.
+        calage_deja_ok = (
+            seulement_echecs and row_existant is not None and row_existant["statut"] == "success"
+            and os.path.isfile(paths.config_prevision_ini)
+        )
 
         if calage_deja_ok:
             combinaison_id = row_existant["id"]
