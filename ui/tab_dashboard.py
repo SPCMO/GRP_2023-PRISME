@@ -23,7 +23,16 @@ from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
 from modules.grp_paths import GrpPaths
 from modules.score import calculer_scores
+from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import make_label, make_row, make_section
+
+# Palette qualitative pour différencier les courbes simulées superposées (Q observé
+# garde toujours sa propre couleur fixe, jamais piochée ici, pour rester reconnaissable
+# quel que soit le nombre de combinaisons sélectionnées).
+_PALETTE_COURBES = (
+    "#CC5500", "#1D6A39", "#7B241C", "#7D3C98", "#117864", "#B7950B",
+    "#2874A6", "#A93226", "#5D6D7E", "#943126",
+)
 
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
@@ -196,56 +205,85 @@ def _build_detail(frame, app):
     combo_pdt = ttk.Combobox(r, textvariable=var_pdt, state="readonly", width=14)
     combo_pdt.pack(side=tk.LEFT, padx=(2, 12))
 
-    make_label(r, "Combinaison :", bg, width=14)
-    var_combi = tk.StringVar()
-    combo_combi = ttk.Combobox(r, textvariable=var_combi, state="readonly", width=28)
-    combo_combi.pack(side=tk.LEFT, padx=(2, 12))
-
     make_label(r, "Crue :", bg, width=8)
     var_crue = tk.StringVar()
-    combo_crue = ttk.Combobox(r, textvariable=var_crue, state="readonly", width=20)
+    combo_crue = ttk.Combobox(r, textvariable=var_crue, state="readonly", width=22)
     combo_crue.pack(side=tk.LEFT, padx=(2, 12))
-    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT)
+
+    r2 = make_row(barre, bg)
+    make_label(r2, "Combinaison(s) :", bg, width=14)
+    liste_combis = tk.Listbox(r2, selectmode=tk.EXTENDED, height=5, width=34,
+                               exportselection=False)
+    liste_combis.pack(side=tk.LEFT, padx=(2, 8))
+    cadre_boutons_combi = tk.Frame(r2, bg=bg)
+    cadre_boutons_combi.pack(side=tk.LEFT, padx=(0, 12))
+    ttk.Button(cadre_boutons_combi, text="Toutes",
+               command=lambda: _selectionner_toutes(True)).pack(fill=tk.X, pady=1)
+    ttk.Button(cadre_boutons_combi, text="Aucune",
+               command=lambda: _selectionner_toutes(False)).pack(fill=tk.X, pady=1)
+    ttk.Button(r2, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, anchor="n")
 
     var_indicateurs = tk.StringVar(value="")
-    tk.Label(frame, textvariable=var_indicateurs, font=("TkDefaultFont", 9, "bold")).pack(
-        anchor="w", padx=10, pady=(4, 0))
+    tk.Label(frame, textvariable=var_indicateurs, font=("TkDefaultFont", 9, "bold"),
+             wraplength=900, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(4, 0))
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-    def _combinaisons_disponibles():
+    # ── Récapitulatif max/horodatage par courbe tracée ────────────────────────────
+    inn_max, bg_max = make_section(frame, "Maximum de chaque courbe tracée", "gris")
+    tableau_max = ttk.Treeview(inn_max, columns=("courbe", "max", "horodatage"),
+                                show="headings", height=4)
+    for col, libelle, largeur in (("courbe", "Courbe", 260), ("max", "Max (m³/s)", 110),
+                                   ("horodatage", "Horodatage du max", 150)):
+        tableau_max.heading(col, text=libelle)
+        tableau_max.column(col, width=largeur, anchor="center" if col != "courbe" else "w")
+    tableau_max.pack(fill=tk.X)
+
+    def _max_et_horodatage(points_xy):
+        """points_xy : liste de (datetime, valeur). Retourne (max, date_du_max) en
+        ignorant les valeurs None, ou (None, None) si aucune valeur exploitable."""
+        valides = [(d, v) for d, v in points_xy if v is not None]
+        if not valides:
+            return None, None
+        date_max, valeur_max = max(valides, key=lambda dv: dv[1])
+        return valeur_max, date_max
+
+    def _combinaisons_disponibles_pour_crue(crue_iso):
+        """Combinaisons dont CETTE crue précise a réussi — inutile de proposer une
+        combinaison qui n'a jamais été rejouée pour la date sélectionnée."""
+        if not crue_iso:
+            return []
         lignes, _ = _charger_resultats(app)
-        # combinaison_id est constant pour un (horizon, seuil, méthode) donné (contrainte
-        # UNIQUE en base) — inclus ici pour retrouver la série simulée archivée.
         vues = sorted({(l["horizon"], l["seuil_c1"], l["methode"], l["combinaison_id"])
-                       for l in lignes})
+                       for l in lignes
+                       if l["statut_crue"] == "success" and l["crue_date"] == crue_iso})
         return vues
 
-    def _rafraichir_combos(*_evt):
-        combis = _combinaisons_disponibles()
-        combo_combi["values"] = [f"{h} / seuil {s:.2f} / {m}" for h, s, m, _cid in combis]
-        combo_combi._valeurs = combis
-        if combis and var_combi.get() not in combo_combi["values"]:
-            var_combi.set(combo_combi["values"][0])
-        _rafraichir_crues()
-
     def _rafraichir_crues(*_evt):
-        combis = getattr(combo_combi, "_valeurs", [])
-        if not combis or var_combi.get() not in combo_combi["values"]:
-            combo_crue["values"] = []
-            return
-        idx = list(combo_combi["values"]).index(var_combi.get())
-        horizon, seuil, methode, _cid = combis[idx]
         lignes, _ = _charger_resultats(app)
-        dates = sorted({l["crue_date"] for l in lignes
-                        if l["horizon"] == horizon and l["seuil_c1"] == seuil
-                        and l["methode"] == methode})
+        dates = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
         combo_crue["values"] = dates
         if dates and var_crue.get() not in dates:
             var_crue.set(dates[0])
+        _rafraichir_combis()
+
+    def _rafraichir_combis(*_evt):
+        combis = _combinaisons_disponibles_pour_crue(var_crue.get())
+        liste_combis.delete(0, tk.END)
+        for h, s, m, _cid in combis:
+            liste_combis.insert(tk.END, f"{h} / seuil {s:.2f} / {m}")
+        liste_combis._valeurs = combis
+        if combis:
+            liste_combis.selection_set(0)  # au moins une courbe simulée par défaut
+
+    def _selectionner_toutes(valeur):
+        if valeur:
+            liste_combis.selection_set(0, tk.END)
+        else:
+            liste_combis.selection_clear(0, tk.END)
 
     def _pas_de_temps_courant():
         for p in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
@@ -255,6 +293,7 @@ def _build_detail(frame, app):
 
     def _tracer():
         ax.clear()
+        tableau_max.delete(*tableau_max.get_children())
         var_indicateurs.set("")
         paths = _construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
@@ -262,8 +301,9 @@ def _build_detail(frame, app):
             canvas.draw_idle()
             return
 
-        # Série observée (source déjà vérifiée, voir modules.criteres_perf) : on
-        # cherche l'événement dont la date de début correspond à la crue sélectionnée.
+        # Série observée (source déjà vérifiée, voir modules.criteres_perf) : commune à
+        # toutes les combinaisons sélectionnées (ne dépend que de la crue), tracée une
+        # seule fois. On cherche l'événement dont la date de début correspond à la crue.
         try:
             evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
         except (FileNotFoundError, CriteresPerfError) as e:
@@ -287,43 +327,60 @@ def _build_detail(frame, app):
             var_indicateurs.set(f"Série observée indisponible : {e}")
             serie = []
 
+        toutes_valeurs = []
         if serie:
-            dates = [p[0] for p in serie]
-            qobs = [p[2] for p in serie]
-            ax.plot(dates, qobs, color="#1F618D", lw=1.3, label="Q observé")
+            points_obs = [(p[0], p[2]) for p in serie]
+            ax.plot([p[0] for p in points_obs], [p[1] for p in points_obs],
+                     color="#1F1F1F", lw=1.8, label="Q observé")
+            toutes_valeurs.extend(v for _d, v in points_obs if v is not None)
+            valeur_max, date_max = _max_et_horodatage(points_obs)
+            if valeur_max is not None:
+                tableau_max.insert("", tk.END, values=(
+                    "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}"))
 
-        # Série simulée archivée pour cette combinaison précise (voir
-        # modules.run_orchestrator, archivage à chaque rejeu — Sorties/ n'expose que le
-        # dernier rejeu effectué, donc on relit l'archive plutôt que le fichier GRP brut,
-        # qui correspondrait presque toujours à un autre run que celui affiché ici).
-        combis = getattr(combo_combi, "_valeurs", [])
-        combinaison_id = None
-        if combis and var_combi.get() in combo_combi["values"]:
-            idx = list(combo_combi["values"]).index(var_combi.get())
-            combinaison_id = combis[idx][3]
-        qsim = []
-        if combinaison_id is not None:
-            with results_store.db_session() as conn:
+        # Une ou plusieurs séries simulées archivées (voir modules.run_orchestrator —
+        # archivage à chaque rejeu, car Sorties/ n'expose que le DERNIER rejeu effectué)
+        # superposées sur le même graphique, une couleur distincte par combinaison —
+        # légende mise à jour en conséquence pour distinguer qui est qui.
+        combis = getattr(liste_combis, "_valeurs", [])
+        selection = liste_combis.curselection()
+        combis_selectionnees = [combis[i] for i in selection] if combis else []
+        with results_store.db_session() as conn:
+            for i, (h, s, m, combinaison_id) in enumerate(combis_selectionnees):
                 serie_sim = results_store.charger_serie(conn, combinaison_id, crue_iso, "sim")
-            if serie_sim:
-                qsim = [p[1] for p in serie_sim]
-                ax.plot([p[0] for p in serie_sim], qsim, color="#CC5500", lw=1.3,
-                        ls="--", label="Q simulé")
+                if not serie_sim:
+                    continue
+                points_sim = [(p[0], p[1]) for p in serie_sim]
+                couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+                libelle = f"Sim {h}/{s:.2f}/{m}"
+                ax.plot([p[0] for p in points_sim], [p[1] for p in points_sim],
+                         color=couleur, lw=1.3, ls="--", label=libelle)
+                toutes_valeurs.extend(v for _d, v in points_sim if v is not None)
+                valeur_max, date_max = _max_et_horodatage(points_sim)
+                if valeur_max is not None:
+                    tableau_max.insert("", tk.END, values=(
+                        libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}"))
 
+        # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
+        # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
+        # niveau, ZT et seuil principal partagent la teinte), différenciés par le style
+        # de trait (pointillé pour la ZT, plein pour le seuil principal).
         seuils = app.config_data.get("seuils_q", {})
-        y_max = max([p[2] for p in serie] + qsim, default=None)
-        for cle, couleur, label in (("jaune", "#D4AC0D", "Jaune"), ("orange", "#CA6F1E", "Orange"),
-                                     ("rouge", "#C0392B", "Rouge")):
+        y_max = max(toutes_valeurs, default=None)
+        for cle, libelle, couleur in LIBELLES_SEUILS_Q:
             val = seuils.get(cle)
-            if val is not None:
-                ax.axhline(val, color=couleur, lw=1.2, ls="-", alpha=0.85)
-                if y_max is None or val <= y_max * 1.3:
-                    ax.text(0.002, val, f" {label} {val:.0f} m³/s", va="bottom", fontsize=7,
-                            color=couleur, transform=ax.get_yaxis_transform())
+            if val is None:
+                continue
+            est_zt = cle.startswith("zt_")
+            ax.axhline(val, color=couleur, lw=1.0 if est_zt else 1.3,
+                       ls=":" if est_zt else "-", alpha=0.85)
+            if y_max is None or val <= y_max * 1.3:
+                ax.text(0.002, val, f" {libelle} {val:.0f} m³/s", va="bottom", fontsize=6.5,
+                        color=couleur, transform=ax.get_yaxis_transform())
 
         ax.set_ylabel("Débit (m³/s)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="upper left", fontsize=8)
+        ax.legend(loc="upper left", fontsize=7.5, ncol=2 if len(combis_selectionnees) > 3 else 1)
         fig.autofmt_xdate()
         canvas.draw_idle()
 
@@ -332,18 +389,20 @@ def _build_detail(frame, app):
             f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
             + ("  ⚠ suspect" if evt.suspects else "")
         )
-        if combinaison_id is not None and not qsim:
-            texte += "  —  Q simulé indisponible pour cette combinaison/crue (pas encore rejouée, ou série non archivée)."
+        if combis_selectionnees and not toutes_valeurs:
+            texte += "  —  Aucune série simulée disponible pour la/les combinaison(s) sélectionnée(s)."
+        elif not combis_selectionnees:
+            texte += "  —  Aucune combinaison sélectionnée dans la liste (Q observé seul affiché)."
         var_indicateurs.set(texte)
 
-    combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_combos())
-    combo_combi.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())
+    combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())
+    combo_crue.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_combis())
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]
     if pdt_list:
         var_pdt.set(pdt_list[0]["libelle"])
-    _rafraichir_combos()
+    _rafraichir_crues()
 
 
 # ══════════════════════════════════════════════════════════════════════════════════

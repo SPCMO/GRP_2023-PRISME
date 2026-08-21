@@ -6,10 +6,11 @@ performance de référence. L'utilisateur coche les crues à inclure dans la cam
 (bloc 5, onglet Campagne).
 """
 
+import os
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
+from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
 from ui.widgets_common import bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section
 
@@ -153,6 +154,21 @@ def build_tab_crues(tab_frame, app):
 
         deja_selectionnes = set(app.config_data.get("crues_selectionnees", []))
 
+        def _cumul_pluie(evt):
+            """Cumul de pluie de bassin sur l'épisode (mm) — somme de Pobs (déjà en
+            mm par pas de temps, pas un débit) sur toute la fenêtre DateDeb-DateFin de
+            l'événement, lue depuis <code_site>-EVxxxx.DAT (même fichier que le tracé
+            de la crue dans Dashboard > Détail par crue). None si le fichier est
+            absent ou illisible — n'empêche jamais l'affichage du reste de la
+            vignette, juste ce champ précis."""
+            chemin_serie = os.path.join(
+                paths.evenements_dir(code_pdt), f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+            try:
+                serie = parse_evenement_serie(chemin_serie)
+            except (FileNotFoundError, CriteresPerfError):
+                return None
+            return sum(p for _d, p, _q in serie)
+
         for i, evt in enumerate(evenements):
             ligne, colonne = divmod(i, VIGNETTES_PAR_LIGNE)
             couleur = _couleur_vigilance(evt.qmax)
@@ -170,8 +186,12 @@ def build_tab_crues(tab_frame, app):
                 variable=var, command=_sauver_selection,
                 font=("TkDefaultFont", 9, "bold"),
             ).pack(anchor="w")
+            cumul_pluie = _cumul_pluie(evt)
+            texte_pluie = f"{cumul_pluie:.1f} mm" if cumul_pluie is not None else "indisponible"
             tk.Label(vignette, bg=couleur, font=("TkDefaultFont", 8),
                      text=f"Qmax : {evt.qmax:.1f} m³/s   (pic le {evt.date_qmax:%d/%m %H:%M})").pack(anchor="w")
+            tk.Label(vignette, bg=couleur, font=("TkDefaultFont", 8),
+                     text=f"Cumul pluie de l'épisode : {texte_pluie}").pack(anchor="w")
 
             texte_perf = f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
             if evt.suspects:
