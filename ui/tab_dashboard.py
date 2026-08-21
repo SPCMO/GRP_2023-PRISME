@@ -35,6 +35,47 @@ _PALETTE_COURBES = (
     "#2874A6", "#A93226", "#5D6D7E", "#943126",
 )
 
+
+def _icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte):
+    """Dessine un repère "i" cliquable (rond bleu) directement DANS la figure
+    matplotlib, à la position figure-relative (x, y) — contrairement au bouton "ⓘ"
+    Tkinter classique (ui.widgets_common.bouton_info, utilisé pour les icônes du
+    bandeau/légende), celui-ci peut se coller précisément à un label d'axe ou de
+    colorbar qui fait partie du rendu matplotlib, pas des widgets Tkinter.
+
+    ⚠️ Le caractère "ⓘ" (U+24D8) n'existe pas dans la police par défaut de matplotlib
+    (DejaVu Sans) — il s'affichait comme un glyphe manquant (rectangle vide) une fois
+    réellement rendu, constaté en testant le rendu réel de la figure. D'où le simple
+    "i" italique sur fond rond bleu ci-dessous plutôt que le caractère Unicode dédié
+    (qui, lui, s'affiche correctement dans les boutons Tkinter classiques, rendus par
+    une police système différente).
+
+    `etat` est un dict partagé entre les appels successifs de la fonction de tracé du
+    même graphique (clé `cle` dédiée si plusieurs icônes sur la même figure) : un
+    ax.clear()/fig.clear() ne supprime PAS les éléments ajoutés directement sur la
+    figure (fig.text), donc sans ce nettoyage explicite chaque rafraîchissement
+    empilerait un nouveau marqueur par-dessus les précédents.
+    """
+    ancien = etat.get(cle)
+    if ancien is not None:
+        marqueur_prec, cid_prec = ancien
+        try:
+            marqueur_prec.remove()
+        except Exception:
+            pass
+        canvas.mpl_disconnect(cid_prec)
+
+    marqueur = fig.text(x, y, "i", fontsize=10, color="white", fontweight="bold",
+                         fontstyle="italic", ha="center", va="center", picker=True,
+                         bbox=dict(boxstyle="circle,pad=0.3", fc="#1A5276", ec="#0B2C40", lw=0.8))
+
+    def _au_clic(event):
+        if event.artist is marqueur:
+            messagebox.showinfo(titre, texte)
+
+    cid = canvas.mpl_connect("pick_event", _au_clic)
+    etat[cle] = (marqueur, cid)
+
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
 
@@ -113,6 +154,7 @@ def _build_synthese(frame, app):
     fig.subplots_adjust(wspace=0.4, bottom=0.2)
     canvas = FigureCanvasTkAgg(fig, master=corps)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    etat_icones = {}
 
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
@@ -174,6 +216,8 @@ def _build_synthese(frame, app):
             ax_heatmap.set_yticklabels([f"{v:.2f}" for v in seuils], fontsize=7)
             ax_heatmap.set_title("Score composite (0=meilleur)", fontsize=9)
             fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
+            _icone_info_axe(fig, canvas, etat_icones, "heatmap", 0.375, 0.905,
+                             "Score composite", EXPLICATION_SCORE)
 
         # -- Dispersion |dQP| par horizon (scatter, pas de dépendance à scipy) --------
         ax_dispersion.clear()
@@ -485,6 +529,7 @@ def _build_sensibilite(frame, app):
     ax = fig.add_subplot(1, 1, 1)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+    etat_icones = {}
 
     def _rafraichir_listes():
         lignes, _ = _charger_resultats(app)
@@ -540,6 +585,8 @@ def _build_sensibilite(frame, app):
         ax.set_ylabel("Score composite (0=meilleur)")
         ax.grid(True, alpha=0.3)
         ax.legend(loc="best", fontsize=7.5, ncol=2 if len(horizons_selectionnes) > 5 else 1)
+        _icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
+                         "Score composite", EXPLICATION_SCORE)
         canvas.draw_idle()
 
     _rafraichir_listes()
@@ -572,6 +619,7 @@ def _build_vue3d(frame, app):
     ax = fig.add_subplot(1, 1, 1, projection="3d")
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+    etat_icones = {}
 
     def _rafraichir():
         ax.clear()
@@ -613,6 +661,11 @@ def _build_vue3d(frame, app):
                 label=f"Méthode {methode}",
             )
         fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1, label="Score composite (0=meilleur)")
+        # Repère posé en coordonnées FIGURE (pas données/axes) — reste donc fixe à côté
+        # de la colorbar (élément 2D stable) même quand la vue 3D est tournée à la
+        # souris, contrairement à un label d'axe Z qui pivote avec la vue.
+        _icone_info_axe(fig, canvas, etat_icones, "colorbar", 0.895, 0.83,
+                         "Score composite", EXPLICATION_SCORE)
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
         # détail (paramètres + les 4 indicateurs moyens qui composent son score) est
