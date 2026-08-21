@@ -18,6 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 import numpy as np
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour projection="3d"
 
 from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
@@ -68,13 +69,16 @@ def build_tab_dashboard(tab_frame, app):
     onglet_synthese = ttk.Frame(sous_notebook)
     onglet_detail = ttk.Frame(sous_notebook)
     onglet_sensibilite = ttk.Frame(sous_notebook)
+    onglet_3d = ttk.Frame(sous_notebook)
     sous_notebook.add(onglet_synthese, text="Vue synthèse")
     sous_notebook.add(onglet_detail, text="Détail par crue")
     sous_notebook.add(onglet_sensibilite, text="Sensibilité au seuil")
+    sous_notebook.add(onglet_3d, text="Vue 3D")
 
     _build_synthese(onglet_synthese, app)
     _build_detail(onglet_detail, app)
     _build_sensibilite(onglet_sensibilite, app)
+    _build_vue3d(onglet_3d, app)
 
 
 def _charger_resultats(app):
@@ -208,7 +212,11 @@ def _build_detail(frame, app):
     make_label(r, "Crue :", bg, width=8)
     var_crue = tk.StringVar()
     combo_crue = ttk.Combobox(r, textvariable=var_crue, state="readonly", width=22)
-    combo_crue.pack(side=tk.LEFT, padx=(2, 12))
+    combo_crue.pack(side=tk.LEFT, padx=(2, 2))
+    ttk.Button(r, text="◀", width=3,
+               command=lambda: _changer_crue(-1)).pack(side=tk.LEFT)
+    ttk.Button(r, text="▶", width=3,
+               command=lambda: _changer_crue(1)).pack(side=tk.LEFT, padx=(0, 12))
 
     r2 = make_row(barre, bg)
     make_label(r2, "Combinaison(s) :", bg, width=14)
@@ -268,6 +276,19 @@ def _build_detail(frame, app):
         combo_crue["values"] = dates
         if dates and var_crue.get() not in dates:
             var_crue.set(dates[0])
+        _rafraichir_combis()
+
+    def _changer_crue(delta):
+        """Passe à la crue précédente/suivante (ordre chronologique de la liste
+        déroulante) — évite d'avoir à rouvrir le menu déroulant pour parcourir les
+        épisodes un par un."""
+        dates = list(combo_crue["values"])
+        if not dates or var_crue.get() not in dates:
+            return
+        nouvel_index = list(dates).index(var_crue.get()) + delta
+        if not (0 <= nouvel_index < len(dates)):
+            return  # déjà au premier/dernier épisode, rien à faire
+        var_crue.set(dates[nouvel_index])
         _rafraichir_combis()
 
     def _rafraichir_combis(*_evt):
@@ -412,15 +433,22 @@ def _build_detail(frame, app):
 def _build_sensibilite(frame, app):
     barre, bg = make_section(frame, "Sélection", "ocre")
     r = make_row(barre, bg)
-    make_label(r, "Horizon :", bg, width=10)
-    var_horizon = tk.StringVar()
-    combo_horizon = ttk.Combobox(r, textvariable=var_horizon, state="readonly", width=16)
-    combo_horizon.pack(side=tk.LEFT, padx=(2, 12))
+    make_label(r, "Horizon(s) :", bg, width=10)
+    liste_horizons = tk.Listbox(r, selectmode=tk.EXTENDED, height=5, width=16,
+                                 exportselection=False)
+    liste_horizons.pack(side=tk.LEFT, padx=(2, 8))
+    cadre_boutons_horizon = tk.Frame(r, bg=bg)
+    cadre_boutons_horizon.pack(side=tk.LEFT, padx=(0, 12))
+    ttk.Button(cadre_boutons_horizon, text="Tous",
+               command=lambda: _selectionner_tous(True)).pack(fill=tk.X, pady=1)
+    ttk.Button(cadre_boutons_horizon, text="Aucun",
+               command=lambda: _selectionner_tous(False)).pack(fill=tk.X, pady=1)
+
     make_label(r, "Méthode :", bg, width=10)
     var_methode = tk.StringVar()
     combo_methode = ttk.Combobox(r, textvariable=var_methode, state="readonly", width=6)
     combo_methode.pack(side=tk.LEFT, padx=(2, 12))
-    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT)
+    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, anchor="n")
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
@@ -431,12 +459,20 @@ def _build_sensibilite(frame, app):
         lignes, _ = _charger_resultats(app)
         horizons = sorted({l["horizon"] for l in lignes}, key=_horizon_en_minutes)
         methodes = sorted({l["methode"] for l in lignes})
-        combo_horizon["values"] = horizons
+        liste_horizons.delete(0, tk.END)
+        for h in horizons:
+            liste_horizons.insert(tk.END, h)
+        if horizons:
+            liste_horizons.selection_set(0)
         combo_methode["values"] = methodes
-        if horizons and not var_horizon.get():
-            var_horizon.set(horizons[0])
         if methodes and not var_methode.get():
             var_methode.set(methodes[0])
+
+    def _selectionner_tous(valeur):
+        if valeur:
+            liste_horizons.selection_set(0, tk.END)
+        else:
+            liste_horizons.selection_clear(0, tk.END)
 
     def _tracer():
         ax.clear()
@@ -444,30 +480,127 @@ def _build_sensibilite(frame, app):
         if erreur:
             canvas.draw_idle()
             return
+        horizons_selectionnes = [liste_horizons.get(i) for i in liste_horizons.curselection()]
+        if not horizons_selectionnes or not var_methode.get():
+            canvas.draw_idle()
+            return
+
         lignes_ok = [l for l in lignes if l["statut_crue"] == "success"
-                     and l["horizon"] == var_horizon.get() and l["methode"] == var_methode.get()]
+                     and l["horizon"] in horizons_selectionnes and l["methode"] == var_methode.get()]
+        # Un seul appel à calculer_scores sur l'ensemble des horizons sélectionnés : la
+        # normalisation min-max du score (voir modules.score) porte alors sur ce même
+        # ensemble affiché, donc les courbes superposées restent comparables entre elles
+        # (les calculer horizon par horizon donnerait à chacun son propre 0/1, faussant
+        # la comparaison visuelle).
         scores = calculer_scores(lignes_ok)
-        scores.sort(key=lambda s: s.seuil_c1)
         if not scores:
             canvas.draw_idle()
             return
 
-        seuils = [s.seuil_c1 for s in scores]
-        composite = [s.score for s in scores]
-        kge_moyen = [1 - s.moyennes_erreur["kge"] if s.moyennes_erreur.get("kge") is not None else None
-                     for s in scores]
+        for i, horizon in enumerate(horizons_selectionnes):
+            scores_h = sorted((s for s in scores if s.horizon == horizon), key=lambda s: s.seuil_c1)
+            if not scores_h:
+                continue
+            couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+            ax.plot([s.seuil_c1 for s in scores_h], [s.score for s in scores_h],
+                    marker="o", color=couleur, label=f"Horizon {horizon}")
 
-        ax.plot(seuils, composite, marker="o", color="#7B241C", label="Score composite (0=meilleur)")
-        ax2 = ax.twinx()
-        ax2.plot(seuils, kge_moyen, marker="s", color="#1D6A39", label="KGE moyen")
         ax.set_xlabel("Seuil de calage SeuilC1 (m³/s)")
-        ax.set_ylabel("Score composite", color="#7B241C")
-        ax2.set_ylabel("KGE moyen", color="#1D6A39")
+        ax.set_ylabel("Score composite (0=meilleur)")
         ax.grid(True, alpha=0.3)
-        lignes1, labels1 = ax.get_legend_handles_labels()
-        lignes2, labels2 = ax2.get_legend_handles_labels()
-        ax.legend(lignes1 + lignes2, labels1 + labels2, loc="best", fontsize=8)
+        ax.legend(loc="best", fontsize=7.5, ncol=2 if len(horizons_selectionnes) > 5 else 1)
         canvas.draw_idle()
 
-    combo_horizon.bind("<<ComboboxSelected>>", lambda *_: None)
     _rafraichir_listes()
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# 4. Vue 3D — meilleur score en fonction de l'horizon, du seuil et de la méthode
+# ══════════════════════════════════════════════════════════════════════════════════
+
+_MARQUEURS_METHODE = {"T": "o", "R": "^"}
+
+
+def _build_vue3d(frame, app):
+    barre = tk.Frame(frame)
+    barre.pack(fill=tk.X, padx=8, pady=6)
+    var_statut = tk.StringVar(value="")
+    tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
+    ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT)
+
+    tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#555555",
+             text="Clic-glisser dans le graphique pour tourner la vue en 3D.").pack(
+        anchor="w", padx=10)
+
+    var_meilleure = tk.StringVar(value="")
+    tk.Label(frame, textvariable=var_meilleure, font=("TkDefaultFont", 9, "bold")).pack(
+        anchor="w", padx=10, pady=(2, 0))
+
+    fig = Figure(figsize=(9, 5.5), dpi=100)
+    ax = fig.add_subplot(1, 1, 1, projection="3d")
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+
+    def _rafraichir():
+        ax.clear()
+        lignes, erreur = _charger_resultats(app)
+        if erreur:
+            var_statut.set(erreur)
+            var_meilleure.set("")
+            canvas.draw_idle()
+            return
+        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"]
+        if not lignes_ok:
+            var_statut.set("Aucun résultat réussi en base pour l'instant — lancez une campagne "
+                            "(onglet Campagne).")
+            var_meilleure.set("")
+            canvas.draw_idle()
+            return
+
+        # Un seul appel à calculer_scores sur TOUS les résultats réussis : normalisation
+        # cohérente avec la Vue synthèse (même score, même échelle 0=meilleur/1=pire).
+        scores = [s for s in calculer_scores(lignes_ok) if s.score is not None]
+        var_statut.set(f"{len(scores)} combinaison(s) avec score exploitable.")
+        if not scores:
+            var_meilleure.set("")
+            canvas.draw_idle()
+            return
+
+        xs = [_horizon_en_minutes(s.horizon) for s in scores]
+        ys = [s.seuil_c1 for s in scores]
+        zs = [s.score for s in scores]
+
+        for methode, marqueur in _MARQUEURS_METHODE.items():
+            indices = [i for i, s in enumerate(scores) if s.methode == methode]
+            if not indices:
+                continue
+            nuage = ax.scatter(
+                [xs[i] for i in indices], [ys[i] for i in indices], [zs[i] for i in indices],
+                c=[zs[i] for i in indices], cmap="RdYlGn_r", vmin=0, vmax=1,
+                marker=marqueur, s=60, edgecolors="#333333", linewidths=0.5,
+                label=f"Méthode {methode}",
+            )
+        fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1, label="Score composite (0=meilleur)")
+
+        # Meilleure combinaison mise en évidence (score le plus bas = le plus vert).
+        meilleur = min(scores, key=lambda s: s.score)
+        ax.scatter([_horizon_en_minutes(meilleur.horizon)], [meilleur.seuil_c1], [meilleur.score],
+                   marker="*", s=400, color="gold", edgecolors="#333333", linewidths=0.8,
+                   label="Meilleure combinaison")
+        var_meilleure.set(
+            f"★ Meilleure combinaison : horizon {meilleur.horizon} / seuil "
+            f"{meilleur.seuil_c1:.2f} / méthode {meilleur.methode} — score "
+            f"{meilleur.score:.3f} ({meilleur.nb_crues} crue(s))"
+        )
+
+        horizons_uniques = sorted({s.horizon for s in scores}, key=_horizon_en_minutes)
+        ax.set_xticks([_horizon_en_minutes(h) for h in horizons_uniques])
+        ax.set_xticklabels(horizons_uniques, rotation=30, ha="right", fontsize=6.5)
+        ax.set_yticks(sorted({s.seuil_c1 for s in scores}))
+        ax.set_xlabel("Horizon", labelpad=14, fontsize=8)
+        ax.set_ylabel("Seuil de calage (m³/s)", labelpad=8, fontsize=8)
+        ax.set_zlabel("Score composite (0=meilleur)", fontsize=8)
+        ax.legend(loc="upper left", fontsize=7.5)
+        canvas.draw_idle()
+
+    _rafraichir()

@@ -82,7 +82,7 @@ def build_tab_orchestration(tab_frame, app):
     inn2, bg2 = make_section(frm, "Combinaisons testées", "bleu", expand=True)
     cadre_tableau = tk.Frame(inn2, bg=bg2)
     cadre_tableau.pack(fill=tk.BOTH, expand=True)
-    tableau = ttk.Treeview(cadre_tableau, columns=COLONNES_TABLEAU, show="headings", height=8)
+    tableau = ttk.Treeview(cadre_tableau, columns=COLONNES_TABLEAU, show="headings", height=16)
     entetes = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
                "statut": "Statut calage", "crues_ok": "Crues OK", "crues_ko": "Crues échec"}
     for col in COLONNES_TABLEAU:
@@ -98,7 +98,7 @@ def build_tab_orchestration(tab_frame, app):
 
     # ── Journal ──────────────────────────────────────────────────────────────────
     inn3, bg3 = make_section(frm, "Journal de la campagne", "gris", expand=True)
-    zone_log = scrolledtext.ScrolledText(inn3, height=10, font=("Consolas", 8), state="disabled")
+    zone_log = scrolledtext.ScrolledText(inn3, height=20, font=("Consolas", 8), state="disabled")
     zone_log.pack(fill=tk.BOTH, expand=True)
 
     def _log(message):
