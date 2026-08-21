@@ -149,10 +149,25 @@ def build_tab_orchestration(tab_frame, app):
         etat["combinaisons"] = {}
         barre.config(maximum=max(etat["total_etapes"], 1), value=0)
         tableau.delete(*tableau.get_children())
+        with results_store.db_session() as conn:
+            etats_connus = results_store.etat_combinaisons(conn)
         for h, s, m in combinaisons:
             iid = f"{h}|{s}|{m}"
-            tableau.insert("", tk.END, iid=iid, values=(h, f"{s:.2f}", m, "pending", 0, 0))
-            etat["combinaisons"][iid] = {"crues_ok": 0, "crues_ko": 0}
+            # État initial du tableau = dernier statut réellement connu en base (pas
+            # toujours "pending") : en reprise ("Relancer les échecs"), la plupart des
+            # combinaisons ne seront pas retouchées par CE lancement (calage déjà réussi
+            # et toutes ses crues aussi) — les afficher comme "pending" laisserait croire
+            # à tort qu'elles vont être rejouées alors qu'elles resteront simplement
+            # affichées telles quelles.
+            connu = etats_connus.get((h, s, m))
+            statut_init = connu["statut"] if connu else "pending"
+            crues_ok_init = connu["crues_ok"] if connu else 0
+            crues_ko_init = connu["crues_ko"] if connu else 0
+            tag_init = statut_init if statut_init in ("failed", "success", "running") else ""
+            tableau.insert("", tk.END, iid=iid,
+                            values=(h, f"{s:.2f}", m, statut_init, crues_ok_init, crues_ko_init),
+                            tags=(tag_init,))
+            etat["combinaisons"][iid] = {"crues_ok": crues_ok_init, "crues_ko": crues_ko_init}
         _log(f"--- Campagne lancée : {len(combinaisons)} combinaison(s) × "
              f"{len(crues_dates)} crue(s) — pas de temps {code_pdt} "
              f"{'(reprise échecs)' if seulement_echecs else ''} ---")
@@ -184,7 +199,19 @@ def build_tab_orchestration(tab_frame, app):
         if etat["thread"] and etat["thread"].is_alive():
             etat["annulation"].set()
             btn_annuler.config(state="disabled")
-            _log("--- Annulation demandée : arrêt à la fin de l'étape en cours ---")
+            # L'annulation n'interrompt JAMAIS un exécutable GRP en cours (calage ou
+            # rejeu) — seulement entre deux étapes — pour ne pas laisser un run coupé en
+            # plein milieu produire des fichiers à moitié écrits. Si une ligne est
+            # actuellement "running" (jaune) dans le tableau, les boutons restent
+            # grisés jusqu'à ce que CETTE étape se termine (quelques minutes en général,
+            # jamais plus que le délai maximum d'un calage/rejeu) : c'est attendu, pas
+            # bloqué.
+            var_resume.set("Annulation demandée — arrêt dès la fin de l'étape en cours "
+                            "(la ligne en jaune doit terminer, cela peut prendre "
+                            "quelques minutes).")
+            _log("--- Annulation demandée : arrêt à la fin de l'étape en cours "
+                 "(l'exécutable GRP actuellement lancé n'est jamais interrompu en "
+                 "plein milieu) ---")
 
     def _traiter_evenement(evt):
         if evt.etape == "campagne":

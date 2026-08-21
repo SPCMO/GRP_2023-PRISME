@@ -143,6 +143,33 @@ def upsert_resultat_crue(conn, combinaison_id, crue_date, statut, dqp=None, dtp=
     )
 
 
+def etat_combinaisons(conn):
+    """Retourne l'état actuel connu en base pour chaque combinaison déjà rencontrée,
+    indexé par (horizon, seuil_c1, methode) -> {"statut", "crues_ok", "crues_ko"}.
+
+    Utilisé par l'onglet Campagne pour initialiser le tableau des combinaisons avec les
+    VRAIS derniers statuts connus (au lieu de tout remettre à "pending" à chaque
+    lancement) — sans ça, une "Relancer les échecs" affichait comme "pending" des
+    combinaisons en réalité déjà réussies (et non retouchées par ce lancement), ce qui
+    laissait croire à tort que la campagne entière recommençait de zéro."""
+    lignes = conn.execute(
+        """
+        SELECT c.horizon, c.seuil_c1, c.methode, c.statut,
+               SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok,
+               SUM(CASE WHEN r.statut = 'failed' THEN 1 ELSE 0 END) AS crues_ko
+        FROM combinaisons c
+        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id
+        GROUP BY c.id
+        """
+    ).fetchall()
+    return {
+        (l["horizon"], l["seuil_c1"], l["methode"]): {
+            "statut": l["statut"], "crues_ok": l["crues_ok"] or 0, "crues_ko": l["crues_ko"] or 0,
+        }
+        for l in lignes
+    }
+
+
 def list_combinaisons(conn, statut=None):
     if statut:
         return conn.execute(
