@@ -16,8 +16,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
+from matplotlib import colormaps
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour projection="3d"
 
 from modules import export_excel, results_store
@@ -387,12 +389,45 @@ def _build_synthese(frame, app):
             _icone_info_axe(fig, canvas, etat_icones, "heatmap", 0.375, 0.905,
                              "Score composite", explication_score(poids, asymetrie_dtp))
 
-        # -- Dispersion |dQP| par horizon (scatter, pas de dépendance à scipy) --------
+            # Cadre jaune autour de la case (horizon, seuil) de la meilleure combinaison
+            # trouvée (scores est trié meilleur -> moins bon, voir modules.score) — la
+            # case affiche une moyenne si plusieurs méthodes s'y superposent, mais
+            # repérer la case suffit à situer visuellement la meilleure combinaison.
+            meilleur = scores[0] if scores and scores[0].score is not None else None
+            if meilleur is not None and meilleur.horizon in horizons and meilleur.seuil_c1 in seuils:
+                j = horizons.index(meilleur.horizon)
+                i = seuils.index(meilleur.seuil_c1)
+                ax_heatmap.add_patch(Rectangle(
+                    (j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor="#FFD700",
+                    linewidth=2.5, zorder=5))
+
+        # -- Dispersion |dQP| par horizon (scatter + boîtes à moustaches fines) -------
         ax_dispersion.clear()
+        positions = [_horizon_en_minutes(h) for h in horizons]
+        # Largeur des boîtes = fraction du plus PETIT écart entre 2 horizons voisins
+        # (pas de l'étendue totale) : les horizons choisis sont souvent très inégalement
+        # espacés (de 1h à plusieurs jours), une largeur basée sur l'étendue globale
+        # peut donc rester trop large là où les horizons sont rapprochés et se toucher.
+        positions_triees = sorted(positions)
+        ecarts = [b - a for a, b in zip(positions_triees, positions_triees[1:]) if b > a]
+        largeur_boite = max(min(ecarts) * 0.4, 1) if ecarts else 1
+        valeurs_par_horizon = []
         for horizon in horizons:
             valeurs = [abs(l["dqp"]) for l in lignes_ok if l["horizon"] == horizon and l["dqp"] is not None]
+            valeurs_par_horizon.append(valeurs)
             xs = [_horizon_en_minutes(horizon)] * len(valeurs)
-            ax_dispersion.scatter(xs, valeurs, alpha=0.6, s=18, color="#1F618D")
+            # Nuage discret en arrière-plan (alpha faible) : la boîte à moustaches
+            # devient l'élément principal, le nuage n'est qu'un repère de densité.
+            ax_dispersion.scatter(xs, valeurs, alpha=0.3, s=10, color="#1F618D", zorder=2)
+        if positions and any(valeurs_par_horizon):
+            ax_dispersion.boxplot(
+                valeurs_par_horizon, positions=positions, widths=largeur_boite,
+                showfliers=False, patch_artist=True, zorder=3,
+                boxprops=dict(facecolor="#AED6F1", edgecolor="#154360", alpha=0.85, linewidth=1.2),
+                medianprops=dict(color="#C0392B", linewidth=1.8),
+                whiskerprops=dict(color="#154360", linewidth=1.2),
+                capprops=dict(color="#154360", linewidth=1.2),
+            )
         ax_dispersion.set_xticks([_horizon_en_minutes(h) for h in horizons])
         ax_dispersion.set_xticklabels(horizons, rotation=45, ha="right", fontsize=7)
         ax_dispersion.set_ylabel("|dQP| (%)", fontsize=8)
@@ -723,17 +758,26 @@ def _build_sensibilite(frame, app):
     ttk.Button(cadre_boutons_horizon, text="Aucun",
                command=lambda: _selectionner_tous(False)).pack(fill=tk.X, pady=1)
 
-    make_label(r, "Méthode :", bg, width=10)
-    var_methode = tk.StringVar()
-    combo_methode = ttk.Combobox(r, textvariable=var_methode, state="readonly", width=6)
-    combo_methode.pack(side=tk.LEFT, padx=(2, 6))
+    make_label(r, "Méthode(s) :", bg, width=10)
+    liste_methodes = tk.Listbox(r, selectmode=tk.EXTENDED, height=2, width=4,
+                                 exportselection=False)
+    liste_methodes.pack(side=tk.LEFT, padx=(2, 4))
+    cadre_boutons_methode = tk.Frame(r, bg=bg)
+    cadre_boutons_methode.pack(side=tk.LEFT, padx=(0, 8))
+    ttk.Button(cadre_boutons_methode, text="Les 2",
+               command=lambda: _selectionner_tous_methodes(True)).pack(fill=tk.X, pady=1)
+    ttk.Button(cadre_boutons_methode, text="Aucune",
+               command=lambda: _selectionner_tous_methodes(False)).pack(fill=tk.X, pady=1)
     tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "italic"), fg="#555555",
-             text="T : Tangara   ·   R : RNA (Réseaux de Neurones Artificiels)").pack(
-        side=tk.LEFT, padx=(0, 12))
+             text="T : Tangara   ·   R : RNA (Réseaux de\nNeurones Artificiels)",
+             justify=tk.LEFT).pack(side=tk.LEFT, padx=(0, 12))
     # Centré verticalement par défaut (pack sans anchor="n") et décalé à droite
     # (padx gauche) pour se démarquer visuellement du reste de la ligne — l'icône
     # d'explication du score, redondante avec celle désormais posée directement sur le
-    # graphique (voir _icone_info_axe ci-dessous), a été retirée d'ici.
+    # graphique (voir _icone_info_axe ci-dessous), a été retirée d'ici. Le tracé se
+    # déclenche aussi automatiquement à chaque changement de sélection (horizon ou
+    # méthode) — ce bouton reste utile pour forcer un nouveau tracé sans changer la
+    # sélection (ex. après une nouvelle campagne).
     ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, padx=(20, 0))
 
     fig = Figure(figsize=(9, 4), dpi=100)
@@ -741,6 +785,8 @@ def _build_sensibilite(frame, app):
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_icones = {}
+
+    _LIGNE_PAR_METHODE = {"T": "-", "R": "--"}  # trait plein = Tangara, pointillé = RNA
 
     def _rafraichir_listes():
         lignes, _ = _charger_resultats(app)
@@ -750,16 +796,26 @@ def _build_sensibilite(frame, app):
         for h in horizons:
             liste_horizons.insert(tk.END, h)
         if horizons:
-            liste_horizons.selection_set(0)
-        combo_methode["values"] = methodes
-        if methodes and not var_methode.get():
-            var_methode.set(methodes[0])
+            liste_horizons.selection_set(0)  # un seul horizon par défaut, pour rester lisible
+        liste_methodes.delete(0, tk.END)
+        for m in methodes:
+            liste_methodes.insert(tk.END, m)
+        if methodes:
+            liste_methodes.selection_set(0, tk.END)  # les 2 méthodes par défaut : montre d'emblée la comparaison T/R
 
     def _selectionner_tous(valeur):
         if valeur:
             liste_horizons.selection_set(0, tk.END)
         else:
             liste_horizons.selection_clear(0, tk.END)
+        _tracer()
+
+    def _selectionner_tous_methodes(valeur):
+        if valeur:
+            liste_methodes.selection_set(0, tk.END)
+        else:
+            liste_methodes.selection_clear(0, tk.END)
+        _tracer()
 
     def _tracer():
         ax.clear()
@@ -768,40 +824,56 @@ def _build_sensibilite(frame, app):
             canvas.draw_idle()
             return
         horizons_selectionnes = [liste_horizons.get(i) for i in liste_horizons.curselection()]
-        if not horizons_selectionnes or not var_methode.get():
+        methodes_selectionnees = [liste_methodes.get(i) for i in liste_methodes.curselection()]
+        if not horizons_selectionnes or not methodes_selectionnees:
             canvas.draw_idle()
             return
 
         lignes_ok = [l for l in lignes if l["statut_crue"] == "success"
-                     and l["horizon"] in horizons_selectionnes and l["methode"] == var_methode.get()]
-        # Un seul appel à calculer_scores sur l'ensemble des horizons sélectionnés : la
-        # normalisation min-max du score (voir modules.score) porte alors sur ce même
+                     and l["horizon"] in horizons_selectionnes and l["methode"] in methodes_selectionnees]
+        # Un seul appel à calculer_scores sur l'ensemble horizons x méthodes sélectionné :
+        # la normalisation min-max du score (voir modules.score) porte alors sur ce même
         # ensemble affiché, donc les courbes superposées restent comparables entre elles
-        # (les calculer horizon par horizon donnerait à chacun son propre 0/1, faussant
-        # la comparaison visuelle).
+        # (les calculer séparément donnerait à chacune son propre 0/1, faussant la
+        # comparaison visuelle).
         poids, asymetrie_dtp, _libelle_profil = _poids_actifs(app)
         scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
         if not scores:
             canvas.draw_idle()
             return
 
+        # Couleur = horizon (constante entre les 2 méthodes d'un même horizon, pour les
+        # associer visuellement), style de trait = méthode (plein Tangara, pointillé
+        # RNA) — permet de comparer aussi bien tous les horizons pour une méthode fixée
+        # que les 2 méthodes pour un horizon fixé, sur le même graphique.
         for i, horizon in enumerate(horizons_selectionnes):
-            scores_h = sorted((s for s in scores if s.horizon == horizon), key=lambda s: s.seuil_c1)
-            if not scores_h:
-                continue
             couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
-            ax.plot([s.seuil_c1 for s in scores_h], [s.score for s in scores_h],
-                    marker="o", color=couleur, label=f"Horizon {horizon}")
+            for methode in methodes_selectionnees:
+                scores_hm = sorted((s for s in scores if s.horizon == horizon and s.methode == methode),
+                                    key=lambda s: s.seuil_c1)
+                if not scores_hm:
+                    continue
+                ax.plot([s.seuil_c1 for s in scores_hm], [s.score for s in scores_hm],
+                        marker="o", color=couleur, ls=_LIGNE_PAR_METHODE.get(methode, "-"),
+                        label=f"{horizon} ({methode})")
 
+        nb_courbes = len(horizons_selectionnes) * len(methodes_selectionnees)
         ax.set_xlabel("Seuil de calage SeuilC1 (m³/s)")
         ax.set_ylabel("Score composite (0=meilleur)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="best", fontsize=7.5, ncol=2 if len(horizons_selectionnes) > 5 else 1)
+        ax.legend(loc="best", fontsize=7.5, ncol=2 if nb_courbes > 5 else 1)
         _icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
                          "Score composite", explication_score(poids, asymetrie_dtp))
         canvas.draw_idle()
 
+    # Retrace automatiquement dès que la sélection change (horizon ou méthode) — plus
+    # besoin de recliquer sur Tracer, "<<ListboxSelect>>" se déclenche aussi bien pour
+    # un clic simple que pour une sélection multiple au glisser/Ctrl-clic.
+    liste_horizons.bind("<<ListboxSelect>>", lambda *_: _tracer())
+    liste_methodes.bind("<<ListboxSelect>>", lambda *_: _tracer())
+
     _rafraichir_listes()
+    _tracer()
     return _tracer  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
 
 
@@ -829,8 +901,16 @@ def _build_vue3d(frame, app):
     tk.Label(frame, textvariable=var_meilleure, font=("TkDefaultFont", 9, "bold")).pack(
         anchor="w", padx=10, pady=(2, 0))
 
-    fig = Figure(figsize=(9, 5.5), dpi=100)
-    ax = fig.add_subplot(1, 1, 1, projection="3d")
+    # Deux vues complémentaires plutôt qu'une seule 3D : la perspective/rotation d'un
+    # nuage de points 3D rend l'ŒIL peu fiable pour juger l'écart réel entre la
+    # meilleure combinaison et les autres (deux points proches en apparence peuvent
+    # être très éloignés en profondeur, et inversement) — signalé par l'utilisateur.
+    # Le classement 2D à droite (barres triées, écart au meilleur score) donne cette
+    # information sans ambiguïté, la 3D restant utile pour explorer la structure
+    # d'ensemble (horizon x seuil x méthode).
+    fig = Figure(figsize=(13, 5.5), dpi=100)
+    ax = fig.add_subplot(1, 2, 1, projection="3d")
+    ax_classement = fig.add_subplot(1, 2, 2)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_icones = {}
@@ -848,6 +928,7 @@ def _build_vue3d(frame, app):
             etat_colorbar["cb"].remove()
             etat_colorbar["cb"] = None
         ax.clear()
+        ax_classement.clear()
         lignes, erreur = _charger_resultats(app)
         if erreur:
             var_statut.set(erreur)
@@ -892,7 +973,7 @@ def _build_vue3d(frame, app):
         # Repère posé en coordonnées FIGURE (pas données/axes) — reste donc fixe à côté
         # de la colorbar (élément 2D stable) même quand la vue 3D est tournée à la
         # souris, contrairement à un label d'axe Z qui pivote avec la vue.
-        _icone_info_axe(fig, canvas, etat_icones, "colorbar", 0.895, 0.83,
+        _icone_info_axe(fig, canvas, etat_icones, "colorbar", 0.448, 0.90,
                          "Score composite", explication_score(poids, asymetrie_dtp))
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
@@ -929,8 +1010,36 @@ def _build_vue3d(frame, app):
         # centrée verticalement pour laisser plus de place à ses 3 entrées (dont la
         # dernière, plus longue, détaille la meilleure combinaison), avec un espacement
         # vertical accru (labelspacing) pour mieux les distinguer les unes des autres.
-        fig.subplots_adjust(left=0.32)
-        ax.legend(loc="upper left", bbox_to_anchor=(-0.55, 1.0), fontsize=7, labelspacing=1.8)
+        fig.subplots_adjust(left=0.20, wspace=0.45)
+        ax.legend(loc="upper left", bbox_to_anchor=(-0.75, 1.0), fontsize=7, labelspacing=1.8)
+
+        # -- Classement 2D : écart de score par rapport à la meilleure combinaison ----
+        # Barres triées (la meilleure en haut), longueur = à quel point chaque
+        # combinaison est plus mauvaise que la meilleure (Δ = 0 pour elle-même) —
+        # rend l'écart directement lisible en longueur, sans l'ambiguïté de profondeur
+        # inhérente à un nuage de points 3D tourné à la souris.
+        cmap = colormaps["RdYlGn_r"]
+        NB_MAX_AFFICHEES = 20
+        scores_tries = sorted(scores, key=lambda s: s.score)
+        scores_affiches = scores_tries[:NB_MAX_AFFICHEES]
+        libelles = [f"{s.horizon} / {s.seuil_c1:.2f} / {s.methode}" for s in scores_affiches]
+        deltas = [s.score - meilleur.score for s in scores_affiches]
+        positions_y = list(range(len(scores_affiches)))[::-1]  # meilleure en haut du graphique
+        couleurs_barres = [cmap(s.score) for s in scores_affiches]
+        ax_classement.barh(positions_y, deltas, color=couleurs_barres,
+                            edgecolor="#333333", linewidth=0.5, height=0.7, zorder=2)
+        ax_classement.scatter([0], [positions_y[0]], marker="*", s=220, color="gold",
+                               edgecolors="#333333", linewidths=0.7, zorder=5)
+        ax_classement.set_yticks(positions_y)
+        ax_classement.set_yticklabels(libelles, fontsize=7)
+        ax_classement.set_xlabel("Écart de score par rapport à la meilleure combinaison (Δ)", fontsize=8)
+        ax_classement.set_title(
+            f"Classement — écart au meilleur"
+            + (f" (20 premières sur {len(scores_tries)})" if len(scores_tries) > NB_MAX_AFFICHEES else ""),
+            fontsize=9)
+        ax_classement.grid(True, axis="x", alpha=0.3)
+        ax_classement.axvline(0, color="#333333", lw=0.8)
+
         canvas.draw_idle()
 
     _rafraichir()

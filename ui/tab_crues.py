@@ -61,10 +61,18 @@ def build_tab_crues(tab_frame, app):
     var_pdt_libelle = tk.StringVar()
     combo_pdt = ttk.Combobox(r, textvariable=var_pdt_libelle, state="readonly", width=18)
     combo_pdt.pack(side=tk.LEFT, padx=(2, 8))
-    var_inclure_pluie = tk.BooleanVar(value=False)
+    # Persisté dans config.json (pas seulement en mémoire) — sans ça, le réglage
+    # repartait à "décoché" à chaque relance de l'outil (constaté par l'utilisateur).
+    var_inclure_pluie = tk.BooleanVar(value=app.config_data.get("crues_inclure_pluie", False))
+
+    def _sauver_inclure_pluie():
+        app.config_data["crues_inclure_pluie"] = var_inclure_pluie.get()
+        app.persist_config()
+        _rafraichir()
+
     tk.Checkbutton(r, text="Inclure aussi les événements de pluie (TypEvt=P)",
                    variable=var_inclure_pluie, bg=bg,
-                   command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(12, 0))
+                   command=_sauver_inclure_pluie).pack(side=tk.LEFT, padx=(12, 0))
     bouton_info(r, "Événements de pluie (TypEvt=P)", TEXTE_INFO_TYPEVT_P, bg=bg).pack(
         side=tk.LEFT, padx=(2, 0))
     ttk.Button(r, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(12, 0))

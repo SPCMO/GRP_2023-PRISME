@@ -63,33 +63,42 @@ def _charger_couverture():
 
 
 def _charger_duree():
-    """Relit l'estimation de durée moyenne par combinaison — voir
-    results_store.duree_moyenne_par_combinaison. Ne lève jamais, comme
-    _charger_couverture ci-dessus."""
+    """Relit la durée médiane observée, décomposée par étape (calage / rejeu d'une
+    crue) et par méthode — voir results_store.duree_par_etape. Plus précis que
+    l'ancienne durée "par combinaison" (qui mélangeait calage et nombre variable de
+    crues) : permet d'afficher séparément le coût fixe du calage et le coût marginal
+    de chaque crue supplémentaire. Ne lève jamais, comme _charger_couverture ci-dessus."""
     try:
         results_store.init_db()
         with results_store.db_session() as conn:
-            return results_store.duree_moyenne_par_combinaison(conn)
+            return results_store.duree_par_etape(conn)
     except Exception:
-        return {"moyenne_minutes": None, "nb_mesurees": 0, "moyenne_par_methode": {"T": None, "R": None}}
+        return {"calage": {"T": {"minutes": None, "nb_mesures": 0}, "R": {"minutes": None, "nb_mesures": 0}},
+                "rejeu": {"T": {"minutes": None, "nb_mesures": 0}, "R": {"minutes": None, "nb_mesures": 0}}}
 
 
 def _texte_duree(info):
-    if not info or not info.get("nb_mesurees"):
-        return ("Durée moyenne par combinaison (calage + rejeu de ses crues) : pas encore assez "
+    calage = (info or {}).get("calage", {})
+    rejeu = (info or {}).get("rejeu", {})
+    if not any((calage.get(m) or {}).get("minutes") is not None for m in ("T", "R")):
+        return ("Durée moyenne par étape (calage, puis rejeu de chaque crue) : pas encore assez "
                 "de données mesurées.")
-    par_methode = info.get("moyenne_par_methode", {})
-    detail_methodes = []
+
+    detail_calage, detail_rejeu = [], []
     for m, libelle in (("T", "Tangara"), ("R", "réseau de neurones")):
-        v = par_methode.get(m)
-        if v is not None:
-            detail_methodes.append(f"{libelle} ≈ {v:.0f} min")
-    texte_detail = f" ({', '.join(detail_methodes)})" if detail_methodes else ""
+        v_calage = (calage.get(m) or {}).get("minutes")
+        if v_calage is not None:
+            detail_calage.append(f"{libelle} ≈ {v_calage:.0f} min")
+        v_rejeu = (rejeu.get(m) or {}).get("minutes")
+        if v_rejeu is not None:
+            detail_rejeu.append(f"{libelle} ≈ {v_rejeu * 60:.0f} s")
+    texte_calage = f" ({', '.join(detail_calage)})" if detail_calage else ""
+    texte_rejeu = f" ({', '.join(detail_rejeu)})" if detail_rejeu else " (pas encore assez de mesures)"
     return (
-        f"Durée moyenne observée par combinaison (calage + rejeu de ses crues) : "
-        f"≈ {info['moyenne_minutes']:.0f} min{texte_detail} — sur {info['nb_mesurees']} "
-        "combinaison(s) mesurée(s) (estimation à partir des horodatages du journal, pas "
-        "un chronométrage dédié)."
+        f"Durée médiane observée par étape : calage{texte_calage} — "
+        f"puis chaque crue rejouée ajoute environ 20 s en moyenne{texte_rejeu} "
+        "(voir aussi le bouton ⏱ Estimer le temps restant, onglet Campagne, pour une "
+        "estimation appliquée à votre sélection actuelle)."
     )
 
 

@@ -490,6 +490,31 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> La case "Inclure aussi les événements de pluie" (onglet Crues) n'était jamais persistée dans config.json — repartait décochée à chaque relance de l'outil. Corrigée.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Onglet Paramétrage : le texte de durée sous le Conseil précise désormais explicitement qu'une crue supplémentaire ajoute ~20 s au temps de campagne (en plus du coût fixe du calage), avec les chiffres actualisés.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Sensibilité au seuil : la méthode devient elle aussi une sélection multiple (comme les horizons) — permet de comparer soit tous les horizons pour une méthode fixée, soit les 2 méthodes pour un horizon fixé, soit toute combinaison des deux, sur le même graphique (couleur = horizon, trait plein/pointillé = méthode T/R). Le tracé se déclenche désormais automatiquement à chaque changement de sélection (horizon ou méthode), plus besoin de recliquer sur Tracer.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue synthèse : la case (horizon, seuil) de la meilleure combinaison est désormais encadrée en jaune sur la heatmap. Le graphique "Dispersion |dQP| par horizon" affiche en plus une fine boîte à moustaches par horizon (médiane, quartiles), en complément du nuage de points existant.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue 3D : ajout d'un second graphique complémentaire — un classement 2D en barres horizontales de l'écart de score par rapport à la meilleure combinaison (triées, meilleure en haut, étoile dorée). Un nuage de points 3D tourné à la souris rend l'écartement réel entre combinaisons difficile à juger (ambiguïté de profondeur) — le classement 2D lève cette ambiguïté sans rien retirer à la vue 3D, gardée pour explorer la structure d'ensemble horizon × seuil × méthode.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
