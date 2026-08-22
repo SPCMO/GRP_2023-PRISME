@@ -470,6 +470,21 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Constaté en conditions réelles : 2 échelles de couleur identiques côte à côte dans Vue synthèse et Vue 3D. Cause : <code>fig.colorbar()</code> ajoute une Axes à part à la FIGURE (pas à l'axe des données) — <code>ax.clear()</code> ne la supprime pas, donc chaque rafraîchissement en empilait une nouvelle. Corrigé (retrait explicite de la colorbar précédente, avant <code>ax.clear()</code> — l'ordre inverse fait planter <code>Colorbar.remove()</code>). Vérifié sur 6 rafraîchissements successifs : toujours une seule colorbar.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Pondération du score composite réglable depuis le Dashboard (sélecteur en haut, commun aux 3 vues qui affichent un score) : "Poids égaux" (comportement d'origine, inchangé par défaut), "Pondération métier" (dQP×3/dTP×2/VE×1/KGE×1, retard×1.25/avance×0.75 — l'analyse demandée par les modélisateurs), ou "Personnalisé" via un bouton Réglages... (6 champs : les 4 poids + les 2 facteurs d'asymétrie sur dTP). L'icône ⓘ "Score composite" décrit désormais toujours la pondération RÉELLEMENT active, y compris directement sur les graphiques (elle se recalcule à chaque clic). La fenêtre "Combinaisons déjà réalisées" (onglet Campagne) utilise la même pondération que le Dashboard.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Ascenseurs ajoutés aux tableaux "Classement" (Vue synthèse, qui affiche maintenant toutes les combinaisons au lieu des 15 meilleures) et "Maximum de chaque courbe tracée" (Détail par crue). Ce dernier gagne aussi 2 colonnes dQP/dT — écart de chaque courbe simulée par rapport au pic observé (%, pas de temps). Légendes repositionnées hors des graphiques pour ne plus recouvrir les données : à droite (Détail par crue), en haut à gauche avec plus d'espacement vertical (Vue 3D). Dans Sensibilité au seuil : bouton Tracer recentré verticalement et décalé à droite (icône score redondante retirée à côté, déjà présente sur le graphique), ajout d'un rappel "T : Tangara / R : RNA" à côté du sélecteur de méthode.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

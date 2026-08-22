@@ -252,8 +252,11 @@ def build_tab_orchestration(tab_frame, app):
                 if r["statut_crue"] == "success"
                 and (r["horizon"], r["seuil_c1"], r["methode"]) in cles_completes
             ]
-        scores = score.calculer_scores(resultats) if resultats else []
-        return scores, dates_maj
+        # Même pondération que le sélecteur partagé du Dashboard (onglet Dashboard, en
+        # haut) — un score composite doit désigner la même chose partout dans l'outil.
+        poids, asymetrie_dtp, _libelle = score.resoudre_ponderation(app.config_data.get("score"))
+        scores = score.calculer_scores(resultats, poids=poids, asymetrie_dtp=asymetrie_dtp) if resultats else []
+        return scores, dates_maj, poids, asymetrie_dtp
 
     def _afficher_combinaisons_completes():
         """Ouvre une fenêtre listant les combinaisons dont le calage ET toutes les
@@ -272,7 +275,9 @@ def build_tab_orchestration(tab_frame, app):
         entete_var = tk.StringVar()
         tk.Label(ligne_entete, textvariable=entete_var, anchor="w", pady=6,
                   wraplength=940, justify="left").pack(side=tk.LEFT, fill=tk.X, expand=True)
-        bouton_info(ligne_entete, "Score composite", score.EXPLICATION_SCORE).pack(side=tk.RIGHT, anchor="n")
+        bouton_info(ligne_entete, "Score composite",
+                    lambda: score.explication_score(*score.resoudre_ponderation(
+                        app.config_data.get("score"))[:2])).pack(side=tk.RIGHT, anchor="n")
 
         # Le score composite seul n'est pas interprétable avec peu de combinaisons
         # complètes (il est normalisé min-max SUR CET ENSEMBLE : avec une seule
@@ -296,7 +301,7 @@ def build_tab_orchestration(tab_frame, app):
 
         def _rafraichir():
             try:
-                scores, dates_maj = _charger_combinaisons_completes()
+                scores, dates_maj, _poids, _asymetrie = _charger_combinaisons_completes()
             except Exception as e:
                 messagebox.showerror("Combinaisons déjà réalisées",
                                       f"Impossible de lire les résultats en base : {e}")

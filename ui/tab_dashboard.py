@@ -23,7 +23,10 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour proje
 from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
 from modules.grp_paths import GrpPaths
-from modules.score import EXPLICATION_SCORE, calculer_scores
+from modules.score import (
+    PROFILS_PONDERATION, calculer_scores, config_ponderation_par_defaut,
+    explication_score, resoudre_ponderation,
+)
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import bouton_info, make_label, make_row, make_section
 
@@ -103,7 +106,30 @@ def _construire_grp_paths(app):
     )
 
 
+_LIBELLES_PROFIL = {
+    "egal": PROFILS_PONDERATION["egal"]["libelle"],
+    "metier": PROFILS_PONDERATION["metier"]["libelle"],
+    "personnalise": "Personnalisé (bouton Réglages…)",
+}
+
+
 def build_tab_dashboard(tab_frame, app):
+    # ── Bandeau partagé : choix de la pondération du score composite ─────────────
+    # Un seul sélecteur pour les 3 vues qui affichent un score (Vue synthèse,
+    # Sensibilité, Vue 3D) plutôt que de le dupliquer 3 fois — elles doivent toujours
+    # utiliser la MÊME pondération, jamais 3 réglages indépendants qui pourraient
+    # diverger silencieusement.
+    barre_pondération = tk.Frame(tab_frame)
+    barre_pondération.pack(fill=tk.X, padx=8, pady=(6, 0))
+    tk.Label(barre_pondération, text="Pondération du score composite :").pack(side=tk.LEFT)
+    var_profil = tk.StringVar()
+    combo_profil = ttk.Combobox(barre_pondération, textvariable=var_profil, state="readonly",
+                                 width=38, values=list(_LIBELLES_PROFIL.values()))
+    combo_profil.pack(side=tk.LEFT, padx=(6, 6))
+    ttk.Button(barre_pondération, text="Réglages…",
+               command=lambda: _ouvrir_reglages_score(
+                   app, lambda: _apres_reglages_personnalises())).pack(side=tk.LEFT)
+
     sous_notebook = ttk.Notebook(tab_frame)
     sous_notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -116,10 +142,119 @@ def build_tab_dashboard(tab_frame, app):
     sous_notebook.add(onglet_sensibilite, text="Sensibilité au seuil")
     sous_notebook.add(onglet_3d, text="Vue 3D")
 
-    _build_synthese(onglet_synthese, app)
+    _rafraichir_synthese = _build_synthese(onglet_synthese, app)
     _build_detail(onglet_detail, app)
-    _build_sensibilite(onglet_sensibilite, app)
-    _build_vue3d(onglet_3d, app)
+    _rafraichir_sensibilite = _build_sensibilite(onglet_sensibilite, app)
+    _rafraichir_vue3d = _build_vue3d(onglet_3d, app)
+
+    def _rafraichir_toutes_les_vues_du_score():
+        # Détail par crue n'affiche pas de score composite (dQP/dTP/VE/KGE de
+        # référence seulement) — volontairement absent de cette liste.
+        _rafraichir_synthese()
+        _rafraichir_sensibilite()
+        _rafraichir_vue3d()
+
+    def _appliquer_profil(*_evt):
+        cfg = _config_score(app)
+        profil_selectionne = next((cle for cle, libelle in _LIBELLES_PROFIL.items()
+                                    if libelle == var_profil.get()), "egal")
+        cfg["profil"] = profil_selectionne
+        app.persist_config()
+        _rafraichir_toutes_les_vues_du_score()
+
+    def _apres_reglages_personnalises():
+        """Rappelée par la fenêtre "Réglages…" une fois les valeurs personnalisées
+        enregistrées (voir _ouvrir_reglages_score, qui a déjà mis à jour
+        app.config_data["score"] et appelé app.persist_config()) : met juste à jour
+        l'affichage du sélecteur et retrace les 3 vues concernées."""
+        var_profil.set(_LIBELLES_PROFIL["personnalise"])
+        _rafraichir_toutes_les_vues_du_score()
+
+    combo_profil.bind("<<ComboboxSelected>>", _appliquer_profil)
+    var_profil.set(_LIBELLES_PROFIL.get(_config_score(app).get("profil", "egal"),
+                                          _LIBELLES_PROFIL["egal"]))
+
+
+_CHAMPS_POIDS = (("dqp", "Poids |dQP|"), ("dtp", "Poids |dTP|"),
+                  ("ve", "Poids |VE|"), ("kge", "Poids (1−KGE)"))
+_CHAMPS_ASYMETRIE = (("retard", "Facteur retard (dTP > 0)"), ("avance", "Facteur avance (dTP < 0)"))
+
+
+def _ouvrir_reglages_score(app, apres_enregistrement):
+    """Fenêtre d'édition libre de la pondération du score composite — poids des 4
+    indicateurs et facteurs d'asymétrie sur dTP (retard vs avance), en plus des 2
+    profils prédéfinis (Poids égaux / Pondération métier) proposés dans le sélecteur
+    principal. Pré-rempli avec la pondération ACTUELLEMENT active (quel que soit le
+    profil en cours), pour éditer à partir de là plutôt que de repartir de valeurs
+    figées sans rapport avec ce qui est affiché à l'instant."""
+    poids_actuels, asymetrie_actuelle, _libelle = resoudre_ponderation(_config_score(app))
+
+    fenetre = tk.Toplevel(app)
+    fenetre.title("Réglages de la pondération du score composite")
+    fenetre.geometry("420x360")
+    fenetre.transient(app)
+    fenetre.grab_set()
+
+    tk.Label(fenetre, text="Poids des 4 indicateurs (valeurs relatives — seul le "
+                            "RAPPORT entre elles compte, pas leur échelle absolue) :",
+             wraplength=390, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(10, 4))
+
+    variables_poids = {}
+    for cle, libelle in _CHAMPS_POIDS:
+        ligne = tk.Frame(fenetre)
+        ligne.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(ligne, text=libelle, width=22, anchor="w").pack(side=tk.LEFT)
+        var = tk.StringVar(value=f"{poids_actuels.get(cle, 1.0):.2f}")
+        variables_poids[cle] = var
+        tk.Entry(ligne, textvariable=var, width=8).pack(side=tk.LEFT)
+
+    tk.Label(fenetre, text="Asymétrie sur dTP — un dTP positif (retard) est multiplié "
+                            "par le premier facteur, un dTP négatif (avance) par le "
+                            "second, avant normalisation. 1.00/1.00 = symétrique "
+                            "(comportement d'origine).",
+             wraplength=390, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(12, 4))
+
+    variables_asymetrie = {}
+    for cle, libelle in _CHAMPS_ASYMETRIE:
+        ligne = tk.Frame(fenetre)
+        ligne.pack(fill=tk.X, padx=10, pady=2)
+        tk.Label(ligne, text=libelle, width=22, anchor="w").pack(side=tk.LEFT)
+        var = tk.StringVar(value=f"{asymetrie_actuelle.get(cle, 1.0):.2f}")
+        variables_asymetrie[cle] = var
+        tk.Entry(ligne, textvariable=var, width=8).pack(side=tk.LEFT)
+
+    var_erreur = tk.StringVar(value="")
+    tk.Label(fenetre, textvariable=var_erreur, fg="#A93226", wraplength=390,
+             justify=tk.LEFT).pack(anchor="w", padx=10, pady=(8, 0))
+
+    def _enregistrer():
+        try:
+            nouveaux_poids = {cle: float(var.get().strip().replace(",", "."))
+                               for cle, var in variables_poids.items()}
+            nouvelle_asymetrie = {cle: float(var.get().strip().replace(",", "."))
+                                   for cle, var in variables_asymetrie.items()}
+        except ValueError as e:
+            var_erreur.set(f"Valeur non numérique : {e}")
+            return
+        if any(v < 0 for v in nouveaux_poids.values()) or any(v <= 0 for v in nouvelle_asymetrie.values()):
+            var_erreur.set("Les poids doivent être ≥ 0 et les facteurs d'asymétrie > 0.")
+            return
+        if sum(nouveaux_poids.values()) == 0:
+            var_erreur.set("Au moins un poids doit être strictement positif.")
+            return
+
+        cfg = _config_score(app)
+        cfg["profil"] = "personnalise"
+        cfg["poids_personnalise"] = nouveaux_poids
+        cfg["asymetrie_personnalisee"] = nouvelle_asymetrie
+        app.persist_config()
+        fenetre.destroy()
+        apres_enregistrement()
+
+    barre_boutons = tk.Frame(fenetre)
+    barre_boutons.pack(pady=(14, 10))
+    ttk.Button(barre_boutons, text="Enregistrer", command=_enregistrer).pack(side=tk.LEFT, padx=4)
+    ttk.Button(barre_boutons, text="Annuler", command=fenetre.destroy).pack(side=tk.LEFT, padx=4)
 
 
 def _charger_resultats(app):
@@ -132,6 +267,22 @@ def _charger_resultats(app):
         return [], f"Impossible de lire les résultats : {e}"
 
 
+def _config_score(app):
+    """État persisté du choix de pondération (onglet Dashboard, sélecteur partagé —
+    voir build_tab_dashboard). "egal" reste le comportement d'origine, jamais modifié
+    par défaut (demande explicite de l'utilisateur : ne pas changer le score existant
+    sans qu'il le décide)."""
+    return app.config_data.setdefault("score", config_ponderation_par_defaut())
+
+
+def _poids_actifs(app):
+    """Résout la pondération RÉELLEMENT active à cet instant (poids, asymetrie_dtp,
+    libellé) — lue par les 3 vues du Dashboard qui calculent un score composite, pour
+    qu'elles utilisent toutes la même pondération que celle affichée dans le
+    sélecteur, sans jamais la dupliquer en dur."""
+    return resoudre_ponderation(_config_score(app))
+
+
 # ══════════════════════════════════════════════════════════════════════════════════
 # 1. Vue synthèse
 # ══════════════════════════════════════════════════════════════════════════════════
@@ -141,7 +292,8 @@ def _build_synthese(frame, app):
     barre.pack(fill=tk.X, padx=8, pady=6)
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
-    bouton_info(barre, "Score composite", EXPLICATION_SCORE).pack(side=tk.LEFT, padx=(6, 0))
+    bouton_info(barre, "Score composite",
+                lambda: explication_score(*_poids_actifs(app)[:2])).pack(side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT, padx=4)
     ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter()).pack(side=tk.RIGHT)
 
@@ -155,16 +307,20 @@ def _build_synthese(frame, app):
     canvas = FigureCanvasTkAgg(fig, master=corps)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     etat_icones = {}
+    etat_colorbar = {"cb": None}
 
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
     tableau = ttk.Treeview(cadre_classement, columns=("horizon", "seuil", "methode", "score", "nb_crues"),
-                            show="headings", height=5)
+                            show="headings", height=8)
     for col, libelle in (("horizon", "Horizon"), ("seuil", "Seuil C1"), ("methode", "Méthode"),
                          ("score", "Score (0=meilleur)"), ("nb_crues", "Nb crues")):
         tableau.heading(col, text=libelle)
         tableau.column(col, width=120, anchor="center")
-    tableau.pack(fill=tk.X)
+    ascenseur_tableau = ttk.Scrollbar(cadre_classement, orient=tk.VERTICAL, command=tableau.yview)
+    tableau.configure(yscrollcommand=ascenseur_tableau.set)
+    tableau.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    ascenseur_tableau.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _exporter():
         chemin = filedialog.asksaveasfilename(
@@ -188,16 +344,28 @@ def _build_synthese(frame, app):
         if not lignes_ok:
             var_statut.set("Aucun résultat réussi en base pour l'instant — lancez une campagne "
                             "(onglet Campagne).")
+            if etat_colorbar["cb"] is not None:  # retirer AVANT clear(), voir plus bas
+                etat_colorbar["cb"].remove()
+                etat_colorbar["cb"] = None
             ax_heatmap.clear()
             ax_dispersion.clear()
             canvas.draw_idle()
             tableau.delete(*tableau.get_children())
             return
 
-        scores = calculer_scores(lignes_ok)
-        var_statut.set(f"{len(lignes_ok)} résultat(s) réussi(s), {len(scores)} combinaison(s).")
+        poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
+        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        var_statut.set(f"{len(lignes_ok)} résultat(s) réussi(s), {len(scores)} combinaison(s) "
+                        f"— pondération : {libelle_profil}.")
 
         # -- Heatmap horizon x seuil (score moyen, toutes méthodes confondues) --------
+        # La colorbar doit être retirée AVANT ax_heatmap.clear() : Colorbar.remove()
+        # s'appuie sur l'axes "parent" (ax_heatmap) pour restaurer sa place dans la
+        # grille de subplots — une fois cet axes vidé par clear(), remove() plante
+        # (AttributeError, constaté en conditions réelles au 2e rafraîchissement).
+        if etat_colorbar["cb"] is not None:
+            etat_colorbar["cb"].remove()
+            etat_colorbar["cb"] = None
         ax_heatmap.clear()
         horizons = sorted({s.horizon for s in scores}, key=_horizon_en_minutes)
         seuils = sorted({s.seuil_c1 for s in scores})
@@ -215,9 +383,9 @@ def _build_synthese(frame, app):
             ax_heatmap.set_yticks(range(len(seuils)))
             ax_heatmap.set_yticklabels([f"{v:.2f}" for v in seuils], fontsize=7)
             ax_heatmap.set_title("Score composite (0=meilleur)", fontsize=9)
-            fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
+            etat_colorbar["cb"] = fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
             _icone_info_axe(fig, canvas, etat_icones, "heatmap", 0.375, 0.905,
-                             "Score composite", EXPLICATION_SCORE)
+                             "Score composite", explication_score(poids, asymetrie_dtp))
 
         # -- Dispersion |dQP| par horizon (scatter, pas de dépendance à scipy) --------
         ax_dispersion.clear()
@@ -234,12 +402,13 @@ def _build_synthese(frame, app):
         canvas.draw_idle()
 
         tableau.delete(*tableau.get_children())
-        for s in scores[:15]:
+        for s in scores:  # toutes les combinaisons, pas seulement les 15 meilleures -- l'ascenseur permet de tout parcourir
             tableau.insert("", tk.END, values=(s.horizon, f"{s.seuil_c1:.2f}", s.methode,
                                                 f"{s.score:.4f}" if s.score is not None else "—",
                                                 s.nb_crues))
 
     _rafraichir()
+    return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
@@ -287,13 +456,23 @@ def _build_detail(frame, app):
 
     # ── Récapitulatif max/horodatage par courbe tracée ────────────────────────────
     inn_max, bg_max = make_section(frame, "Maximum de chaque courbe tracée", "gris")
-    tableau_max = ttk.Treeview(inn_max, columns=("courbe", "max", "horodatage"),
-                                show="headings", height=4)
-    for col, libelle, largeur in (("courbe", "Courbe", 260), ("max", "Max (m³/s)", 110),
-                                   ("horodatage", "Horodatage du max", 150)):
+    cadre_tableau_max = tk.Frame(inn_max, bg=bg_max)
+    cadre_tableau_max.pack(fill=tk.BOTH, expand=True)
+    tableau_max = ttk.Treeview(
+        cadre_tableau_max,
+        columns=("courbe", "max", "horodatage", "dqp", "dt"),
+        show="headings", height=6)
+    for col, libelle, largeur in (
+        ("courbe", "Courbe", 240), ("max", "Max (m³/s)", 100),
+        ("horodatage", "Horodatage du max", 140),
+        ("dqp", "dQP vs observé (%)", 130), ("dt", "dT vs observé (pdt)", 130),
+    ):
         tableau_max.heading(col, text=libelle)
         tableau_max.column(col, width=largeur, anchor="center" if col != "courbe" else "w")
-    tableau_max.pack(fill=tk.X)
+    ascenseur_max = ttk.Scrollbar(cadre_tableau_max, orient=tk.VERTICAL, command=tableau_max.yview)
+    tableau_max.configure(yscrollcommand=ascenseur_max.set)
+    tableau_max.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    ascenseur_max.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _max_et_horodatage(points_xy):
         """points_xy : liste de (datetime, valeur). Retourne (max, date_du_max) en
@@ -412,6 +591,25 @@ def _build_detail(frame, app):
             var_indicateurs.set(f"Série observée indisponible : {e}")
             serie = []
 
+        # dQP/dT de chaque courbe RELATIFS au pic observé (même principe que les
+        # indicateurs dQP/dTP de campagne, mais calculés ici directement sur les
+        # séries tracées) — nécessite la durée du pas de temps en minutes pour
+        # convertir un écart d'horodatage en nombre de pas de temps ; le format du
+        # code pas de temps ("ddJhhHmmM") est le même que celui des horizons, donc
+        # _horizon_en_minutes s'applique tel quel.
+        pas_de_temps_minutes = _horizon_en_minutes(code_pdt) or None
+        valeur_max_obs, date_max_obs = None, None
+
+        def _dqp_dt_vs_obs(valeur_max, date_max):
+            if valeur_max_obs is None or date_max_obs is None:
+                return "—", "—"
+            dqp = (((valeur_max - valeur_max_obs) / valeur_max_obs) * 100
+                   if valeur_max_obs != 0 else None)
+            dt = ((date_max - date_max_obs).total_seconds() / 60 / pas_de_temps_minutes
+                  if pas_de_temps_minutes else None)
+            return (f"{dqp:+.1f}" if dqp is not None else "—",
+                    f"{dt:+.1f}" if dt is not None else "—")
+
         toutes_valeurs = []
         if serie:
             points_obs = [(p[0], p[2]) for p in serie]
@@ -420,8 +618,9 @@ def _build_detail(frame, app):
             toutes_valeurs.extend(v for _d, v in points_obs if v is not None)
             valeur_max, date_max = _max_et_horodatage(points_obs)
             if valeur_max is not None:
+                valeur_max_obs, date_max_obs = valeur_max, date_max
                 tableau_max.insert("", tk.END, values=(
-                    "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}"))
+                    "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}", "0.0", "0"))
                 # Annotation directement sur le graphique (même principe que OPALE v2 :
                 # point marqué + valeur/horodatage dans un encart), en plus de la ligne
                 # déjà présente dans le tableau récapitulatif ci-dessous.
@@ -453,8 +652,10 @@ def _build_detail(frame, app):
                 toutes_valeurs.extend(v for _d, v in points_sim if v is not None)
                 valeur_max, date_max = _max_et_horodatage(points_sim)
                 if valeur_max is not None:
+                    dqp_txt, dt_txt = _dqp_dt_vs_obs(valeur_max, date_max)
                     tableau_max.insert("", tk.END, values=(
-                        libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}"))
+                        libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}",
+                        dqp_txt, dt_txt))
 
         # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
         # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
@@ -475,7 +676,11 @@ def _build_detail(frame, app):
 
         ax.set_ylabel("Débit (m³/s)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="upper left", fontsize=7.5, ncol=2 if len(combis_selectionnees) > 3 else 1)
+        # Légende sortie du graphique, ancrée à droite des axes (bbox_to_anchor avec un
+        # x > 1) pour ne jamais recouvrir les courbes tracées — la marge de figure à
+        # droite est réduite en conséquence pour qu'elle reste entièrement visible.
+        fig.subplots_adjust(right=0.78)
+        ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=7.5)
         fig.autofmt_xdate()
         canvas.draw_idle()
 
@@ -521,9 +726,15 @@ def _build_sensibilite(frame, app):
     make_label(r, "Méthode :", bg, width=10)
     var_methode = tk.StringVar()
     combo_methode = ttk.Combobox(r, textvariable=var_methode, state="readonly", width=6)
-    combo_methode.pack(side=tk.LEFT, padx=(2, 12))
-    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, anchor="n")
-    bouton_info(r, "Score composite", EXPLICATION_SCORE, bg=bg).pack(side=tk.LEFT, padx=(8, 0), anchor="n")
+    combo_methode.pack(side=tk.LEFT, padx=(2, 6))
+    tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "italic"), fg="#555555",
+             text="T : Tangara   ·   R : RNA (Réseaux de Neurones Artificiels)").pack(
+        side=tk.LEFT, padx=(0, 12))
+    # Centré verticalement par défaut (pack sans anchor="n") et décalé à droite
+    # (padx gauche) pour se démarquer visuellement du reste de la ligne — l'icône
+    # d'explication du score, redondante avec celle désormais posée directement sur le
+    # graphique (voir _icone_info_axe ci-dessous), a été retirée d'ici.
+    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, padx=(20, 0))
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
@@ -568,7 +779,8 @@ def _build_sensibilite(frame, app):
         # ensemble affiché, donc les courbes superposées restent comparables entre elles
         # (les calculer horizon par horizon donnerait à chacun son propre 0/1, faussant
         # la comparaison visuelle).
-        scores = calculer_scores(lignes_ok)
+        poids, asymetrie_dtp, _libelle_profil = _poids_actifs(app)
+        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
         if not scores:
             canvas.draw_idle()
             return
@@ -586,10 +798,11 @@ def _build_sensibilite(frame, app):
         ax.grid(True, alpha=0.3)
         ax.legend(loc="best", fontsize=7.5, ncol=2 if len(horizons_selectionnes) > 5 else 1)
         _icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
-                         "Score composite", EXPLICATION_SCORE)
+                         "Score composite", explication_score(poids, asymetrie_dtp))
         canvas.draw_idle()
 
     _rafraichir_listes()
+    return _tracer  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
@@ -604,7 +817,8 @@ def _build_vue3d(frame, app):
     barre.pack(fill=tk.X, padx=8, pady=6)
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
-    bouton_info(barre, "Score composite", EXPLICATION_SCORE).pack(side=tk.LEFT, padx=(6, 0))
+    bouton_info(barre, "Score composite",
+                lambda: explication_score(*_poids_actifs(app)[:2])).pack(side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT)
 
     tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#555555",
@@ -620,8 +834,19 @@ def _build_vue3d(frame, app):
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_icones = {}
+    etat_colorbar = {"cb": None}
 
     def _rafraichir():
+        # La colorbar doit être retirée AVANT ax.clear() : Colorbar.remove() s'appuie
+        # sur l'axes "parent" pour restaurer sa place dans la grille de subplots — une
+        # fois cet axes vidé par clear(), remove() plante (AttributeError, constaté en
+        # conditions réelles au 2e rafraîchissement). ax.clear() ne supprime de toute
+        # façon pas la colorbar (Axes à part, ajoutée à la figure) : sans ce retrait
+        # explicite, chaque rafraîchissement en empilait une nouvelle (constaté aussi :
+        # 2 échelles de couleur identiques côte à côte).
+        if etat_colorbar["cb"] is not None:
+            etat_colorbar["cb"].remove()
+            etat_colorbar["cb"] = None
         ax.clear()
         lignes, erreur = _charger_resultats(app)
         if erreur:
@@ -639,7 +864,9 @@ def _build_vue3d(frame, app):
 
         # Un seul appel à calculer_scores sur TOUS les résultats réussis : normalisation
         # cohérente avec la Vue synthèse (même score, même échelle 0=meilleur/1=pire).
-        scores = [s for s in calculer_scores(lignes_ok) if s.score is not None]
+        poids, asymetrie_dtp, _libelle_profil = _poids_actifs(app)
+        scores = [s for s in calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+                  if s.score is not None]
         var_statut.set(f"{len(scores)} combinaison(s) avec score exploitable.")
         if not scores:
             var_meilleure.set("")
@@ -660,12 +887,13 @@ def _build_vue3d(frame, app):
                 marker=marqueur, s=60, edgecolors="#333333", linewidths=0.5,
                 label=f"Méthode {methode}",
             )
-        fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1, label="Score composite (0=meilleur)")
+        etat_colorbar["cb"] = fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1,
+                                            label="Score composite (0=meilleur)")
         # Repère posé en coordonnées FIGURE (pas données/axes) — reste donc fixe à côté
         # de la colorbar (élément 2D stable) même quand la vue 3D est tournée à la
         # souris, contrairement à un label d'axe Z qui pivote avec la vue.
         _icone_info_axe(fig, canvas, etat_icones, "colorbar", 0.895, 0.83,
-                         "Score composite", EXPLICATION_SCORE)
+                         "Score composite", explication_score(poids, asymetrie_dtp))
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
         # détail (paramètres + les 4 indicateurs moyens qui composent son score) est
@@ -697,10 +925,13 @@ def _build_vue3d(frame, app):
         ax.set_ylabel("Seuil de calage (m³/s)", labelpad=8, fontsize=8)
         ax.set_zlabel("Score composite (0=meilleur)", fontsize=8)
         # Légende sortie du graphique, ancrée à gauche des axes (bbox_to_anchor avec un
-        # x négatif) pour ne jamais recouvrir le nuage de points — la marge de figure à
-        # gauche est agrandie en conséquence pour qu'elle reste entièrement visible.
+        # x négatif) pour ne jamais recouvrir le nuage de points — en haut plutôt que
+        # centrée verticalement pour laisser plus de place à ses 3 entrées (dont la
+        # dernière, plus longue, détaille la meilleure combinaison), avec un espacement
+        # vertical accru (labelspacing) pour mieux les distinguer les unes des autres.
         fig.subplots_adjust(left=0.32)
-        ax.legend(loc="center left", bbox_to_anchor=(-0.55, 0.5), fontsize=7)
+        ax.legend(loc="upper left", bbox_to_anchor=(-0.55, 1.0), fontsize=7, labelspacing=1.8)
         canvas.draw_idle()
 
     _rafraichir()
+    return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération

@@ -182,11 +182,16 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
 def bouton_info(parent, titre, texte, bg=None):
     """Petit "ⓘ" cliquable qui affiche `texte` dans une messagebox — pour expliquer un
     réglage sans encombrer l'écran d'un paragraphe d'aide permanent à côté de chaque
-    option. Retourne le Label, à placer par l'appelant (pack/grid)."""
+    option. `texte` peut être une chaîne fixe, ou un callable sans argument évalué à
+    CHAQUE clic (texte re-généré à jour si ce qu'il décrit peut changer entre temps —
+    ex. explication du score composite qui dépend de la pondération actuellement
+    choisie, voir ui/tab_dashboard.py). Retourne le Label, à placer par l'appelant
+    (pack/grid)."""
     kwargs = {"bg": bg} if bg is not None else {}
     lbl = tk.Label(parent, text="ⓘ", fg="#1A5276", cursor="hand2",
                    font=("TkDefaultFont", 10, "bold"), **kwargs)
-    lbl.bind("<Button-1>", lambda _evt: messagebox.showinfo(titre, texte, parent=parent.winfo_toplevel()))
+    lbl.bind("<Button-1>", lambda _evt: messagebox.showinfo(
+        titre, texte() if callable(texte) else texte, parent=parent.winfo_toplevel()))
     return lbl
 
 

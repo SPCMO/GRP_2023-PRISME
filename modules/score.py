@@ -15,29 +15,114 @@ from typing import Dict, List, Optional
 
 INDICATEURS = ("dqp", "dtp", "ve", "kge")
 POIDS_PAR_DEFAUT = {"dqp": 1.0, "dtp": 1.0, "ve": 1.0, "kge": 1.0}
+ASYMETRIE_DTP_PAR_DEFAUT = {"retard": 1.0, "avance": 1.0}  # symétrique : 1.0/1.0
 
-# Explication affichée à l'utilisateur (bouton "ⓘ" à côté de chaque "Score composite"
-# dans le Dashboard, voir ui/tab_dashboard.py et ui/tab_orchestration.py) — centralisée
-# ici pour rester la description exacte du calcul réellement fait ci-dessous.
-EXPLICATION_SCORE = (
-    "Score composite (0 = meilleur, 1 = pire)\n\n"
-    "Calculé UNIQUEMENT sur les combinaisons actuellement affichées à l'écran (jamais "
-    "sur une seule, ni sur toute la base) :\n\n"
-    "1. Pour chaque combinaison, on calcule l'erreur moyenne (sur ses crues réussies) "
-    "de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en pas de "
-    "temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et (1 − KGE) "
-    "(KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
-    "2. Chaque indicateur est normalisé entre 0 (la MEILLEURE valeur observée parmi "
-    "TOUTES les combinaisons affichées) et 1 (la pire) — c'est une échelle RELATIVE à "
-    "ce qui est affiché : ajouter ou retirer des combinaisons du graphique/tableau peut "
-    "donc changer le score de toutes les autres.\n\n"
-    "3. Le score final est la MOYENNE des 4 indicateurs normalisés, à POIDS ÉGAUX "
-    "(25% chacun).\n\n"
-    "4. dTP est traité de façon SYMÉTRIQUE : une avance de 2 pas de temps compte "
-    "exactement comme un retard de 2 pas de temps — le score ne privilégie pas l'avance "
-    "sur le retard, ni l'inverse.\n\n"
-    "Voir modules/score.py (fonction calculer_scores) pour le détail du calcul."
-)
+# Profils de pondération proposés dans le Dashboard (sélecteur partagé, voir
+# ui/tab_dashboard.py) — "egal" est le comportement d'origine, jamais modifié en place
+# (l'utilisateur a explicitement demandé de ne pas changer le score par défaut).
+# "metier" reprend l'analyse comparative demandée par les modélisateurs : dQP pesé 3x
+# plus qu'VE/KGE, dTP 2x plus, et un retard de prévision pénalisé plus qu'une avance de
+# même ampleur (0.75 en avance contre 1.25 en retard).
+PROFILS_PONDERATION = {
+    "egal": {
+        "libelle": "Poids égaux (par défaut)",
+        "poids": dict(POIDS_PAR_DEFAUT),
+        "asymetrie_dtp": dict(ASYMETRIE_DTP_PAR_DEFAUT),
+    },
+    "metier": {
+        "libelle": "Pondération métier (dQP favorisé, retard pénalisé)",
+        "poids": {"dqp": 3.0, "dtp": 2.0, "ve": 1.0, "kge": 1.0},
+        "asymetrie_dtp": {"retard": 1.25, "avance": 0.75},
+    },
+}
+
+
+def explication_score(poids=None, asymetrie_dtp=None):
+    """Texte affiché dans le bouton "ⓘ" à côté de chaque "Score composite" du
+    Dashboard — généré à partir de la pondération RÉELLEMENT active (voir
+    ui/tab_dashboard.py, sélecteur de profil), pour ne jamais afficher une description
+    qui ne correspond plus au calcul effectivement fait."""
+    poids = poids or POIDS_PAR_DEFAUT
+    asymetrie_dtp = asymetrie_dtp or ASYMETRIE_DTP_PAR_DEFAUT
+    poids_egaux = all(v == poids["dqp"] for v in poids.values())
+    dtp_symetrique = asymetrie_dtp["retard"] == asymetrie_dtp["avance"]
+
+    if poids_egaux:
+        texte_poids = "3. Le score final est la MOYENNE des 4 indicateurs normalisés, à POIDS ÉGAUX (25% chacun)."
+    else:
+        total = sum(poids.values())
+        detail = ", ".join(f"{ind.upper()} {v/total*100:.0f}%" for ind, v in poids.items())
+        texte_poids = (
+            f"3. Le score final est la MOYENNE PONDÉRÉE des 4 indicateurs normalisés — "
+            f"poids actuels : {detail}."
+        )
+    if dtp_symetrique:
+        texte_dtp = (
+            "4. dTP est traité de façon SYMÉTRIQUE : une avance de 2 pas de temps compte "
+            "exactement comme un retard de 2 pas de temps — le score ne privilégie pas "
+            "l'avance sur le retard, ni l'inverse."
+        )
+    else:
+        texte_dtp = (
+            f"4. dTP est traité de façon ASYMÉTRIQUE : un retard est multiplié par "
+            f"{asymetrie_dtp['retard']:.2f} avant normalisation, une avance par "
+            f"{asymetrie_dtp['avance']:.2f} — "
+            + ("le retard est pénalisé davantage qu'une avance de même ampleur."
+               if asymetrie_dtp["retard"] > asymetrie_dtp["avance"]
+               else "l'avance est pénalisée davantage qu'un retard de même ampleur.")
+        )
+
+    return (
+        "Score composite (0 = meilleur, 1 = pire)\n\n"
+        "Calculé UNIQUEMENT sur les combinaisons actuellement affichées à l'écran (jamais "
+        "sur une seule, ni sur toute la base) :\n\n"
+        "1. Pour chaque combinaison, on calcule l'erreur moyenne (sur ses crues réussies) "
+        "de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en pas de "
+        "temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et (1 − KGE) "
+        "(KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
+        "2. Chaque indicateur est normalisé entre 0 (la MEILLEURE valeur observée parmi "
+        "TOUTES les combinaisons affichées) et 1 (la pire) — c'est une échelle RELATIVE à "
+        "ce qui est affiché : ajouter ou retirer des combinaisons du graphique/tableau peut "
+        "donc changer le score de toutes les autres.\n\n"
+        f"{texte_poids}\n\n"
+        f"{texte_dtp}\n\n"
+        "Pondération réglable dans le Dashboard (sélecteur de profil + bouton Réglages…).\n"
+        "Voir modules/score.py (fonction calculer_scores) pour le détail du calcul."
+    )
+
+
+# Rétro-compatibilité : ancien nom, toujours la version "poids égaux" (comportement
+# d'origine — voir ui/tab_dashboard.py pour la version dynamique selon le profil actif).
+EXPLICATION_SCORE = explication_score()
+
+
+def config_ponderation_par_defaut():
+    """État initial de app.config_data["score"] (persisté) — "egal" reproduit
+    exactement le comportement d'origine, jamais changé sans action explicite de
+    l'utilisateur. "poids_personnalise"/"asymetrie_personnalisee" pré-remplis avec le
+    profil "metier" pour donner un point de départ sensé au réglage personnalisé
+    plutôt que de démarrer sur des poids tous à zéro."""
+    return {
+        "profil": "egal",
+        "poids_personnalise": dict(PROFILS_PONDERATION["metier"]["poids"]),
+        "asymetrie_personnalisee": dict(PROFILS_PONDERATION["metier"]["asymetrie_dtp"]),
+    }
+
+
+def resoudre_ponderation(config_score):
+    """`config_score` : dict au format de config_ponderation_par_defaut() (ou None).
+    Retourne (poids, asymetrie_dtp, libellé) — la pondération RÉELLEMENT active,
+    utilisée aussi bien par le Dashboard (ui/tab_dashboard.py) que par la fenêtre
+    "Combinaisons déjà réalisées" de l'onglet Campagne (ui/tab_orchestration.py), pour
+    que le score composite désigne la même chose partout dans l'outil."""
+    config_score = config_score or {}
+    profil = config_score.get("profil", "egal")
+    if profil == "personnalise":
+        poids = config_score.get("poids_personnalise") or PROFILS_PONDERATION["metier"]["poids"]
+        asymetrie = config_score.get("asymetrie_personnalisee") or PROFILS_PONDERATION["metier"]["asymetrie_dtp"]
+        return poids, asymetrie, "Personnalisé"
+    profil_connu = PROFILS_PONDERATION.get(profil, PROFILS_PONDERATION["egal"])
+    return profil_connu["poids"], profil_connu["asymetrie_dtp"], profil_connu["libelle"]
 
 
 @dataclass
@@ -63,10 +148,17 @@ def _fonction_normalisation(valeurs):
     return lambda x: (x - mini) / etendue
 
 
-def calculer_scores(lignes_resultats, poids=None):
+def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
     """`lignes_resultats` : itérable d'objets/dicts avec au moins les clés horizon,
     seuil_c1, methode, dqp, dtp, ve, kge (typiquement
     results_store.list_resultats_avec_combinaison() filtré sur statut_crue == "success").
+
+    `poids` : dict {indicateur: poids}, poids égaux par défaut (comportement d'origine,
+    jamais modifié en place). `asymetrie_dtp` : dict {"retard": x, "avance": y} — un
+    dTP positif (retard) est multiplié par `retard`, un dTP négatif (avance) par
+    `avance` avant la prise de valeur absolue ; 1.0/1.0 (défaut) = traitement
+    symétrique d'origine. Voir PROFILS_PONDERATION pour des jeux de valeurs proposés à
+    l'utilisateur (Dashboard, sélecteur de profil).
 
     Un indicateur manquant (None — GRP note "NA") sur une ligne est simplement exclu de
     la moyenne POUR CETTE LIGNE, il n'exclut pas la ligne entière : un jeu de résultats
@@ -76,6 +168,7 @@ def calculer_scores(lignes_resultats, poids=None):
     moins bon. Liste vide si `lignes_resultats` est vide.
     """
     poids = poids or POIDS_PAR_DEFAUT
+    asymetrie_dtp = asymetrie_dtp or ASYMETRIE_DTP_PAR_DEFAUT
 
     groupes = {}
     for ligne in lignes_resultats:
@@ -86,7 +179,12 @@ def calculer_scores(lignes_resultats, poids=None):
         valeur = ligne[indicateur]
         if valeur is None:
             return None
-        return (1 - valeur) if indicateur == "kge" else abs(valeur)
+        if indicateur == "kge":
+            return 1 - valeur
+        if indicateur == "dtp":
+            facteur = asymetrie_dtp["retard"] if valeur > 0 else asymetrie_dtp["avance"]
+            return abs(valeur) * facteur
+        return abs(valeur)
 
     moyennes_par_combinaison = {}
     for cle, groupe in groupes.items():
@@ -119,7 +217,7 @@ def calculer_scores(lignes_resultats, poids=None):
     return resultats
 
 
-def meilleur_candidat(lignes_resultats, poids=None) -> Optional[ScoreCombinaison]:
+def meilleur_candidat(lignes_resultats, poids=None, asymetrie_dtp=None) -> Optional[ScoreCombinaison]:
     """Raccourci : la meilleure combinaison, ou None si aucun résultat exploitable."""
-    scores = calculer_scores(lignes_resultats, poids)
+    scores = calculer_scores(lignes_resultats, poids, asymetrie_dtp)
     return scores[0] if scores and scores[0].score is not None else None
