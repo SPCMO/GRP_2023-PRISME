@@ -294,6 +294,48 @@ def _poids_actifs(app):
 # 1. Vue synthèse
 # ══════════════════════════════════════════════════════════════════════════════════
 
+def _dessiner_legende_boite(ax):
+    """Petit schéma annoté expliquant l'anatomie d'une boîte à moustaches (mêmes
+    couleurs/styles que celle du graphique "Dispersion |dQP| par horizon") — dessiné
+    une seule fois à la création de l'onglet, jamais retouché par ax.clear() ni par
+    les rafraîchissements (statique, ne dépend d'aucune donnée réelle)."""
+    # Données synthétiques choisies pour un espacement régulier entre les 5 repères
+    # (quartiles/médiane/moustaches) — un exemple trop resserré ferait se chevaucher
+    # les étiquettes de la légende (constaté avec un premier jeu de données au rendu).
+    donnees_demo = list(range(1, 21))
+    bp = ax.boxplot(
+        [donnees_demo], positions=[0], widths=0.5, showfliers=False, patch_artist=True,
+        boxprops=dict(facecolor=(0.682, 0.839, 0.945, 0.20), edgecolor="#154360", linewidth=1.2),
+        medianprops=dict(color="#C0392B", linewidth=1.8),
+        whiskerprops=dict(color="#154360", linewidth=1.2),
+        capprops=dict(color="#154360", linewidth=1.2),
+    )
+    q1 = float(np.percentile(donnees_demo, 25))
+    mediane = float(np.median(donnees_demo))
+    q3 = float(np.percentile(donnees_demo, 75))
+    moustache_bas = bp["whiskers"][0].get_ydata()[1]
+    moustache_haut = bp["whiskers"][1].get_ydata()[1]
+
+    def _annoter(y, texte, decalage_texte=0.0):
+        ax.annotate(
+            texte, xy=(0.26, y), xytext=(0.55, y + decalage_texte),
+            fontsize=6.6, va="center", ha="left", color="#333333",
+            arrowprops=dict(arrowstyle="-", color="#7B7B7B", lw=0.7,
+                             shrinkA=0, shrinkB=2))
+
+    _annoter(moustache_haut, "Maximum\n(hors valeurs\nextrêmes)")
+    _annoter(q3, "3ᵉ quartile\n(75 % des crues\nsous ce niveau)")
+    _annoter(mediane, "Médiane\n(50 %)")
+    _annoter(q1, "1ᵉʳ quartile\n(25 % des crues\nsous ce niveau)")
+    _annoter(moustache_bas, "Minimum\n(hors valeurs\nextrêmes)")
+
+    ax.set_xlim(-1.1, 2.9)
+    marge = max((moustache_haut - moustache_bas) * 0.35, 1)
+    ax.set_ylim(moustache_bas - marge, moustache_haut + marge)
+    ax.axis("off")
+    ax.set_title("Lecture de la\nboîte à moustaches", fontsize=8, loc="left", pad=10)
+
+
 def _build_synthese(frame, app):
     barre = tk.Frame(frame)
     barre.pack(fill=tk.X, padx=8, pady=6)
@@ -307,14 +349,20 @@ def _build_synthese(frame, app):
     corps = tk.Frame(frame)
     corps.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
-    fig = Figure(figsize=(9, 4.2), dpi=100)
-    ax_heatmap = fig.add_subplot(1, 2, 1)
-    ax_dispersion = fig.add_subplot(1, 2, 2)
-    fig.subplots_adjust(wspace=0.4, bottom=0.2)
+    fig = Figure(figsize=(11.5, 4.4), dpi=100)
+    # 3e colonne, étroite, réservée à la légende de lecture de la boîte à moustaches —
+    # les 2 graphiques de données sont décalés vers la gauche pour lui laisser la
+    # place sans jamais empiéter dessus (demande explicite de l'utilisateur).
+    gs = fig.add_gridspec(1, 3, width_ratios=(1, 1, 0.42), wspace=0.55)
+    ax_heatmap = fig.add_subplot(gs[0, 0])
+    ax_dispersion = fig.add_subplot(gs[0, 1])
+    ax_legende_boite = fig.add_subplot(gs[0, 2])
+    fig.subplots_adjust(bottom=0.2, left=0.06, right=0.98)
     canvas = FigureCanvasTkAgg(fig, master=corps)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     etat_icones = {}
     etat_colorbar = {"cb": None}
+    _dessiner_legende_boite(ax_legende_boite)
 
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
