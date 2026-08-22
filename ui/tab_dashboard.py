@@ -13,6 +13,7 @@ remplace l'unique graphique Excel du script d'origine par 3 vues complémentaire
 import os
 import re
 import tkinter as tk
+from datetime import datetime
 from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
@@ -31,6 +32,10 @@ from modules.score import (
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import bouton_info, make_label, make_row, make_section
+
+# Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
+# de _PALETTE_COURBES ci-dessous pour ne jamais être confondu avec une courbe simulée.
+_COULEUR_OBS = "#1B4F72"
 
 # Palette qualitative pour différencier les courbes simulées superposées (Q observé
 # garde toujours sa propre couleur fixe, jamais piochée ici, pour rester reconnaissable
@@ -420,10 +425,14 @@ def _build_synthese(frame, app):
             # devient l'élément principal, le nuage n'est qu'un repère de densité.
             ax_dispersion.scatter(xs, valeurs, alpha=0.3, s=10, color="#1F618D", zorder=2)
         if positions and any(valeurs_par_horizon):
+            # Remplissage très transparent (alpha porté par la couleur RGBA elle-même,
+            # pas par le patch entier) pour laisser voir les points du nuage en
+            # dessous — seul le contour reste pleinement opaque, sinon la boîte
+            # devient illisible en même temps que transparente.
             ax_dispersion.boxplot(
                 valeurs_par_horizon, positions=positions, widths=largeur_boite,
                 showfliers=False, patch_artist=True, zorder=3,
-                boxprops=dict(facecolor="#AED6F1", edgecolor="#154360", alpha=0.85, linewidth=1.2),
+                boxprops=dict(facecolor=(0.682, 0.839, 0.945, 0.20), edgecolor="#154360", linewidth=1.2),
                 medianprops=dict(color="#C0392B", linewidth=1.8),
                 whiskerprops=dict(color="#154360", linewidth=1.2),
                 capprops=dict(color="#154360", linewidth=1.2),
@@ -488,6 +497,36 @@ def _build_detail(frame, app):
     ax = fig.add_subplot(1, 1, 1)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+    etat_y_max = {"global": None}  # recalculé par _rafraichir_crues (pas à chaque tracé)
+
+    def _calculer_y_max_global(paths, code_pdt):
+        """Qmax le plus élevé (observé ou simulé) toutes crues confondues pour ce pas
+        de temps, +10% — donne une échelle Y COMMUNE à toutes les crues (demandé
+        explicitement) plutôt qu'une échelle qui se réajuste à chaque changement de
+        crue, pour pouvoir comparer directement l'amplitude d'un épisode à l'autre.
+        Best-effort : une crue dont la série observée est illisible est simplement
+        ignorée pour ce calcul, jamais une erreur bloquante."""
+        valeurs = []
+        try:
+            evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+        except (FileNotFoundError, CriteresPerfError):
+            evenements = []
+        for evt in evenements:
+            chemin = os.path.join(paths.evenements_dir(code_pdt),
+                                   f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+            try:
+                serie = parse_evenement_serie(chemin)
+            except (FileNotFoundError, CriteresPerfError):
+                continue
+            valeurs.extend(p[2] for p in serie if p[2] is not None)
+        try:
+            with results_store.db_session() as conn:
+                max_sim = results_store.max_debit_simule(conn)
+            if max_sim is not None:
+                valeurs.append(max_sim)
+        except Exception:
+            pass
+        return max(valeurs) * 1.1 if valeurs else None
 
     # ── Récapitulatif max/horodatage par courbe tracée ────────────────────────────
     inn_max, bg_max = make_section(frame, "Maximum de chaque courbe tracée", "gris")
@@ -529,12 +568,54 @@ def _build_detail(frame, app):
                        if l["statut_crue"] == "success" and l["crue_date"] == crue_iso})
         return vues
 
+    def _crue_iso_courante():
+        """Résout le libellé actuellement affiché dans le menu déroulant ("#12 -
+        13/10/2018") vers la date ISO réelle (utilisée pour toutes les requêtes en
+        base) — voir combo_crue._valeurs, construit par _rafraichir_crues."""
+        libelles = list(combo_crue["values"])
+        valeurs = getattr(combo_crue, "_valeurs", [])
+        if var_crue.get() not in libelles or len(valeurs) != len(libelles):
+            return None
+        return valeurs[libelles.index(var_crue.get())][1]
+
     def _rafraichir_crues(*_evt):
         lignes, _ = _charger_resultats(app)
-        dates = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
-        combo_crue["values"] = dates
-        if dates and var_crue.get() not in dates:
-            var_crue.set(dates[0])
+        dates_disponibles = {l["crue_date"] for l in lignes if l["statut_crue"] == "success"}
+
+        # Tri par numéro d'événement (#N), pas par date — demandé explicitement.
+        # Le numéro vient de CRITERES_PERF.DAT (results_store ne connaît que la date) :
+        # toute crue en base mais absente de ce fichier (pas de temps différent au
+        # moment du rejeu, etc.) reste affichée, juste sans numéro ("? - date"), plutôt
+        # que d'être masquée silencieusement.
+        paths = _construire_grp_paths(app)
+        code_pdt = _pas_de_temps_courant()
+        entrees = []
+        if paths is not None and code_pdt:
+            try:
+                evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+                for e in evenements:
+                    iso = e.date_deb.isoformat()
+                    if iso in dates_disponibles:
+                        entrees.append((e.num_evt, iso))
+            except (FileNotFoundError, CriteresPerfError):
+                pass
+        isos_numerotes = {iso for _n, iso in entrees}
+        for iso in sorted(dates_disponibles - isos_numerotes):
+            entrees.append((None, iso))
+        entrees.sort(key=lambda t: (t[0] is None, t[0]))
+
+        libelles = []
+        for num_evt, iso in entrees:
+            d = datetime.fromisoformat(iso)
+            prefixe = f"#{num_evt}" if num_evt is not None else "?"
+            libelles.append(f"{prefixe} - {d:%d/%m/%Y}")
+        combo_crue["values"] = libelles
+        combo_crue._valeurs = entrees
+        if libelles and var_crue.get() not in libelles:
+            var_crue.set(libelles[0])
+
+        etat_y_max["global"] = (_calculer_y_max_global(paths, code_pdt)
+                                  if paths is not None and code_pdt else None)
         _rafraichir_combis()
 
     def _changer_crue(delta):
@@ -564,7 +645,7 @@ def _build_detail(frame, app):
             identites_gardees = {(combis_avant[i][0], combis_avant[i][1], combis_avant[i][2])
                                   for i in liste_combis.curselection()}
 
-        combis = _combinaisons_disponibles_pour_crue(var_crue.get())
+        combis = _combinaisons_disponibles_pour_crue(_crue_iso_courante())
         liste_combis.delete(0, tk.END)
         for h, s, m, _cid in combis:
             liste_combis.insert(tk.END, f"{h} / seuil {s:.2f} / {m}")
@@ -596,7 +677,8 @@ def _build_detail(frame, app):
         var_indicateurs.set("")
         paths = _construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
-        if paths is None or not code_pdt or not var_crue.get():
+        crue_iso = _crue_iso_courante()
+        if paths is None or not code_pdt or not crue_iso:
             canvas.draw_idle()
             return
 
@@ -610,7 +692,6 @@ def _build_detail(frame, app):
             canvas.draw_idle()
             return
 
-        crue_iso = var_crue.get()
         evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
         if evt is None:
             var_indicateurs.set("Crue introuvable dans CRITERES_PERF.DAT pour ce pas de temps.")
@@ -649,7 +730,7 @@ def _build_detail(frame, app):
         if serie:
             points_obs = [(p[0], p[2]) for p in serie]
             ax.plot([p[0] for p in points_obs], [p[1] for p in points_obs],
-                     color="#1F1F1F", lw=1.8, label="Q observé")
+                     color=_COULEUR_OBS, lw=1.8, label="Q observé")
             toutes_valeurs.extend(v for _d, v in points_obs if v is not None)
             valeur_max, date_max = _max_et_horodatage(points_obs)
             if valeur_max is not None:
@@ -659,12 +740,12 @@ def _build_detail(frame, app):
                 # Annotation directement sur le graphique (même principe que OPALE v2 :
                 # point marqué + valeur/horodatage dans un encart), en plus de la ligne
                 # déjà présente dans le tableau récapitulatif ci-dessous.
-                ax.plot(date_max, valeur_max, "o", color="#1F1F1F", markersize=5, zorder=5)
+                ax.plot(date_max, valeur_max, "o", color=_COULEUR_OBS, markersize=5, zorder=5)
                 ax.annotate(
                     f"Q max obs\n{valeur_max:.1f} m³/s\n{date_max:%d/%m/%Y %H:%M}",
                     xy=(date_max, valeur_max), xytext=(8, 10), textcoords="offset points",
-                    fontsize=7.5, color="#1F1F1F", fontweight="bold", linespacing=1.3,
-                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="#1F1F1F", alpha=0.85),
+                    fontsize=7.5, color=_COULEUR_OBS, fontweight="bold", linespacing=1.3,
+                    bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=_COULEUR_OBS, alpha=0.85),
                 )
 
         # Une ou plusieurs séries simulées archivées (voir modules.run_orchestrator —
@@ -697,7 +778,14 @@ def _build_detail(frame, app):
         # niveau, ZT et seuil principal partagent la teinte), différenciés par le style
         # de trait (pointillé pour la ZT, plein pour le seuil principal).
         seuils = app.config_data.get("seuils_q", {})
-        y_max = max(toutes_valeurs, default=None)
+        # Échelle Y COMMUNE à toutes les crues (Qmax observé+simulé de l'ensemble des
+        # crues, +10%, calculé une fois par _rafraichir_crues) plutôt que réajustée à
+        # chaque crue affichée — demandé explicitement pour comparer directement
+        # l'amplitude d'un épisode à l'autre. Repli sur le max de CETTE crue si le
+        # calcul global a échoué (ex. aucune série simulée archivée pour l'instant).
+        y_max = etat_y_max["global"] or max(toutes_valeurs, default=None)
+        if y_max is not None:
+            ax.set_ylim(0, y_max)
         for cle, libelle, couleur in LIBELLES_SEUILS_Q:
             val = seuils.get(cle)
             if val is None:
@@ -881,7 +969,7 @@ def _build_sensibilite(frame, app):
 # 4. Vue 3D — meilleur score en fonction de l'horizon, du seuil et de la méthode
 # ══════════════════════════════════════════════════════════════════════════════════
 
-_MARQUEURS_METHODE = {"T": "o", "R": "^"}
+_MARQUEURS_METHODE = {"T": "o", "R": "h"}  # rond / hexagone — formes arrondies plutôt qu'un triangle anguleux
 
 
 def _build_vue3d(frame, app):
@@ -929,6 +1017,16 @@ def _build_vue3d(frame, app):
             etat_colorbar["cb"] = None
         ax.clear()
         ax_classement.clear()
+        # Rendu "doux" plutôt que la grille 3D par défaut de matplotlib (panneaux
+        # blancs, arêtes noires nettes) — demandé explicitement par l'utilisateur
+        # ("plus douce et arrondie"). ax.clear() réinitialise ces réglages à chaque
+        # rafraîchissement, donc à refaire ici plutôt qu'une seule fois à la création.
+        for axe in (ax.xaxis, ax.yaxis, ax.zaxis):
+            axe.pane.set_facecolor((0.97, 0.97, 0.99, 0.6))
+            axe.pane.set_edgecolor((0.85, 0.85, 0.90, 0.5))
+            axe._axinfo["grid"]["color"] = (0.85, 0.85, 0.90, 0.4)
+            axe._axinfo["grid"]["linewidth"] = 0.6
+        ax.view_init(elev=20, azim=-55)
         lignes, erreur = _charger_resultats(app)
         if erreur:
             var_statut.set(erreur)
@@ -958,6 +1056,14 @@ def _build_vue3d(frame, app):
         ys = [s.seuil_c1 for s in scores]
         zs = [s.score for s in scores]
 
+        # Ombres au sol : un repère discret projeté sur le plancher du graphique pour
+        # chaque point, sous sa vraie position 3D — aide l'œil à situer la profondeur
+        # sans devoir tourner la vue (complète le classement 2D, plus lisible mais
+        # moins "d'ensemble"). Calculé AVANT les vrais marqueurs pour rester dessous.
+        z_floor = min(zs) - max((max(zs) - min(zs)) * 0.08, 0.02) if zs else 0.0
+        ax.scatter(xs, ys, [z_floor] * len(xs), color=(0.55, 0.55, 0.6), alpha=0.18,
+                   s=26, marker="o", linewidths=0, depthshade=False)
+
         for methode, marqueur in _MARQUEURS_METHODE.items():
             indices = [i for i, s in enumerate(scores) if s.methode == methode]
             if not indices:
@@ -965,9 +1071,10 @@ def _build_vue3d(frame, app):
             nuage = ax.scatter(
                 [xs[i] for i in indices], [ys[i] for i in indices], [zs[i] for i in indices],
                 c=[zs[i] for i in indices], cmap="RdYlGn_r", vmin=0, vmax=1,
-                marker=marqueur, s=60, edgecolors="#333333", linewidths=0.5,
-                label=f"Méthode {methode}",
+                marker=marqueur, s=70, edgecolors=(0.3, 0.3, 0.35, 0.7), linewidths=0.5,
+                alpha=0.92, label=f"Méthode {methode}",
             )
+        ax.set_zlim(z_floor, max(zs) + max((max(zs) - min(zs)) * 0.08, 0.02))
         etat_colorbar["cb"] = fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1,
                                             label="Score composite (0=meilleur)")
         # Repère posé en coordonnées FIGURE (pas données/axes) — reste donc fixe à côté

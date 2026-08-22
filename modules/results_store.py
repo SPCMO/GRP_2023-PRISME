@@ -324,6 +324,15 @@ def estimer_temps_restant(conn, combinaisons, crues_dates, duree_par_etape_data)
     return minutes_estimees, nb_etapes_restantes, nb_etapes_total, incertain
 
 
+def max_debit_simule(conn):
+    """Débit simulé maximal, tous horizons/seuils/méthodes/crues archivés confondus —
+    utilisé par Dashboard > Détail par crue pour une échelle Y COMMUNE entre crues
+    (voir ui/tab_dashboard.py) : agrégat SQL, plus rapide qu'une lecture Python de
+    toutes les séries archivées. None si aucune série simulée n'est encore archivée."""
+    row = conn.execute("SELECT MAX(debit) AS m FROM series_archivees WHERE type = 'sim'").fetchone()
+    return row["m"] if row and row["m"] is not None else None
+
+
 def resume_couverture(conn):
     """Résumé de couverture des combinaisons déjà tentées, agrégé indépendamment par
     valeur de chaque dimension (horizon, seuil_c1, méthode) — ex. pour l'horizon

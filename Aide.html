@@ -515,6 +515,21 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Les boîtes à moustaches du graphique "Dispersion |dQP| par horizon" (Vue synthèse) masquaient trop les points individuels en dessous. Remplissage rendu beaucoup plus transparent (alpha 0.20 au lieu de 0.85).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Détail par crue : le menu déroulant "Crue" est désormais trié par numéro d'événement (<code>#1 - 13/10/2018</code>) plutôt que par date, avec ce numéro affiché directement dans le libellé. L'axe Y est maintenant une échelle COMMUNE à toutes les crues du pas de temps (débit max observé et simulé, tous horizons/seuils/méthodes/crues archivés confondus, +10% de marge) — objectif : comparer visuellement l'ampleur de deux crues sans que l'axe se réajuste et n'écrase ou n'étire artificiellement les courbes d'une crue à l'autre. La courbe de débit observé passe d'un gris foncé à un bleu profond (<code>#1B4F72</code>), son étiquette de Qmax reprenant la même couleur.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">22 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue 3D : rendu adouci demandé par l'utilisateur — panneaux et grille en gris très clair et translucide plutôt que le blanc/noir par défaut de matplotlib, marqueur de la méthode R devenu un hexagone (plus arrondi qu'un triangle), légère transparence et arêtes adoucies sur tous les marqueurs, angle de vue par défaut ajusté, et une "ombre" discrète projetée au sol sous chaque point pour aider à percevoir la profondeur sans avoir à tourner la vue. Légende confirmée en haut à gauche du graphique 3D, hors du nuage de points.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
