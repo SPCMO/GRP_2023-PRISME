@@ -18,6 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 import numpy as np
 from matplotlib import colormaps
+from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
@@ -543,9 +544,63 @@ def _build_detail(frame, app):
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
+    # Hyétogramme (pluie de bassin) en axe jumeau, inversé, cantonné au quart supérieur
+    # du graphique — convention hydrologique classique (histogramme de pluie qui
+    # "tombe" depuis le haut, débit en dessous). set_zorder + patch invisible sur ax
+    # font passer les courbes de débit AU-DESSUS des barres de pluie (sinon l'axe créé
+    # en second, ax_pluie, s'affiche par défaut par-dessus).
+    ax_pluie = ax.twinx()
+    ax_pluie.set_zorder(ax.get_zorder() - 1)
+    ax.patch.set_visible(False)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_y_max = {"global": None}  # recalculé par _rafraichir_crues (pas à chaque tracé)
+    # Courbes actuellement tracées (Q observé + une par combinaison sélectionnée), pour
+    # le survol à la souris : identifier quelle courbe est pointée (demandé, la légende
+    # devenant vite très fournie avec plusieurs combinaisons superposées) — voir
+    # _survol_courbes ci-dessous, même principe que le tooltip Q d'OPALE v2 mais
+    # étendu à PLUSIEURS courbes (recherche de la plus proche du curseur, en pixels).
+    etat_courbes = {"liste": []}
+    etat_survol = {"artist": None}
+
+    def _survol_courbes(event):
+        artist = etat_survol.get("artist")
+        courbes = etat_courbes["liste"]
+        if artist is None:
+            return
+        if event.inaxes is not ax or event.xdata is None or not courbes:
+            if artist.get_visible():
+                artist.set_visible(False)
+                canvas.draw_idle()
+            return
+        SEUIL_PX = 20
+        meilleure, meilleure_dist = None, None
+        for c in courbes:
+            xs = c["x"]
+            if not xs:
+                continue
+            idx = min(range(len(xs)), key=lambda i: abs(xs[i] - event.xdata))
+            yi = c["y"][idx]
+            if yi is None:
+                continue
+            xpix, ypix = ax.transData.transform((xs[idx], yi))
+            dist = ((xpix - event.x) ** 2 + (ypix - event.y) ** 2) ** 0.5
+            if meilleure_dist is None or dist < meilleure_dist:
+                meilleure_dist, meilleure = dist, (c, xs[idx], yi)
+        if meilleure is None or meilleure_dist > SEUIL_PX:
+            if artist.get_visible():
+                artist.set_visible(False)
+                canvas.draw_idle()
+            return
+        c, xi, yi = meilleure
+        date_i = mdates.num2date(xi).replace(tzinfo=None)
+        artist.set_text(f"{c['label']}\n{date_i:%d/%m %H:%M} — {yi:.1f} m³/s")
+        artist.xy = (xi, yi)
+        artist.get_bbox_patch().set_edgecolor(c["couleur"])
+        artist.set_visible(True)
+        canvas.draw_idle()
+
+    canvas.mpl_connect("motion_notify_event", _survol_courbes)
 
     def _calculer_y_max_global(paths, code_pdt):
         """Qmax le plus élevé (observé ou simulé) toutes crues confondues pour ce pas
@@ -721,6 +776,17 @@ def _build_detail(frame, app):
 
     def _tracer():
         ax.clear()
+        ax_pluie.clear()
+        # ax.clear() recrée le patch de fond (le rend visible par défaut) : à refaire à
+        # chaque tracé, pas seulement à la création, sinon les barres de pluie
+        # repassent au-dessus des courbes de débit dès le 2e tracé.
+        ax.patch.set_visible(False)
+        etat_courbes["liste"] = []
+        etat_survol["artist"] = ax.annotate(
+            "", xy=(0, 0), xytext=(12, 12), textcoords="offset points", fontsize=7.5,
+            zorder=25, visible=False,
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#555555", linewidth=1.0, alpha=0.92),
+        )
         tableau_max.delete(*tableau_max.get_children())
         var_indicateurs.set("")
         paths = _construire_grp_paths(app)
@@ -777,8 +843,13 @@ def _build_detail(frame, app):
         toutes_valeurs = []
         if serie:
             points_obs = [(p[0], p[2]) for p in serie]
-            ax.plot([p[0] for p in points_obs], [p[1] for p in points_obs],
-                     color=_COULEUR_OBS, lw=1.8, label="Q observé")
+            ligne_obs, = ax.plot([p[0] for p in points_obs], [p[1] for p in points_obs],
+                                  color=_COULEUR_OBS, lw=1.8, label="Q observé")
+            etat_courbes["liste"].append({
+                "label": "Q observé", "couleur": _COULEUR_OBS,
+                "x": [mdates.date2num(d) for d, _v in points_obs],
+                "y": [v for _d, v in points_obs],
+            })
             toutes_valeurs.extend(v for _d, v in points_obs if v is not None)
             valeur_max, date_max = _max_et_horodatage(points_obs)
             if valeur_max is not None:
@@ -795,6 +866,26 @@ def _build_detail(frame, app):
                     fontsize=7.5, color=_COULEUR_OBS, fontweight="bold", linespacing=1.3,
                     bbox=dict(boxstyle="round,pad=0.25", fc="white", ec=_COULEUR_OBS, alpha=0.85),
                 )
+
+            # -- Hyétogramme (pluie de bassin) -----------------------------------------
+            # <code_site>-EVxxxx.DAT donne Pobs en mm/h (intensité, vérifié sur un fichier
+            # réel — l'en-tête l'indique explicitement), pas en mm par pas de temps : il
+            # faut multiplier par la durée réelle de l'intervalle (mesurée directement sur
+            # les horodatages de la série, plus fiable qu'un code pas de temps qui pourrait
+            # ne pas correspondre) pour obtenir une hauteur de barre en mm par pas de temps.
+            if len(serie) >= 2:
+                intervalle_minutes = (serie[1][0] - serie[0][0]).total_seconds() / 60
+                if intervalle_minutes > 0:
+                    dates_pluie = [p[0] for p in serie]
+                    profondeurs = [p[1] * intervalle_minutes / 60 for p in serie]
+                    largeur_jours = (intervalle_minutes / (24 * 60)) * 0.8
+                    ax_pluie.bar(dates_pluie, profondeurs, width=largeur_jours,
+                                 color="#5DADE2", edgecolor="#2E86AB", linewidth=0.3,
+                                 alpha=0.75, zorder=1, label="Pluie de bassin")
+                    plafond = max(max(profondeurs, default=0) * 4, 1)
+                    ax_pluie.set_ylim(plafond, 0)  # inversé : la pluie "tombe" depuis le haut
+                    ax_pluie.set_ylabel("Pluie (mm / pas de temps)", fontsize=7.5, color="#2E86AB")
+                    ax_pluie.tick_params(axis="y", labelsize=7, colors="#2E86AB")
 
         # Une ou plusieurs séries simulées archivées (voir modules.run_orchestrator —
         # archivage à chaque rejeu, car Sorties/ n'expose que le DERNIER rejeu effectué)
@@ -813,6 +904,11 @@ def _build_detail(frame, app):
                 libelle = f"Sim {h}/{s:.2f}/{m}"
                 ax.plot([p[0] for p in points_sim], [p[1] for p in points_sim],
                          color=couleur, lw=1.3, ls="--", label=libelle)
+                etat_courbes["liste"].append({
+                    "label": libelle, "couleur": couleur,
+                    "x": [mdates.date2num(p[0]) for p in points_sim],
+                    "y": [p[1] for p in points_sim],
+                })
                 toutes_valeurs.extend(v for _d, v in points_sim if v is not None)
                 valeur_max, date_max = _max_et_horodatage(points_sim)
                 if valeur_max is not None:
@@ -849,9 +945,14 @@ def _build_detail(frame, app):
         ax.grid(True, alpha=0.3)
         # Légende sortie du graphique, ancrée à droite des axes (bbox_to_anchor avec un
         # x > 1) pour ne jamais recouvrir les courbes tracées — la marge de figure à
-        # droite est réduite en conséquence pour qu'elle reste entièrement visible.
-        fig.subplots_adjust(right=0.78)
-        ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=7.5)
+        # droite est élargie en conséquence (l'étiquette de l'axe pluie, à droite lui
+        # aussi, y a maintenant sa place) pour que légende ET libellé restent visibles.
+        # Fusionnée avec la pluie (sur ax_pluie, donc absente de ax.legend() par défaut).
+        fig.subplots_adjust(right=0.72)
+        lignes_ax, labels_ax = ax.get_legend_handles_labels()
+        lignes_pluie, labels_pluie = ax_pluie.get_legend_handles_labels()
+        ax.legend(lignes_ax + lignes_pluie, labels_ax + labels_pluie,
+                  loc="center left", bbox_to_anchor=(1.12, 0.5), fontsize=7.5)
         fig.autofmt_xdate()
         canvas.draw_idle()
 
