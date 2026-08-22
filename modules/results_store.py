@@ -22,6 +22,7 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
+from statistics import median
 
 import config as app_config
 
@@ -226,6 +227,101 @@ def duree_moyenne_par_combinaison(conn, seuil_idle_minutes=35):
             m: (sum(v) / len(v)) if v else None for m, v in totaux_par_methode.items()
         },
     }
+
+
+def duree_par_etape(conn, seuil_idle_minutes=35):
+    """Comme duree_moyenne_par_combinaison, mais garde les étapes SÉPARÉES (calage
+    d'un côté, rejeu d'une crue de l'autre) au lieu de les sommer par combinaison —
+    nécessaire pour estimer le temps d'une sélection qui n'a pas encore tourné (voir
+    estimer_temps_restant ci-dessous) : le nombre de crues par combinaison varie d'une
+    campagne à l'autre, donc une durée "totale par combinaison" ne s'extrapole pas
+    correctement à une nouvelle sélection avec plus ou moins de crues.
+
+    Utilise la MÉDIANE plutôt que la moyenne : constaté en conditions réelles, un
+    rejeu isolé ralenti (contention disque, etc.) peut être 40x plus long qu'un rejeu
+    normal (typiquement 20-30s) — une moyenne se laisse fausser par un seul cas pareil,
+    la médiane beaucoup moins.
+
+    Retourne {"calage": {"T": {"minutes": float|None, "nb_mesures": int}, "R": {...}},
+    "rejeu": {"T": {...}, "R": {...}}}."""
+    combos = conn.execute("SELECT id, methode, date_maj FROM combinaisons").fetchall()
+    crues = conn.execute("SELECT combinaison_id, date_maj FROM resultats_crues").fetchall()
+    methode_par_id = {c["id"]: c["methode"] for c in combos}
+
+    evenements = [(datetime.fromisoformat(c["date_maj"]), "calage", c["id"]) for c in combos]
+    evenements += [(datetime.fromisoformat(r["date_maj"]), "rejeu", r["combinaison_id"]) for r in crues]
+    evenements.sort(key=lambda e: e[0])
+
+    durees = {"calage": {"T": [], "R": []}, "rejeu": {"T": [], "R": []}}
+    for i in range(1, len(evenements)):
+        t_prec, _type_prec, _id_prec = evenements[i - 1]
+        t_cur, type_cur, id_cur = evenements[i]
+        delta_min = (t_cur - t_prec).total_seconds() / 60
+        if 0 < delta_min <= seuil_idle_minutes:
+            methode = methode_par_id.get(id_cur)
+            if methode in durees[type_cur]:
+                durees[type_cur][methode].append(delta_min)
+
+    def _resume(valeurs):
+        return {"minutes": median(valeurs) if valeurs else None, "nb_mesures": len(valeurs)}
+
+    return {etape: {m: _resume(v) for m, v in par_methode.items()}
+            for etape, par_methode in durees.items()}
+
+
+def estimer_temps_restant(conn, combinaisons, crues_dates, duree_par_etape_data):
+    """Estime le temps restant (en minutes) pour amener À COMPLÉTION la sélection
+    `combinaisons` (liste de (horizon, seuil_c1, methode)) × `crues_dates` — ne compte
+    QUE ce qui n'est pas déjà acquis en base, avec exactement la même logique de
+    reprise que modules.run_orchestrator._combinaisons_a_traiter/_crues_a_traiter
+    (calage déjà réussi → non recompté ; crue déjà réussie sous une combinaison → non
+    recomptée), pour rester cohérent avec ce que "Relancer les échecs" ferait
+    réellement.
+
+    Retourne (minutes_estimees, nb_etapes_restantes, nb_etapes_total, incertain) —
+    `incertain` est True si au moins une étape restante n'a aucune mesure disponible
+    pour l'estimer (ex. méthode jamais testée) : le total est alors une sous-estimation
+    à signaler, pas une simple absence de résultat."""
+    minutes_estimees = 0.0
+    nb_etapes_restantes = 0
+    nb_etapes_total = 0
+    incertain = False
+
+    for horizon, seuil_c1, methode in combinaisons:
+        row = conn.execute(
+            "SELECT id, statut FROM combinaisons WHERE horizon = ? AND seuil_c1 = ? AND methode = ?",
+            (horizon, seuil_c1, methode),
+        ).fetchone()
+        calage_deja_ok = row is not None and row["statut"] == "success"
+        nb_etapes_total += 1
+        if not calage_deja_ok:
+            nb_etapes_restantes += 1
+            mesure = duree_par_etape_data.get("calage", {}).get(methode, {})
+            if mesure.get("minutes") is not None:
+                minutes_estimees += mesure["minutes"]
+            else:
+                incertain = True
+
+        combinaison_id = row["id"] if row is not None else None
+        for crue_date in crues_dates:
+            crue_deja_ok = False
+            if combinaison_id is not None:
+                crue_iso = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+                r = conn.execute(
+                    "SELECT statut FROM resultats_crues WHERE combinaison_id = ? AND crue_date = ?",
+                    (combinaison_id, crue_iso),
+                ).fetchone()
+                crue_deja_ok = r is not None and r["statut"] == "success"
+            nb_etapes_total += 1
+            if not crue_deja_ok:
+                nb_etapes_restantes += 1
+                mesure = duree_par_etape_data.get("rejeu", {}).get(methode, {})
+                if mesure.get("minutes") is not None:
+                    minutes_estimees += mesure["minutes"]
+                else:
+                    incertain = True
+
+    return minutes_estimees, nb_etapes_restantes, nb_etapes_total, incertain
 
 
 def resume_couverture(conn):

@@ -26,6 +26,16 @@ from ui.widgets_common import bouton_enregistrer, bouton_info, make_label, make_
 COLONNES_TABLEAU = ("horizon", "seuil", "methode", "statut", "crues_ok", "crues_ko")
 
 
+def _minutes_vers_duree_grp(minutes):
+    """Formate un nombre de minutes au même format que les horizons/pas de temps GRP
+    (xxJxxHxxM) — cohérent avec le reste de l'outil plutôt que d'inventer un format
+    "3h47" à part."""
+    total_minutes = round(minutes)
+    jours, reste = divmod(total_minutes, 24 * 60)
+    heures, minutes_restantes = divmod(reste, 60)
+    return f"{jours:02d}J{heures:02d}H{minutes_restantes:02d}M"
+
+
 def _construire_grp_paths(app):
     chemins = app.config_data.get("chemins", {})
     station = app.config_data.get("station", {})
@@ -77,6 +87,14 @@ def build_tab_orchestration(tab_frame, app):
 
     barre = ttk.Progressbar(inn, mode="determinate")
     barre.pack(fill=tk.X, pady=(4, 8))
+
+    # ── Estimation du temps restant pour la sélection actuelle ────────────────────
+    r_estimation = make_row(inn, bg)
+    ttk.Button(r_estimation, text="⏱ Estimer le temps restant",
+               command=lambda: _estimer_temps()).pack(side=tk.LEFT)
+    var_estimation = tk.StringVar(value="")
+    tk.Label(r_estimation, textvariable=var_estimation, bg=bg,
+             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(8, 0))
 
     # ── Tableau des combinaisons ────────────────────────────────────────────────
     inn2, bg2 = make_section(frm, "Combinaisons testées", "bleu", expand=True)
@@ -139,6 +157,41 @@ def build_tab_orchestration(tab_frame, app):
         combinaisons = run_orchestrator.generer_combinaisons(horizons, seuils, methodes)
         crues_dates = [datetime.fromisoformat(iso) for iso in crues_iso]
         return (code_pdt, combinaisons, crues_dates), None
+
+    def _estimer_temps():
+        """Estime le temps restant pour amener la sélection actuelle (onglets
+        Paramétrage/Crues) à complétion, en ne comptant que ce qui n'est pas déjà
+        acquis en base — même logique de reprise que "Relancer les échecs" (voir
+        modules.results_store.estimer_temps_restant). Basé sur les durées de calage/
+        rejeu réellement observées jusqu'ici (médiane, par méthode) : n'est qu'une
+        estimation, pas une garantie — signalée comme telle si trop peu de mesures
+        existent encore pour certaines étapes."""
+        matrice, erreur = _construire_matrice()
+        if matrice is None:
+            var_estimation.set(f"Estimation impossible : {erreur}")
+            return
+        _code_pdt, combinaisons, crues_dates = matrice
+        try:
+            results_store.init_db()
+            with results_store.db_session() as conn:
+                mesures = results_store.duree_par_etape(conn)
+                minutes, restantes, total, incertain = results_store.estimer_temps_restant(
+                    conn, combinaisons, crues_dates, mesures)
+        except Exception as e:
+            var_estimation.set(f"Estimation impossible : {e}")
+            return
+
+        if restantes == 0:
+            var_estimation.set(f"Toutes les étapes de cette sélection ({total}) sont déjà acquises "
+                                "en base — rien à relancer.")
+            return
+        texte_duree = _minutes_vers_duree_grp(minutes)
+        suffixe = (" — sous-estimé : certaines étapes restantes n'ont encore aucune mesure "
+                   "de durée disponible (méthode jamais testée)" if incertain else "")
+        var_estimation.set(
+            f"⏱ Temps estimé restant : {texte_duree} pour {restantes}/{total} étape(s) "
+            f"restante(s) (estimation à partir des durées déjà observées){suffixe}."
+        )
 
     # ── Lancement (dans un thread séparé) ───────────────────────────────────────
     def _lancer(seulement_echecs=False):
