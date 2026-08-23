@@ -166,25 +166,24 @@ def build_tab_crues(tab_frame, app):
             """Cumul de pluie de bassin sur l'épisode (mm) sur toute la fenêtre
             DateDeb-DateFin de l'événement, lue depuis <code_site>-EVxxxx.DAT (même
             fichier que le tracé de la crue dans Dashboard > Détail par crue).
-            Pobs y est en mm/h (intensité, vérifié sur un fichier réel — l'en-tête
-            l'indique explicitement), pas en mm par pas de temps : il faut multiplier
-            par la durée réelle de l'intervalle (mesurée sur les horodatages de la
-            série, comme dans tab_dashboard.py::_tracer()) pour obtenir une profondeur.
-            None si le fichier est absent, illisible, ou la série trop courte —
-            n'empêche jamais l'affichage du reste de la vignette, juste ce champ
-            précis."""
+            Pobs y est déjà en mm par pas de temps — sommée directement, SANS
+            conversion. L'en-tête du fichier ("Pobs(mm/h)") est trompeur : une
+            interprétation en intensité mm/h (÷ durée du pas de temps) avait d'abord
+            été tentée, mais donnait des cumuls trop faibles (33 mm sur la crue #1,
+            l'épisode historique de l'Aude d'octobre 2018 à Qmax=1648 m³/s) comparés
+            aux cumuls réellement observés pour cet événement (150-300 mm, Météo-
+            France) — confirmé par l'utilisateur : c'est la somme brute qui est juste.
+            None si le fichier est absent, illisible, ou vide — n'empêche jamais
+            l'affichage du reste de la vignette, juste ce champ précis."""
             chemin_serie = os.path.join(
                 paths.evenements_dir(code_pdt), f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
             try:
                 serie = parse_evenement_serie(chemin_serie)
             except (FileNotFoundError, CriteresPerfError):
                 return None
-            if len(serie) < 2:
+            if not serie:
                 return None
-            intervalle_minutes = (serie[1][0] - serie[0][0]).total_seconds() / 60
-            if intervalle_minutes <= 0:
-                return None
-            return sum(p * intervalle_minutes / 60 for _d, p, _q in serie)
+            return sum(p for _d, p, _q in serie)
 
         for i, evt in enumerate(evenements):
             ligne, colonne = divmod(i, VIGNETTES_PAR_LIGNE)

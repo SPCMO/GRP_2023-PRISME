@@ -565,6 +565,31 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-fix">Correctif critique</span> Cumul de pluie de bassin (vignettes Crues, hyétogramme du Dashboard, export Excel) trop faible. L'en-tête "Pobs(mm/h)" du fichier <code>&lt;code_site&gt;-EVxxxx.DAT</code> avait fait supposer une intensité horaire à convertir par la durée du pas de temps — donnait 33 mm sur la crue #1 (l'épisode historique de l'Aude d'octobre 2018, Qmax=1648 m³/s), très en dessous des 150-300 mm réellement observés pour cet événement (Météo-France). Confirmé par l'utilisateur après comparaison de 3 interprétations possibles (33 mm / 132 mm / 1321 mm) : Pobs est en réalité déjà en mm par pas de temps, à sommer directement sans aucune conversion — 132 mm sur cette même crue, cohérent avec les cumuls connus. Corrigé dans <code>ui/tab_crues.py</code>, <code>ui/tab_dashboard.py</code> et <code>modules/export_excel.py</code>.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Détail par crue : dans le tableau "Maximum de chaque courbe tracée", la courbe simulée la plus proche de l'observé est repérée en fond jaune + gras — séparément pour dQP et pour dT (peuvent désigner 2 combinaisons différentes), Q observé exclu de la comparaison. Titre de l'axe pluie (2e ordonnée) déplacé plus nettement à droite du graphique.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Trouvé en testant le déplacement du titre de l'axe pluie ci-dessus : ce titre se superposait en réalité à celui de l'axe Débit, à gauche, au lieu d'apparaître à droite — <code>ax_pluie.clear()</code> réinitialise la position du label à "gauche" à chaque rafraîchissement malgré <code>twinx()</code>, sans toucher aux graduations (qui restaient bien à droite, d'où le bug resté invisible dans les tests précédents portant sur les graduations). <code>set_label_position("right")</code> désormais explicitement rappelé à chaque tracé, dans le Dashboard et dans l'export Excel.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue synthèse : graphiques agrandis, dispersion |dQP| élargie. Icônes "i" ajoutées après "extrêmes" dans la légende de lecture de la boîte à moustaches (Maximum/Minimum), expliquant la règle statistique exacte (1,5× l'écart interquartile, valeurs extrêmes masquées plutôt qu'affichées). Icône "i" de la heatmap complétée : précise qu'une case est la MOYENNE des méthodes qui partagent son horizon/seuil, alors que le cadre jaune désigne la meilleure combinaison INDIVIDUELLE (une seule méthode) — une case peut donc sembler plus foncée que la case encadrée sans que ce soit une anomalie (question posée par l'utilisateur en conditions réelles).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue 3D : légende ancrée directement au coin haut-gauche du cadre (coordonnées figure, plus relative à l'axe 3D) pour agrandir le nuage de points ; panneau de classement légèrement resserré et décalé à droite pour lui laisser encore plus de place.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

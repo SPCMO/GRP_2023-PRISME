@@ -85,9 +85,12 @@ def _construire_grp_paths(app):
 
 def _intervalle_minutes(serie):
     """Durée réelle (minutes) entre 2 points consécutifs d'une série EVxxxx.DAT — mesurée
-    sur les horodatages plutôt que supposée depuis un code pas de temps, voir
-    ui.tab_dashboard._tracer() pour la même logique (et la découverte que Pobs y est en
-    mm/h, pas déjà en mm par pas de temps, vérifié sur un fichier réel)."""
+    sur les horodatages plutôt que supposée depuis un code pas de temps. Ne sert qu'à
+    dimensionner la LARGEUR des barres de l'hyétogramme (voir _figure_detail_crue) :
+    Pobs est déjà en mm par pas de temps (l'en-tête "Pobs(mm/h)" du fichier est
+    trompeur — confirmé par comparaison avec les cumuls réellement observés pour un
+    événement majeur réel), donc la hauteur des barres n'a plus besoin de cette durée,
+    voir _cumul_pluie_mm."""
     if len(serie) < 2:
         return None
     delta = (serie[1][0] - serie[0][0]).total_seconds() / 60
@@ -95,10 +98,14 @@ def _intervalle_minutes(serie):
 
 
 def _cumul_pluie_mm(serie):
-    intervalle = _intervalle_minutes(serie)
-    if intervalle is None:
+    """Pobs est déjà en mm par pas de temps : somme directe, sans conversion (l'en-tête
+    "Pobs(mm/h)" du fichier est trompeur — une interprétation en intensité mm/h avait
+    d'abord été tentée mais donnait des cumuls trop faibles pour de vrais événements
+    majeurs, confirmé par l'utilisateur sur la crue historique de l'Aude d'octobre 2018,
+    Qmax=1648 m³/s : 33mm calculés contre 150-300mm réellement observés)."""
+    if not serie:
         return None
-    return sum(p[1] * intervalle / 60 for p in serie)
+    return sum(p[1] for p in serie)
 
 
 def _fig_to_image(fig):
@@ -130,8 +137,9 @@ def _construire_infos_crues(paths, app, dates_iso):
     """Pour chaque date de crue (ISO) déjà en base : cherche l'événement correspondant
     dans CRITERES_PERF.DAT (tous les pas de temps configurés, le premier qui matche
     l'emporte — en pratique un seul pas de temps est utilisé) pour son n° d'événement et
-    son Qmax, puis lit sa série EVxxxx.DAT pour le cumul de pluie (mm, converti depuis
-    l'intensité mm/h — voir _cumul_pluie_mm) et pour le tracé (onglet Détail par crue).
+    son Qmax, puis lit sa série EVxxxx.DAT pour le cumul de pluie (mm, somme directe
+    des valeurs de la série — voir _cumul_pluie_mm) et pour le tracé (onglet Détail par
+    crue).
     Best-effort : une crue absente de CRITERES_PERF.DAT ou dont la série est illisible
     reste incluse, juste avec les champs correspondants à None — jamais une erreur
     bloquante pour l'export entier."""
@@ -472,13 +480,14 @@ def _figure_detail_crue(libelle_crue, serie, serie_sim, meilleur, seuils_q):
 
     intervalle = _intervalle_minutes(serie)
     if intervalle:
-        profondeurs = [p[1] * intervalle / 60 for p in serie]
+        profondeurs = [p[1] for p in serie]
         largeur_jours = (intervalle / (24 * 60)) * 0.8
         ax_pluie.bar(dates_obs, profondeurs, width=largeur_jours, color="#5DADE2",
                      edgecolor="#2E86AB", linewidth=0.3, alpha=0.75, zorder=1)
         plafond = max(max(profondeurs, default=0) * 4, 1)
         ax_pluie.set_ylim(plafond, 0)
-        ax_pluie.set_ylabel("Pluie (mm)", fontsize=7, color="#2E86AB")
+        ax_pluie.yaxis.set_label_position("right")  # voir ui.tab_dashboard._tracer() : pas garanti par twinx() seul
+        ax_pluie.set_ylabel("Pluie (mm)", fontsize=7, color="#2E86AB", labelpad=10)
         ax_pluie.tick_params(axis="y", labelsize=6.5, colors="#2E86AB")
 
     for cle, libelle in LIBELLES_SEUILS_Q:

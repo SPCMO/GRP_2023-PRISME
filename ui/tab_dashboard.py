@@ -295,7 +295,19 @@ def _poids_actifs(app):
 # 1. Vue synthèse
 # ══════════════════════════════════════════════════════════════════════════════════
 
-def _dessiner_legende_boite(ax):
+_TEXTE_VALEURS_EXTREMES = (
+    "Une valeur est considérée \"extrême\" si elle dépasse 1,5 fois l'écart "
+    "interquartile (Q3 − Q1) au-delà de Q1 ou de Q3 — convention statistique standard "
+    "d'une boîte à moustaches (paramètre whis=1.5 de matplotlib).\n\n"
+    "Ces valeurs sont ici masquées plutôt qu'affichées comme des points isolés : le "
+    "maximum/minimum affiché est donc la valeur la plus extrême qui RESTE une fois "
+    "les valeurs extrêmes exclues — elle peut donc être strictement inférieure au "
+    "maximum réel de l'échantillon, ou supérieure à son minimum réel, s'il existe des "
+    "valeurs extrêmes au sens de cette règle."
+)
+
+
+def _dessiner_legende_boite(fig, canvas, etat_icones, ax):
     """Petit schéma annoté expliquant l'anatomie d'une boîte à moustaches (mêmes
     couleurs/styles que celle du graphique "Dispersion |dQP| par horizon") — dessiné
     une seule fois à la création de l'onglet, jamais retouché par ax.clear() ni par
@@ -336,6 +348,23 @@ def _dessiner_legende_boite(ax):
     ax.axis("off")
     ax.set_title("Lecture de la\nboîte à moustaches", fontsize=8, loc="left", pad=10)
 
+    # Icônes "i" cliquables juste après le mot "extrêmes" des entrées Maximum/Minimum
+    # (demandé) — explique précisément ce que signifie "hors valeurs extrêmes". Position
+    # calculée depuis les VRAIES coordonnées data de chaque annotation (transData ->
+    # transFigure), décalée d'environ une demi-hauteur de bloc de texte vers le bas pour
+    # viser la 3e ligne ("extrêmes)") plutôt que le centre du bloc — bien plus fiable
+    # qu'une fraction d'axe devinée à l'œil (essayé d'abord, imprécis au rendu réel).
+    def _position_figure(x_donnee, y_donnee):
+        x_disp, y_disp = ax.transData.transform((x_donnee, y_donnee))
+        return fig.transFigure.inverted().transform((x_disp, y_disp))
+
+    x_icone_max, y_icone_max = _position_figure(1.35, moustache_haut - 1.3)
+    x_icone_min, y_icone_min = _position_figure(1.35, moustache_bas - 1.3)
+    _icone_info_axe(fig, canvas, etat_icones, "extremes_max", x_icone_max, y_icone_max,
+                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES)
+    _icone_info_axe(fig, canvas, etat_icones, "extremes_min", x_icone_min, y_icone_min,
+                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES)
+
 
 def _build_synthese(frame, app):
     barre = tk.Frame(frame)
@@ -350,20 +379,23 @@ def _build_synthese(frame, app):
     corps = tk.Frame(frame)
     corps.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
-    fig = Figure(figsize=(11.5, 4.4), dpi=100)
+    # Figure agrandie et dispersion élargie par rapport à la heatmap (demandé) — la
+    # heatmap reste compacte (contrainte par le nb d'horizons/seuils), la dispersion
+    # profite de l'espace supplémentaire pour rester lisible avec le nuage de points.
+    fig = Figure(figsize=(14, 5.2), dpi=100)
     # 3e colonne, étroite, réservée à la légende de lecture de la boîte à moustaches —
     # les 2 graphiques de données sont décalés vers la gauche pour lui laisser la
     # place sans jamais empiéter dessus (demande explicite de l'utilisateur).
-    gs = fig.add_gridspec(1, 3, width_ratios=(1, 1, 0.42), wspace=0.55)
+    gs = fig.add_gridspec(1, 3, width_ratios=(1, 1.6, 0.42), wspace=0.5)
     ax_heatmap = fig.add_subplot(gs[0, 0])
     ax_dispersion = fig.add_subplot(gs[0, 1])
     ax_legende_boite = fig.add_subplot(gs[0, 2])
-    fig.subplots_adjust(bottom=0.2, left=0.06, right=0.98)
+    fig.subplots_adjust(bottom=0.2, left=0.05, right=0.98)
     canvas = FigureCanvasTkAgg(fig, master=corps)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
     etat_icones = {}
     etat_colorbar = {"cb": None}
-    _dessiner_legende_boite(ax_legende_boite)
+    _dessiner_legende_boite(fig, canvas, etat_icones, ax_legende_boite)
 
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
@@ -440,8 +472,31 @@ def _build_synthese(frame, app):
             ax_heatmap.set_yticklabels([f"{v:.2f}" for v in seuils], fontsize=7)
             ax_heatmap.set_title("Score composite (0=meilleur)", fontsize=9)
             etat_colorbar["cb"] = fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
-            _icone_info_axe(fig, canvas, etat_icones, "heatmap", 0.375, 0.905,
-                             "Score composite", explication_score(poids, asymetrie_dtp))
+            # Position recalculée depuis la vraie bbox de l'axe (pas de coordonnées
+            # figure codées en dur) : reste correcte quels que soient les width_ratios
+            # de la grille (modifiés depuis pour élargir la dispersion, voir plus haut).
+            bbox_hm = ax_heatmap.get_position()
+            # Note ajoutée à l'explication du score : une case peut sembler plus foncée
+            # (donc meilleure en apparence) que la case encadrée en jaune sans que ce
+            # soit une anomalie — question posée par l'utilisateur en conditions
+            # réelles. La case est la MOYENNE des méthodes qui partagent cet horizon et
+            # ce seuil (voir juste au-dessus), alors que le cadre jaune désigne la
+            # MEILLEURE COMBINAISON INDIVIDUELLE (une méthode précise, T ou R) — les
+            # deux ne coïncident pas forcément : une case peut être sombre parce que ses
+            # 2 méthodes sont toutes les deux correctes en moyenne, sans qu'aucune des
+            # deux n'atteigne individuellement le meilleur score de l'ensemble.
+            texte_heatmap = (
+                explication_score(poids, asymetrie_dtp) + "\n\n"
+                "Note sur la heatmap : chaque case est la MOYENNE des méthodes (T et/ou "
+                "R) qui partagent cet horizon et ce seuil — le cadre jaune désigne, lui, "
+                "la MEILLEURE COMBINAISON INDIVIDUELLE (une seule méthode). Une case peut "
+                "donc paraître plus sombre (meilleure en apparence) que la case encadrée "
+                "sans contradiction : elle reflète 2 méthodes moyennement bonnes, alors "
+                "que le cadre désigne la seule méthode la plus performante prise seule."
+            )
+            _icone_info_axe(fig, canvas, etat_icones, "heatmap",
+                             bbox_hm.x0 + 0.98 * bbox_hm.width, bbox_hm.y1 + 0.025,
+                             "Score composite", texte_heatmap)
 
             # Cadre jaune autour de la case (horizon, seuil) de la meilleure combinaison
             # trouvée (scores est trié meilleur -> moins bon, voir modules.score) — la
@@ -650,6 +705,11 @@ def _build_detail(frame, app):
     tableau_max.configure(yscrollcommand=ascenseur_max.set)
     tableau_max.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     ascenseur_max.pack(side=tk.RIGHT, fill=tk.Y)
+    # Repère visuel de la courbe simulée la plus proche de l'observé (demandé) : fond
+    # jaune + gras sur toute la ligne — ttk.Treeview ne permet de colorer/styler qu'une
+    # ligne entière via un tag, pas une cellule isolée.
+    tableau_max.tag_configure("meilleure_dqp", background="#FFF59D", font=("TkDefaultFont", 9, "bold"))
+    tableau_max.tag_configure("meilleure_dt", background="#FFF59D", font=("TkDefaultFont", 9, "bold"))
 
     def _max_et_horodatage(points_xy):
         """points_xy : liste de (datetime, valeur). Retourne (max, date_du_max) en
@@ -831,14 +891,17 @@ def _build_detail(frame, app):
         valeur_max_obs, date_max_obs = None, None
 
         def _dqp_dt_vs_obs(valeur_max, date_max):
+            """Retourne (texte_dqp, texte_dt, valeur_dqp, valeur_dt) — les valeurs
+            numériques brutes (en plus du texte déjà formaté) servent à repérer la
+            courbe la plus proche de l'observé (voir tag "meilleure_*" ci-dessous)."""
             if valeur_max_obs is None or date_max_obs is None:
-                return "—", "—"
+                return "—", "—", None, None
             dqp = (((valeur_max - valeur_max_obs) / valeur_max_obs) * 100
                    if valeur_max_obs != 0 else None)
             dt = ((date_max - date_max_obs).total_seconds() / 60 / pas_de_temps_minutes
                   if pas_de_temps_minutes else None)
             return (f"{dqp:+.1f}" if dqp is not None else "—",
-                    f"{dt:+.1f}" if dt is not None else "—")
+                    f"{dt:+.1f}" if dt is not None else "—", dqp, dt)
 
         toutes_valeurs = []
         if serie:
@@ -868,23 +931,36 @@ def _build_detail(frame, app):
                 )
 
             # -- Hyétogramme (pluie de bassin) -----------------------------------------
-            # <code_site>-EVxxxx.DAT donne Pobs en mm/h (intensité, vérifié sur un fichier
-            # réel — l'en-tête l'indique explicitement), pas en mm par pas de temps : il
-            # faut multiplier par la durée réelle de l'intervalle (mesurée directement sur
-            # les horodatages de la série, plus fiable qu'un code pas de temps qui pourrait
-            # ne pas correspondre) pour obtenir une hauteur de barre en mm par pas de temps.
+            # <code_site>-EVxxxx.DAT donne Pobs déjà en mm par pas de temps — utilisée
+            # SANS conversion. L'en-tête du fichier ("Pobs(mm/h)") est trompeur : une
+            # interprétation en intensité mm/h avait d'abord été tentée, mais donnait
+            # des cumuls trop faibles comparés aux cumuls réellement observés pour de
+            # vrais épisodes majeurs (ex. 33mm calculés contre 150-300mm connus pour la
+            # crue historique de l'Aude d'octobre 2018) — confirmé par l'utilisateur.
+            # L'intervalle réel (mesuré sur les horodatages) ne sert plus qu'à calibrer
+            # la LARGEUR des barres, plus fiable qu'un code pas de temps qui pourrait ne
+            # pas correspondre.
             if len(serie) >= 2:
                 intervalle_minutes = (serie[1][0] - serie[0][0]).total_seconds() / 60
                 if intervalle_minutes > 0:
                     dates_pluie = [p[0] for p in serie]
-                    profondeurs = [p[1] * intervalle_minutes / 60 for p in serie]
+                    profondeurs = [p[1] for p in serie]
                     largeur_jours = (intervalle_minutes / (24 * 60)) * 0.8
                     ax_pluie.bar(dates_pluie, profondeurs, width=largeur_jours,
                                  color="#5DADE2", edgecolor="#2E86AB", linewidth=0.3,
                                  alpha=0.75, zorder=1, label="Pluie de bassin")
                     plafond = max(max(profondeurs, default=0) * 4, 1)
                     ax_pluie.set_ylim(plafond, 0)  # inversé : la pluie "tombe" depuis le haut
-                    ax_pluie.set_ylabel("Pluie (mm / pas de temps)", fontsize=7.5, color="#2E86AB")
+                    # set_label_position("right") impératif ici : ax_pluie.clear() (en
+                    # tête de _tracer) réinitialise la position du label à "left" à
+                    # CHAQUE rafraîchissement malgré twinx() — sans ce rappel explicite,
+                    # le titre se superposait à celui de l'axe Débit (constaté au rendu
+                    # réel, alors que les graduations, elles, restaient bien à droite).
+                    # labelpad augmenté en plus : par défaut il restait collé aux
+                    # graduations plutôt que nettement à droite — signalé par l'utilisateur.
+                    ax_pluie.yaxis.set_label_position("right")
+                    ax_pluie.set_ylabel("Pluie (mm / pas de temps)", fontsize=7.5,
+                                         color="#2E86AB", labelpad=14)
                     ax_pluie.tick_params(axis="y", labelsize=7, colors="#2E86AB")
 
         # Une ou plusieurs séries simulées archivées (voir modules.run_orchestrator —
@@ -894,6 +970,7 @@ def _build_detail(frame, app):
         combis = getattr(liste_combis, "_valeurs", [])
         selection = liste_combis.curselection()
         combis_selectionnees = [combis[i] for i in selection] if combis else []
+        lignes_resume = []  # (item_id, |dqp|, |dt|) — pour repérer la courbe la plus proche de l'observé
         with results_store.db_session() as conn:
             for i, (h, s, m, combinaison_id) in enumerate(combis_selectionnees):
                 serie_sim = results_store.charger_serie(conn, combinaison_id, crue_iso, "sim")
@@ -912,10 +989,27 @@ def _build_detail(frame, app):
                 toutes_valeurs.extend(v for _d, v in points_sim if v is not None)
                 valeur_max, date_max = _max_et_horodatage(points_sim)
                 if valeur_max is not None:
-                    dqp_txt, dt_txt = _dqp_dt_vs_obs(valeur_max, date_max)
-                    tableau_max.insert("", tk.END, values=(
+                    dqp_txt, dt_txt, dqp_val, dt_val = _dqp_dt_vs_obs(valeur_max, date_max)
+                    item_id = tableau_max.insert("", tk.END, values=(
                         libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}",
                         dqp_txt, dt_txt))
+                    lignes_resume.append((item_id, abs(dqp_val) if dqp_val is not None else None,
+                                           abs(dt_val) if dt_val is not None else None))
+
+        # Repère visuel (fond jaune + gras, toute la ligne) sur la courbe SIMULÉE la
+        # plus proche de l'observé — séparément pour dQP et dT, qui peuvent désigner 2
+        # courbes différentes (une combinaison peut avoir le meilleur pic en débit sans
+        # avoir le meilleur calage temporel, et inversement). Q observé exclu de la
+        # comparaison (son dQP/dT est toujours 0 par construction, pas un vrai résultat).
+        candidats_dqp = [(iid, v) for iid, v, _dt in lignes_resume if v is not None]
+        if candidats_dqp:
+            meilleur_id, _ = min(candidats_dqp, key=lambda t: t[1])
+            tableau_max.item(meilleur_id, tags=("meilleure_dqp",))
+        candidats_dt = [(iid, v) for iid, _dqp, v in lignes_resume if v is not None]
+        if candidats_dt:
+            meilleur_id, _ = min(candidats_dt, key=lambda t: t[1])
+            tags_existants = tableau_max.item(meilleur_id, "tags")
+            tableau_max.item(meilleur_id, tags=tuple(tags_existants) + ("meilleure_dt",))
 
         # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
         # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
@@ -948,11 +1042,11 @@ def _build_detail(frame, app):
         # droite est élargie en conséquence (l'étiquette de l'axe pluie, à droite lui
         # aussi, y a maintenant sa place) pour que légende ET libellé restent visibles.
         # Fusionnée avec la pluie (sur ax_pluie, donc absente de ax.legend() par défaut).
-        fig.subplots_adjust(right=0.72)
+        fig.subplots_adjust(right=0.70)
         lignes_ax, labels_ax = ax.get_legend_handles_labels()
         lignes_pluie, labels_pluie = ax_pluie.get_legend_handles_labels()
         ax.legend(lignes_ax + lignes_pluie, labels_ax + labels_pluie,
-                  loc="center left", bbox_to_anchor=(1.12, 0.5), fontsize=7.5)
+                  loc="center left", bbox_to_anchor=(1.18, 0.5), fontsize=7.5)
         fig.autofmt_xdate()
         canvas.draw_idle()
 
@@ -1150,8 +1244,11 @@ def _build_vue3d(frame, app):
     # information sans ambiguïté, la 3D restant utile pour explorer la structure
     # d'ensemble (horizon x seuil x méthode).
     fig = Figure(figsize=(13, 5.5), dpi=100)
-    ax = fig.add_subplot(1, 2, 1, projection="3d")
-    ax_classement = fig.add_subplot(1, 2, 2)
+    # Classement légèrement resserré et décalé à droite (width_ratios) pour laisser le
+    # maximum de place au nuage 3D, qui reste le graphique principal de cette vue.
+    gs = fig.add_gridspec(1, 2, width_ratios=(1.25, 0.85), wspace=0.38)
+    ax = fig.add_subplot(gs[0, 0], projection="3d")
+    ax_classement = fig.add_subplot(gs[0, 1])
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_icones = {}
@@ -1232,8 +1329,13 @@ def _build_vue3d(frame, app):
                                             label="Score composite (0=meilleur)")
         # Repère posé en coordonnées FIGURE (pas données/axes) — reste donc fixe à côté
         # de la colorbar (élément 2D stable) même quand la vue 3D est tournée à la
-        # souris, contrairement à un label d'axe Z qui pivote avec la vue.
-        _icone_info_axe(fig, canvas, etat_icones, "colorbar", 0.448, 0.90,
+        # souris, contrairement à un label d'axe Z qui pivote avec la vue. Position
+        # recalculée depuis la vraie bbox de la colorbar (pas de coordonnées codées en
+        # dur) : reste juste au-dessus d'elle quels que soient les width_ratios de la
+        # grille (modifiés depuis pour agrandir le nuage 3D, voir plus haut).
+        bbox_cb = etat_colorbar["cb"].ax.get_position()
+        _icone_info_axe(fig, canvas, etat_icones, "colorbar",
+                         bbox_cb.x0 + 0.5 * bbox_cb.width, bbox_cb.y1 + 0.035,
                          "Score composite", explication_score(poids, asymetrie_dtp))
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
@@ -1265,13 +1367,14 @@ def _build_vue3d(frame, app):
         ax.set_xlabel("Horizon", labelpad=14, fontsize=8)
         ax.set_ylabel("Seuil de calage (m³/s)", labelpad=8, fontsize=8)
         ax.set_zlabel("Score composite (0=meilleur)", fontsize=8)
-        # Légende sortie du graphique, ancrée à gauche des axes (bbox_to_anchor avec un
-        # x négatif) pour ne jamais recouvrir le nuage de points — en haut plutôt que
-        # centrée verticalement pour laisser plus de place à ses 3 entrées (dont la
-        # dernière, plus longue, détaille la meilleure combinaison), avec un espacement
-        # vertical accru (labelspacing) pour mieux les distinguer les unes des autres.
-        fig.subplots_adjust(left=0.20, wspace=0.45)
-        ax.legend(loc="upper left", bbox_to_anchor=(-0.75, 1.0), fontsize=7, labelspacing=1.8)
+        # Légende ancrée en coordonnées FIGURE (bbox_transform=fig.transFigure), pas en
+        # coordonnées de l'axe 3D — reste bien dans le coin haut-gauche du cadre entier
+        # quelle que soit la largeur réelle de l'axe (demande explicite : la première
+        # version, ancrée en négatif RELATIVEMENT à l'axe, ne collait pas vraiment au
+        # coin du cadre). Marge de gauche réduite d'autant pour agrandir le nuage 3D.
+        fig.subplots_adjust(left=0.15, wspace=0.38)
+        ax.legend(loc="upper left", bbox_to_anchor=(0.005, 0.98), bbox_transform=fig.transFigure,
+                  fontsize=7, labelspacing=1.8)
 
         # -- Classement 2D : écart de score par rapport à la meilleure combinaison ----
         # Barres triées (la meilleure en haut), longueur = à quel point chaque
