@@ -1776,7 +1776,24 @@ _TEXTE_EXPLICATION_KGE = (
     "Les 3 termes valent 1 en cas de simulation parfaite, donc KGE = 1. Le KGE "
     "pénalise autant une mauvaise corrélation, un mauvais biais ou une mauvaise "
     "variabilité — contrairement au critère de Nash-Sutcliffe (NSE), plus focalisé "
-    "sur la seule variance. Référence : Gupta et al. (2009), Journal of Hydrology."
+    "sur la seule variance. Référence : Gupta et al. (2009), Journal of Hydrology.\n\n"
+    "─────────────────────────────\n\n"
+    "COMMENT LIRE UN PIC SUR CE GRAPHIQUE\n\n"
+    "Un pic isolé (souvent à petit N, à gauche) n'est PAS forcément le meilleur choix, "
+    "pour 3 raisons qui se cumulent :\n\n"
+    "  1. Chaque point est le gagnant du SCORE COMPOSITE à ce N, pas forcément celui "
+    "du meilleur KGE — la combinaison affichée peut changer d'un N à l'autre (voir "
+    "les étiquettes verticales), ce n'est pas le suivi d'un seul modèle fixe.\n\n"
+    "  2. Une moyenne sur peu de crues (petit N) est statistiquement fragile — une "
+    "seule crue facile ou difficile en plus ou en moins peut faire bondir la valeur. "
+    "Un pic à N=10-12 tombe souvent bien sur CE sous-ensemble précis, sans être un "
+    "optimum généralisable.\n\n"
+    "  3. Un modèle opérationnel doit couvrir TOUTES les crues qu'il rencontrera, pas "
+    "seulement un sous-ensemble choisi après coup — se caler sur un pic à petit N "
+    "risque de surapprendre quelques événements historiques précis.\n\n"
+    "Les zones plus STABLES (peu de variation d'un N au suivant, en général à N "
+    "élevé, à droite) sont plus dignes de confiance pour un choix opérationnel, même "
+    "si leur KGE affiché n'est pas le plus haut du graphique."
 )
 
 
@@ -1812,6 +1829,13 @@ def _build_variation_crues(frame, app):
                   "qui filtre un ensemble fixe choisi à la main — ici N grandit "
                   "automatiquement des crues les plus fortes jusqu'à la totalité "
                   "disponible, pour observer si la combinaison optimale reste stable.").pack(
+        anchor="w", padx=10, pady=(0, 4))
+    tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#A93226", wraplength=1000,
+             justify=tk.LEFT,
+             text="⚠ Un pic isolé (souvent à petit N) n'est pas forcément le meilleur "
+                  "choix : la combinaison gagnante peut changer d'un N à l'autre, et une "
+                  "moyenne sur peu de crues est statistiquement fragile. Préférez les "
+                  "zones stables (peu de variation) — voir l'icône i à côté de l'axe KGE.").pack(
         anchor="w", padx=10, pady=(0, 4))
 
     fig = Figure(figsize=(11, 4.6), dpi=100)
