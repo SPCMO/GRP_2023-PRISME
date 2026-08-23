@@ -270,7 +270,7 @@ def build_tab_parametrage(tab_frame, app):
     liste_seuils.pack(anchor="w", pady=4)
 
     # ── Méthode(s) de correction ─────────────────────────────────────────────────
-    inn3, bg3 = make_section(frm, "Méthode(s) de correction des sorties", "teal")
+    inn3, bg3 = make_section(frm, "Méthode(s) de correction des sorties", "rose")
     r = make_row(inn3, bg3)
     methodes_actuelles = set(parametrage["methodes_selectionnees"])
     var_t = tk.BooleanVar(value="T" in methodes_actuelles)

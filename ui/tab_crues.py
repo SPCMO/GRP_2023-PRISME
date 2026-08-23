@@ -27,6 +27,22 @@ TEXTE_INFO_TYPEVT_P = (
 
 VIGNETTES_PAR_LIGNE = 4
 
+# Ordre croissant de sévérité — utilisé pour trier les vignettes par niveau de
+# vigilance max atteint (demandé explicitement, plutôt que par date/numéro seul).
+_ORDRE_NIVEAUX_VIGILANCE = ("Vert", "ZT jaune", "Jaune", "ZT orange", "Orange", "ZT rouge", "Rouge")
+
+
+def _eclaircir(couleur_hex, facteur=0.45):
+    """Éclaircit une couleur hex vers le blanc (facteur 0=inchangé, 1=blanc pur) — sert
+    à simuler une transparence pour les niveaux ZT (Tkinter n'a pas d'alpha réel sur
+    les couleurs de fond des widgets)."""
+    couleur_hex = couleur_hex.lstrip("#")
+    r, g, b = int(couleur_hex[0:2], 16), int(couleur_hex[2:4], 16), int(couleur_hex[4:6], 16)
+    r = int(r + (255 - r) * facteur)
+    g = int(g + (255 - g) * facteur)
+    b = int(b + (255 - b) * facteur)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
 
 def _construire_grp_paths(app):
     """Construit un GrpPaths depuis la config actuelle — retourne None (avec message
@@ -126,22 +142,27 @@ def build_tab_crues(tab_frame, app):
             v.set(valeur)
         _sauver_selection()
 
-    def _couleur_vigilance(qmax):
-        """Couleur de fond de la vignette selon le débit max de la crue comparé aux
-        seuils PHyC (bloc 2) — repère visuel rapide, indépendant des SeuilV1/V2/V3
-        internes à LISTE_BASSINS.DAT (voir Aide.html, les deux ne doivent pas être
-        confondus)."""
+    def _niveau_et_couleur_vigilance(qmax):
+        """Niveau de vigilance PHyC (7 classes : Vert/ZT jaune/Jaune/ZT orange/Orange/
+        ZT rouge/Rouge, comparaison du débit max de la crue aux seuils du bloc 2,
+        indépendant des SeuilV1/V2/V3 internes à LISTE_BASSINS.DAT — voir Aide.html,
+        les deux ne doivent pas être confondus) et sa couleur de fond associée. Les ZT
+        (zones de transition) utilisent une version éclaircie de la couleur pleine du
+        palier suivant (Tkinter ne supporte pas une vraie transparence alpha sur une
+        couleur de fond — l'éclaircissement en tient lieu visuellement)."""
         seuils = app.config_data.get("seuils_q", {})
         if qmax is None:
-            return "#EAECEE"
+            return "Vert", "#EAECEE"
         paliers = [
-            (seuils.get("rouge"), "#F5B7B1"), (seuils.get("orange"), "#FAD7A0"),
-            (seuils.get("jaune"), "#F9E79F"),
+            ("rouge", "Rouge", "#F5B7B1"), ("zt_rouge", "ZT rouge", _eclaircir("#F5B7B1")),
+            ("orange", "Orange", "#FAD7A0"), ("zt_orange", "ZT orange", _eclaircir("#FAD7A0")),
+            ("jaune", "Jaune", "#F9E79F"), ("zt_jaune", "ZT jaune", _eclaircir("#F9E79F")),
         ]
-        for seuil, couleur in paliers:
+        for cle, niveau, couleur in paliers:
+            seuil = seuils.get(cle)
             if seuil is not None and qmax >= seuil:
-                return couleur
-        return "#D5F5E3"
+                return niveau, couleur
+        return "Vert", "#D5F5E3"
 
     def _rafraichir():
         for w in cadre_vignettes.winfo_children():
@@ -179,6 +200,13 @@ def build_tab_crues(tab_frame, app):
             var_statut.set("Aucun événement trouvé dans CRITERES_PERF.DAT pour ce filtre.")
             return
 
+        # Groupées par niveau de vigilance max atteint (Vert -> ... -> Rouge, demandé
+        # explicitement), et au sein d'un même niveau triées par n° d'événement
+        # croissant (#1 en premier) — pas par date ni par Qmax.
+        evenements_avec_niveau = [(e, *_niveau_et_couleur_vigilance(e.qmax)) for e in evenements]
+        evenements_avec_niveau.sort(
+            key=lambda t: (_ORDRE_NIVEAUX_VIGILANCE.index(t[1]), t[0].num_evt))
+
         deja_selectionnes = set(app.config_data.get("crues_selectionnees", []))
 
         def _cumul_pluie(evt):
@@ -204,9 +232,15 @@ def build_tab_crues(tab_frame, app):
                 return None
             return sum(p for _d, p, _q in serie)
 
-        for i, evt in enumerate(evenements):
-            ligne, colonne = divmod(i, VIGNETTES_PAR_LIGNE)
-            couleur = _couleur_vigilance(evt.qmax)
+        ligne, colonne = 0, 0
+        niveau_precedent = None
+        for evt, niveau, couleur in evenements_avec_niveau:
+            # Changement de niveau de vigilance -> nouvelle ligne, même si la ligne
+            # courante n'est pas pleine (demandé explicitement, pour que chaque ligne
+            # de vignettes reste homogène en niveau de vigilance).
+            if niveau_precedent is not None and niveau != niveau_precedent:
+                ligne += 1
+                colonne = 0
             vignette = tk.Frame(cadre_vignettes, bg=couleur, relief=tk.RIDGE, borderwidth=2)
             vignette.grid(row=ligne, column=colonne, padx=5, pady=5, sticky="nsew")
             cadre_vignettes.grid_columnconfigure(colonne, weight=1)
@@ -239,6 +273,12 @@ def build_tab_crues(tab_frame, app):
             tk.Label(vignette, bg=couleur, font=("TkDefaultFont", 8),
                      fg="#7B241C" if evt.suspects else "#333333", text=texte_perf,
                      justify=tk.LEFT).pack(anchor="w")
+
+            niveau_precedent = niveau
+            colonne += 1
+            if colonne >= VIGNETTES_PAR_LIGNE:
+                colonne = 0
+                ligne += 1
 
         cadre_vignettes.update_idletasks()
         canvas_vignettes.itemconfig(fenetre_vignettes, width=max(

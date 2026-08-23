@@ -18,6 +18,7 @@ COLORS = {
     "teal":   ("#0E6655", "#D1F2EB"),
     "rouge":  ("#7B241C", "#FADBD8"),
     "gris":   ("#2C3E50", "#EAECEE"),
+    "rose":   ("#AD1457", "#FCE4EC"),  # rosé doux, semi-transparent à l'œil
 }
 
 
