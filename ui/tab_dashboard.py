@@ -29,7 +29,7 @@ from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, pars
 from modules.grp_paths import GrpPaths
 from modules.score import (
     PROFILS_PONDERATION, calculer_scores, config_ponderation_par_defaut,
-    explication_score, resoudre_ponderation,
+    explication_score, filtrer_par_crues, resoudre_ponderation,
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import bouton_info, make_label, make_row, make_section
@@ -138,6 +138,28 @@ def build_tab_dashboard(tab_frame, app):
                command=lambda: _ouvrir_reglages_score(
                    app, lambda: _apres_reglages_personnalises())).pack(side=tk.LEFT)
 
+    # Sélecteur de crues incluses dans le score — même principe que la pondération
+    # ci-dessus (un seul réglage partagé par les 3 vues qui affichent un score) :
+    # permet de recalculer le score sur un sous-ensemble de crues sans reprendre aucun
+    # calage/rejeu GRP (demandé explicitement).
+    tk.Label(barre_pondération, text="   Crues dans le score :").pack(side=tk.LEFT)
+    var_crues_score = tk.StringVar(value="")
+    tk.Label(barre_pondération, textvariable=var_crues_score, font=("TkDefaultFont", 9, "bold")).pack(
+        side=tk.LEFT, padx=(4, 6))
+    ttk.Button(barre_pondération, text="Choisir…",
+               command=lambda: _ouvrir_selecteur_crues_score(
+                   app, lambda: _apres_choix_crues_score())).pack(side=tk.LEFT)
+
+    def _maj_label_crues_score():
+        total = len(_lister_crues_pour_score(app))
+        incluses = _crues_incluses_score(app)
+        nb_incluses = total if incluses is None else len(incluses)
+        var_crues_score.set(f"{nb_incluses}/{total}")
+
+    def _apres_choix_crues_score():
+        _maj_label_crues_score()
+        _rafraichir_toutes_les_vues_du_score()
+
     sous_notebook = ttk.Notebook(tab_frame)
     sous_notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -181,6 +203,7 @@ def build_tab_dashboard(tab_frame, app):
     combo_profil.bind("<<ComboboxSelected>>", _appliquer_profil)
     var_profil.set(_LIBELLES_PROFIL.get(_config_score(app).get("profil", "egal"),
                                           _LIBELLES_PROFIL["egal"]))
+    _maj_label_crues_score()
 
 
 _CHAMPS_POIDS = (("dqp", "Poids |dQP|"), ("dtp", "Poids |dTP|"),
@@ -289,6 +312,125 @@ def _poids_actifs(app):
     qu'elles utilisent toutes la même pondération que celle affichée dans le
     sélecteur, sans jamais la dupliquer en dur."""
     return resoudre_ponderation(_config_score(app))
+
+
+def _crues_incluses_score(app):
+    """Liste ISO des crues actuellement incluses dans le calcul du score composite (voir
+    _ouvrir_selecteur_crues_score), ou None si toutes les crues disponibles sont
+    incluses — réglage par défaut, comportement d'origine inchangé. Un ensemble vide
+    stocké en config est traité comme "toutes" plutôt que "aucune" : un score sur zéro
+    crue n'a pas de sens et une liste vide ne peut venir que d'un import/config corrompu,
+    jamais du sélecteur lui-même (qui empêche d'enregistrer une sélection vide)."""
+    valeur = _config_score(app).get("crues_incluses")
+    return valeur if valeur else None
+
+
+def _filtrer_lignes_score(app, lignes_ok):
+    return filtrer_par_crues(lignes_ok, _crues_incluses_score(app))
+
+
+def _lister_crues_pour_score(app):
+    """Liste (iso, libelle) de toutes les crues ayant au moins un résultat réussi en
+    base, triées par n° d'événement (CRITERES_PERF.DAT, "#N - date") puis par date pour
+    celles non numérotées — même principe de libellé que Dashboard > Détail par crue.
+    Alimente le sélecteur de crues du score (voir _ouvrir_selecteur_crues_score)."""
+    lignes, _erreur = _charger_resultats(app)
+    dates_disponibles = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
+    if not dates_disponibles:
+        return []
+
+    entrees = []
+    restants = set(dates_disponibles)
+    paths = _construire_grp_paths(app)
+    if paths is not None:
+        for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
+            if not restants:
+                break
+            try:
+                evenements = parse_criteres_perf(paths.criteres_perf_dat(pdt["code"]))
+            except (FileNotFoundError, CriteresPerfError):
+                continue
+            for e in evenements:
+                iso = e.date_deb.isoformat()
+                if iso in restants:
+                    entrees.append((e.num_evt, iso, e.date_deb))
+                    restants.discard(iso)
+    for iso in sorted(restants):
+        entrees.append((None, iso, datetime.fromisoformat(iso)))
+    entrees.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0))
+
+    return [(iso, f"{f'#{num}' if num is not None else '?'} - {d:%d/%m/%Y %H:%M}")
+            for num, iso, d in entrees]
+
+
+def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
+    """Fenêtre de sélection des crues incluses dans le calcul du score composite —
+    permet de recalculer le score sur un sous-ensemble de crues (ex. exclure un épisode
+    atypique) sans reprendre aucun calage/rejeu GRP, voir modules.score.filtrer_par_crues.
+    Pré-cochée sur la sélection ACTUELLEMENT active (toutes par défaut)."""
+    crues = _lister_crues_pour_score(app)
+    incluses_actuelles = _crues_incluses_score(app)
+
+    fenetre = tk.Toplevel(app)
+    fenetre.title("Crues incluses dans le score composite")
+    fenetre.geometry("420x480")
+    fenetre.transient(app)
+    fenetre.grab_set()
+
+    tk.Label(fenetre, text="Décocher une crue l'exclut du calcul du score composite "
+                           "(Vue synthèse, Sensibilité au seuil, Vue 3D, et la fenêtre "
+                           "\"Combinaisons déjà réalisées\" de l'onglet Campagne) — sans "
+                           "reprendre aucun calage ni rejeu GRP.",
+             wraplength=390, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(10, 6))
+
+    if not crues:
+        tk.Label(fenetre, text="Aucune crue avec résultat en base pour l'instant.",
+                 fg="#a94442").pack(anchor="w", padx=10)
+
+    cadre_liste = tk.Frame(fenetre)
+    cadre_liste.pack(fill=tk.BOTH, expand=True, padx=10)
+    liste = tk.Listbox(cadre_liste, selectmode=tk.EXTENDED, exportselection=False)
+    ascenseur = ttk.Scrollbar(cadre_liste, orient=tk.VERTICAL, command=liste.yview)
+    liste.configure(yscrollcommand=ascenseur.set)
+    liste.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    ascenseur.pack(side=tk.RIGHT, fill=tk.Y)
+    for _iso, libelle in crues:
+        liste.insert(tk.END, libelle)
+    isos_deja_incluses = set(incluses_actuelles) if incluses_actuelles is not None else None
+    for i, (iso, _libelle) in enumerate(crues):
+        if isos_deja_incluses is None or iso in isos_deja_incluses:
+            liste.selection_set(i)
+
+    barre_rapide = tk.Frame(fenetre)
+    barre_rapide.pack(pady=(6, 0))
+    ttk.Button(barre_rapide, text="Toutes",
+               command=lambda: liste.selection_set(0, tk.END)).pack(side=tk.LEFT, padx=4)
+    ttk.Button(barre_rapide, text="Aucune",
+               command=lambda: liste.selection_clear(0, tk.END)).pack(side=tk.LEFT, padx=4)
+
+    var_erreur = tk.StringVar(value="")
+    tk.Label(fenetre, textvariable=var_erreur, fg="#A93226", wraplength=390,
+             justify=tk.LEFT).pack(anchor="w", padx=10, pady=(6, 0))
+
+    def _enregistrer():
+        selection = liste.curselection()
+        if not selection:
+            var_erreur.set("Sélectionnez au moins une crue (un score sur aucune crue "
+                            "n'a pas de sens).")
+            return
+        cfg = _config_score(app)
+        if len(selection) == len(crues):
+            cfg["crues_incluses"] = None  # "toutes" — suit dynamiquement les futures crues
+        else:
+            cfg["crues_incluses"] = [crues[i][0] for i in selection]
+        app.persist_config()
+        fenetre.destroy()
+        apres_enregistrement()
+
+    barre_boutons = tk.Frame(fenetre)
+    barre_boutons.pack(pady=(10, 10))
+    ttk.Button(barre_boutons, text="Enregistrer", command=_enregistrer).pack(side=tk.LEFT, padx=4)
+    ttk.Button(barre_boutons, text="Annuler", command=fenetre.destroy).pack(side=tk.LEFT, padx=4)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
@@ -428,10 +570,11 @@ def _build_synthese(frame, app):
         if erreur:
             var_statut.set(erreur)
             return
-        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"]
+        lignes_ok = _filtrer_lignes_score(app, [l for l in lignes if l["statut_crue"] == "success"])
         if not lignes_ok:
-            var_statut.set("Aucun résultat réussi en base pour l'instant — lancez une campagne "
-                            "(onglet Campagne).")
+            var_statut.set("Aucun résultat réussi en base pour l'instant (ou aucune crue "
+                            "incluse dans le score, voir \"Crues dans le score\" en haut) — "
+                            "lancez une campagne (onglet Campagne).")
             if etat_colorbar["cb"] is not None:  # retirer AVANT clear(), voir plus bas
                 etat_colorbar["cb"].remove()
                 etat_colorbar["cb"] = None
@@ -1160,8 +1303,9 @@ def _build_sensibilite(frame, app):
             canvas.draw_idle()
             return
 
-        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"
-                     and l["horizon"] in horizons_selectionnes and l["methode"] in methodes_selectionnees]
+        lignes_ok = _filtrer_lignes_score(app, [
+            l for l in lignes if l["statut_crue"] == "success"
+            and l["horizon"] in horizons_selectionnes and l["methode"] in methodes_selectionnees])
         # Un seul appel à calculer_scores sur l'ensemble horizons x méthodes sélectionné :
         # la normalisation min-max du score (voir modules.score) porte alors sur ce même
         # ensemble affiché, donc les courbes superposées restent comparables entre elles
@@ -1283,10 +1427,11 @@ def _build_vue3d(frame, app):
             var_meilleure.set("")
             canvas.draw_idle()
             return
-        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"]
+        lignes_ok = _filtrer_lignes_score(app, [l for l in lignes if l["statut_crue"] == "success"])
         if not lignes_ok:
-            var_statut.set("Aucun résultat réussi en base pour l'instant — lancez une campagne "
-                            "(onglet Campagne).")
+            var_statut.set("Aucun résultat réussi en base pour l'instant (ou aucune crue "
+                            "incluse dans le score, voir \"Crues dans le score\" en haut) — "
+                            "lancez une campagne (onglet Campagne).")
             var_meilleure.set("")
             canvas.draw_idle()
             return

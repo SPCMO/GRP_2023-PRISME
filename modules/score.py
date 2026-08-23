@@ -125,6 +125,22 @@ def resoudre_ponderation(config_score):
     return profil_connu["poids"], profil_connu["asymetrie_dtp"], profil_connu["libelle"]
 
 
+def filtrer_par_crues(lignes_resultats, crues_incluses):
+    """Restreint `lignes_resultats` aux seules lignes dont "crue_date" figure dans
+    `crues_incluses` (itérable de dates ISO). `crues_incluses` vide ou None désactive le
+    filtre (toutes les crues incluses — comportement d'origine, avant l'ajout de cette
+    fonctionnalité). Permet de recalculer le score composite sur un sous-ensemble de
+    crues (ex. exclure un épisode atypique) SANS reprendre le calage/rejeu GRP : le
+    score ne dépend que des dQP/dTP/VE/KGE déjà stockés en base par (combinaison, crue),
+    donc ce filtre suffit — voir ui.tab_dashboard._filtrer_lignes_score et
+    ui.tab_orchestration._charger_combinaisons_completes, qui utilisent la même
+    sélection que le Dashboard pour rester cohérents entre eux."""
+    if not crues_incluses:
+        return lignes_resultats
+    crues_set = set(crues_incluses)
+    return [l for l in lignes_resultats if l["crue_date"] in crues_set]
+
+
 @dataclass
 class ScoreCombinaison:
     horizon: str

@@ -305,9 +305,12 @@ def build_tab_orchestration(tab_frame, app):
                 if r["statut_crue"] == "success"
                 and (r["horizon"], r["seuil_c1"], r["methode"]) in cles_completes
             ]
-        # Même pondération que le sélecteur partagé du Dashboard (onglet Dashboard, en
-        # haut) — un score composite doit désigner la même chose partout dans l'outil.
+        # Même pondération ET mêmes crues incluses que le sélecteur partagé du Dashboard
+        # (onglet Dashboard, en haut) — un score composite doit désigner la même chose
+        # partout dans l'outil.
         poids, asymetrie_dtp, _libelle = score.resoudre_ponderation(app.config_data.get("score"))
+        crues_incluses = (app.config_data.get("score") or {}).get("crues_incluses")
+        resultats = score.filtrer_par_crues(resultats, crues_incluses)
         scores = score.calculer_scores(resultats, poids=poids, asymetrie_dtp=asymetrie_dtp) if resultats else []
         return scores, dates_maj, poids, asymetrie_dtp
 

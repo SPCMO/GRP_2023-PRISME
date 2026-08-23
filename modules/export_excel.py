@@ -30,7 +30,8 @@ from modules import results_store
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
 from modules.score import (
-    calculer_scores, config_ponderation_par_defaut, explication_score, resoudre_ponderation,
+    calculer_scores, config_ponderation_par_defaut, explication_score, filtrer_par_crues,
+    resoudre_ponderation,
 )
 
 _COULEUR_OBS = "#1B4F72"
@@ -191,7 +192,8 @@ def _libelle_crue(iso, info):
 # Onglet 1 — Paramétrage
 # ══════════════════════════════════════════════════════════════════════════════════
 
-def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp, libelle_profil):
+def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp, libelle_profil,
+                           crues_incluses):
     station = app.config_data.get("station", {})
     seuils_q = app.config_data.get("seuils_q", {})
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
@@ -259,6 +261,12 @@ def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp,
         ws.append((libelle, poids.get(cle)))
     ws.append(("Asymétrie dTP — facteur retard (dTP > 0)", asymetrie_dtp.get("retard")))
     ws.append(("Asymétrie dTP — facteur avance (dTP < 0)", asymetrie_dtp.get("avance")))
+    if crues_incluses:
+        ws.append((f"Crues incluses dans le score : {len(crues_incluses)} sur "
+                    f"{len(infos_crues)} disponibles (sélection restreinte, voir Dashboard "
+                    "> \"Crues dans le score\")",))
+    else:
+        ws.append(("Crues incluses dans le score : toutes",))
     ws.append(())
     ws.append(("Explication détaillée du calcul :",))
     ws.cell(row=ws.max_row, column=1).font = Font(italic=True)
@@ -601,9 +609,16 @@ def exporter(chemin_xlsx, app, db_path=None):
                               "(onglet Campagne) avant d'exporter.")
         couverture = results_store.resume_couverture(conn)
 
-        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"]
+        # "lignes_ok" (filtrée aux crues incluses dans le score) alimente le calcul du
+        # score ET la dispersion |dQP| de la Vue synthèse — même principe que le
+        # Dashboard, pour que l'export reflète exactement ce qui y est affiché. Détail
+        # par crue, plus bas, utilise "lignes" (NON filtrée) : ce tableau croisé montre
+        # tous les résultats, indépendamment de la sélection de crues du score.
         app.config_data.setdefault("score", config_ponderation_par_defaut())
         poids, asymetrie_dtp, libelle_profil = resoudre_ponderation(app.config_data["score"])
+        crues_incluses = app.config_data["score"].get("crues_incluses")
+        lignes_ok = filtrer_par_crues([l for l in lignes if l["statut_crue"] == "success"],
+                                        crues_incluses)
         scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
         scores_valides = [s for s in scores if s.score is not None]
         meilleur = min(scores_valides, key=lambda s: s.score) if scores_valides else None
@@ -622,7 +637,8 @@ def exporter(chemin_xlsx, app, db_path=None):
         wb = Workbook()
         ws_param = wb.active
         ws_param.title = "Paramétrage"
-        _feuille_parametrage(ws_param, app, couverture, infos_crues, poids, asymetrie_dtp, libelle_profil)
+        _feuille_parametrage(ws_param, app, couverture, infos_crues, poids, asymetrie_dtp,
+                              libelle_profil, crues_incluses)
 
         _feuille_vue_synthese(wb.create_sheet("Vue synthèse"), lignes_ok, scores_valides, meilleur)
 
