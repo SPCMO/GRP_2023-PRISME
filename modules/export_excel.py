@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """Export Excel des résultats de campagne — généré à la demande depuis results_store
 (pas pendant le run), en plus du dashboard interactif (décision validée avec
-l'utilisateur). 4 onglets, demandés explicitement pour retrouver hors de l'outil tout
+l'utilisateur). 5 onglets, demandés explicitement pour retrouver hors de l'outil tout
 ce qui est visible dans le Dashboard : Paramétrage (contexte de la campagne), Vue
-synthèse, Détail par crue, Vue 3D.
+synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.
 
 Les graphiques matplotlib sont RE-rendus ici (backend Agg, non interactif) plutôt que
 réutilisés depuis ui/tab_dashboard.py : ce module (modules/) ne doit pas dépendre de
@@ -58,6 +58,9 @@ ENTETES_VUE3D = ("Horizon", "Seuil C1", "Méthode", "Score composite",
                   "Moyenne |VE| (%)", "Moyenne (1-KGE)")
 ENTETES_CRUES = ("Crue", "Date/heure de début", "Qmax observé (m³/s)",
                   "Cumul de pluie de l'épisode (mm)")
+ENTETES_VARIATION = ("N crues (les plus fortes, Qmax décroissant)", "Combinaison gagnante",
+                      "Score normalisé (à ce N)", "KGE moyen (brut)", "Moyenne |dQP| (brut, %)",
+                      "Moyenne |dTP| (brut, pdt)")
 
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
@@ -597,6 +600,113 @@ def _figure_vue_3d(scores_tries, meilleur):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
+# Onglet 5 — Variation selon le nombre de crues
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp):
+    """Même logique que ui.tab_dashboard._build_variation_crues (voir ce module pour le
+    détail) : pour N croissant de 3 au nombre total de crues avec Qmax connu (classées
+    Qmax décroissant), la combinaison gagnante du score composite sur les N crues les
+    plus fortes. Calculée sur TOUTES les crues réussies, volontairement indépendamment
+    de la sélection "Crues incluses dans le score" (même choix que dans le Dashboard).
+    Retourne une liste de (n, ScoreCombinaison gagnant à ce n)."""
+    crues_avec_qmax = [(iso, info["qmax_obs"]) for iso, info in infos_crues.items()
+                         if info.get("qmax_obs") is not None]
+    if len(crues_avec_qmax) < 3:
+        return []
+    isos_ordre = [iso for iso, _q in sorted(crues_avec_qmax, key=lambda t: t[1], reverse=True)]
+
+    lignes_success = [l for l in lignes if l["statut_crue"] == "success"]
+    points = []
+    for n in range(3, len(isos_ordre) + 1):
+        isos_n = set(isos_ordre[:n])
+        lignes_n = [l for l in lignes_success if l["crue_date"] in isos_n]
+        if not lignes_n:
+            continue
+        scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp)
+                    if s.score is not None]
+        if not scores_n:
+            continue
+        points.append((n, min(scores_n, key=lambda s: s.score)))
+    return points
+
+
+def _figure_variation_crues(points):
+    """Reproduit le graphique de l'onglet Dashboard "Variation selon le nb de crues" :
+    KGE moyen (brut, non normalisé) de la combinaison gagnante à chaque N, fond
+    dégradé rouge/vert, lignes verticales + étiquettes aux bascules de combinaison
+    gagnante. Pas d'icône ni de sélection interactive ici (statique, pour un export)."""
+    ns = [n for n, _s in points]
+    kges = [s.moyennes_erreur.get("kge") for _n, s in points]
+    libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
+
+    fig = Figure(figsize=(11, 4.6), dpi=100)
+    ax = fig.add_subplot(1, 1, 1)
+    ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3)
+    ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
+    ax.set_ylabel("KGE moyen — combinaison gagnante (brut, non normalisé)")
+    ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    # Fond dégradé rouge (bas) -> vert (haut), calé sur les limites réellement
+    # affichées de l'axe Y — mêmes principes que ui/tab_dashboard.py.
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    degrade = np.linspace(0, 1, 256).reshape(-1, 1)
+    ax.imshow(degrade, extent=(*xlim, *ylim), aspect="auto", cmap="RdYlGn",
+               alpha=0.15, zorder=0, origin="lower")
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
+
+    precedent = None
+    for i, (n, lib) in enumerate(zip(ns, libelles_combo)):
+        if lib != precedent:
+            ax.axvline(n, color="#7B7B7B", lw=0.7, ls="--", alpha=0.6, zorder=1)
+            ax.annotate(lib, xy=(n, kges[i]), xytext=(4, 6), textcoords="offset points",
+                        fontsize=6.5, rotation=90, va="bottom", ha="left", color="#333333")
+            precedent = lib
+
+    fig.subplots_adjust(bottom=0.14)
+    return fig
+
+
+def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
+    ws.append((f"Combinaison optimale par nombre de crues (N) — pondération : {libelle_profil}",))
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+    ws.append(("Crues classées par Qmax décroissant (les plus fortes en premier). "
+                "Indépendant de la sélection \"Crues incluses dans le score\" (voir onglet "
+                "Paramétrage) : ici N grandit automatiquement des crues les plus fortes "
+                "jusqu'à la totalité disponible, pour observer si la combinaison optimale "
+                "reste stable.",))
+    ws.append(("⚠ Le score normalisé n'est PAS comparable d'un N à l'autre (min-max recalé "
+                "sur le sous-ensemble de chaque N) — utile seulement pour désigner le gagnant "
+                "à ce N précis. Le KGE moyen (brut), lui, est directement comparable d'un N à "
+                "l'autre : privilégiez les zones stables (peu de variation) plutôt qu'un pic "
+                "isolé, souvent obtenu à petit N et statistiquement fragile.",))
+    ws.append(())
+
+    if not points:
+        ws.append((f"Pas assez de crues avec Qmax connu parmi les {nb_crues_disponibles} "
+                    "testées pour cette analyse (minimum 3 requis, via CRITERES_PERF.DAT).",))
+        return
+
+    ws.append(ENTETES_VARIATION)
+    for cell in ws[ws.max_row]:
+        cell.font = Font(bold=True)
+    for n, s in points:
+        ws.append((
+            n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}", round(s.score, 4),
+            round(s.moyennes_erreur.get("kge"), 3) if s.moyennes_erreur.get("kge") is not None else None,
+            round(s.moyennes_erreur.get("dqp"), 2) if s.moyennes_erreur.get("dqp") is not None else None,
+            round(s.moyennes_erreur.get("dtp"), 2) if s.moyennes_erreur.get("dtp") is not None else None,
+        ))
+    _ajuster_largeurs(ws, [30, 26, 22, 18, 22, 22])
+
+    fig = _figure_variation_crues(points)
+    img = _fig_to_image(fig)
+    ws.add_image(img, f"A{ws.max_row + 2}")
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
 
 def exporter(chemin_xlsx, app, db_path=None):
     """Génère un classeur à 4 feuilles depuis les résultats actuellement en base et la
@@ -646,6 +756,10 @@ def exporter(chemin_xlsx, app, db_path=None):
                                    meilleur, meilleur_combinaison_id, paths, app, conn)
 
         _feuille_vue_3d(wb.create_sheet("Vue 3D"), scores_valides, meilleur)
+
+        points_variation = _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp)
+        _feuille_variation_crues(wb.create_sheet("Variation selon le nb de crues"),
+                                   points_variation, len(infos_crues), libelle_profil)
 
         os.makedirs(os.path.dirname(chemin_xlsx) or ".", exist_ok=True)
         wb.save(chemin_xlsx)

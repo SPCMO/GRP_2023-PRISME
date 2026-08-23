@@ -670,6 +670,35 @@ def _build_synthese(frame, app):
     ascenseur_tableau.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _exporter():
+        poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
+        crues_incluses = _crues_incluses_score(app)
+        total_crues = len(_lister_crues_pour_score(app))
+        nb_crues_score = len(crues_incluses) if crues_incluses else total_crues
+        station = app.config_data.get("station", {})
+        parametrage = app.config_data.get("parametrage", {})
+        seuils_calage = parametrage.get("seuils_calage", [])
+        methodes = parametrage.get("methodes_selectionnees", [])
+        libelles_methodes = ", ".join(
+            "Tangara" if m == "T" else "RNA" if m == "R" else m for m in methodes) or "—"
+
+        message = (
+            f"Vérifiez les paramètres avant d'exporter :\n\n"
+            f"Station : {station.get('nom_station') or station.get('code_station') or '—'}\n"
+            f"Pondération du score composite : {libelle_profil}\n"
+            f"  (|dQP| : {poids.get('dqp')}, |dTP| : {poids.get('dtp')}, "
+            f"|VE| : {poids.get('ve')}, (1−KGE) : {poids.get('kge')})\n"
+            f"  Asymétrie dTP — retard : {asymetrie_dtp.get('retard')}, "
+            f"avance : {asymetrie_dtp.get('avance')}\n"
+            f"Crues incluses dans le score : {nb_crues_score}/{total_crues}"
+            + (" (sélection restreinte)" if crues_incluses else " (toutes)") + "\n"
+            f"Seuils de calage testés : {', '.join(str(s) for s in seuils_calage) or '—'}\n"
+            f"Méthode(s) de correction : {libelles_methodes}\n\n"
+            f"OK pour continuer et choisir où enregistrer le fichier, "
+            f"Annuler pour revenir corriger des valeurs sur l'outil."
+        )
+        if not messagebox.askokcancel("Export Excel — vérification avant export", message):
+            return
+
         chemin = filedialog.asksaveasfilename(
             title="Exporter les résultats en Excel", defaultextension=".xlsx",
             filetypes=[("Classeur Excel", "*.xlsx")])
