@@ -1848,12 +1848,13 @@ def _build_variation_crues(frame, app):
     cadre_tab = tk.Frame(inn_tab, bg=bg_tab)
     cadre_tab.pack(fill=tk.BOTH, expand=True)
     tableau = ttk.Treeview(
-        cadre_tab, columns=("n", "combinaison", "score", "kge", "dqp"),
+        cadre_tab, columns=("n", "combinaison", "score", "kge", "dqp", "dtp"),
         show="headings", height=6)
     for col, libelle, largeur in (
         ("n", "N crues", 70), ("combinaison", "Combinaison gagnante", 220),
         ("score", "Score normalisé (à ce N)", 170),
         ("kge", "KGE moyen (brut)", 130), ("dqp", "Moyenne |dQP| (brut, %)", 160),
+        ("dtp", "Moyenne |dTP| (brut, pdt)", 160),
     ):
         tableau.heading(col, text=libelle)
         tableau.column(col, width=largeur, anchor="center" if col != "combinaison" else "w")
@@ -1862,9 +1863,41 @@ def _build_variation_crues(frame, app):
     tableau.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     ascenseur_tab.pack(side=tk.RIGHT, fill=tk.Y)
 
+    # État partagé entre _rafraichir() et le sélecteur de ligne (voir _survol_selection
+    # ci-dessous) : les données du dernier tracé (pour retrouver le point correspondant
+    # à une ligne cliquée) et le marqueur de sélection actuellement affiché sur le
+    # graphique (à retirer avant d'en poser un nouveau, ou si le tableau est vidé).
+    etat_donnees = {"points": []}
+    etat_selection = {"marqueur": None}
+
+    def _survol_selection(_evt=None):
+        if etat_selection["marqueur"] is not None:
+            try:
+                etat_selection["marqueur"].remove()
+            except Exception:
+                pass
+            etat_selection["marqueur"] = None
+        selection = tableau.selection()
+        if selection:
+            valeurs = tableau.item(selection[0], "values")
+            n_selectionne = int(valeurs[0])
+            point = next((p for p in etat_donnees["points"] if p[0] == n_selectionne), None)
+            if point is not None:
+                _n, s = point
+                kge_val = s.moyennes_erreur.get("kge")
+                if kge_val is not None:
+                    etat_selection["marqueur"] = ax.scatter(
+                        [_n], [kge_val], s=200, facecolors="none", edgecolors="#C0392B",
+                        linewidths=2.2, zorder=6)
+        canvas.draw_idle()
+
+    tableau.bind("<<TreeviewSelect>>", _survol_selection)
+
     def _rafraichir():
         ax.clear()
         tableau.delete(*tableau.get_children())
+        etat_selection["marqueur"] = None  # ax.clear() l'a déjà invalidé
+        etat_donnees["points"] = []
         lignes, erreur = _charger_resultats(app)
         if erreur:
             var_statut.set(erreur)
@@ -1904,6 +1937,7 @@ def _build_variation_crues(frame, app):
             canvas.draw_idle()
             return
 
+        etat_donnees["points"] = points
         var_statut.set(f"{len(points)} valeurs de N testées (de {points[0][0]} à {points[-1][0]} "
                         f"crues sur {len(isos_ordre)} disponibles) — pondération : {libelle_profil}.")
 
@@ -1955,6 +1989,7 @@ def _build_variation_crues(frame, app):
                 f"{s.score:.4f}",
                 f"{s.moyennes_erreur.get('kge'):.3f}" if s.moyennes_erreur.get("kge") is not None else "—",
                 f"{s.moyennes_erreur.get('dqp'):.2f}" if s.moyennes_erreur.get("dqp") is not None else "—",
+                f"{s.moyennes_erreur.get('dtp'):.2f}" if s.moyennes_erreur.get("dtp") is not None else "—",
             ))
 
     _rafraichir()
