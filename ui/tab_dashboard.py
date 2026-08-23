@@ -47,7 +47,7 @@ _PALETTE_COURBES = (
 )
 
 
-def _icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte):
+def _icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte, taille=10):
     """Dessine un repère "i" cliquable (rond bleu) directement DANS la figure
     matplotlib, à la position figure-relative (x, y) — contrairement au bouton "ⓘ"
     Tkinter classique (ui.widgets_common.bouton_info, utilisé pour les icônes du
@@ -76,9 +76,10 @@ def _icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte):
             pass
         canvas.mpl_disconnect(cid_prec)
 
-    marqueur = fig.text(x, y, "i", fontsize=10, color="white", fontweight="bold",
+    marqueur = fig.text(x, y, "i", fontsize=taille, color="white", fontweight="bold",
                          fontstyle="italic", ha="center", va="center", picker=True,
-                         bbox=dict(boxstyle="circle,pad=0.3", fc="#1A5276", ec="#0B2C40", lw=0.8))
+                         bbox=dict(boxstyle=f"circle,pad={0.3 * taille / 10:.3f}",
+                                    fc="#1A5276", ec="#0B2C40", lw=0.8))
 
     def _au_clic(event):
         if event.artist is marqueur:
@@ -142,7 +143,9 @@ def build_tab_dashboard(tab_frame, app):
     # ci-dessus (un seul réglage partagé par les 3 vues qui affichent un score) :
     # permet de recalculer le score sur un sous-ensemble de crues sans reprendre aucun
     # calage/rejeu GRP (demandé explicitement).
-    tk.Label(barre_pondération, text="   Crues dans le score :").pack(side=tk.LEFT)
+    # padx de gauche généreux : décale nettement ce bloc vers la droite du bandeau,
+    # pour bien le séparer visuellement du bloc pondération — demandé explicitement.
+    tk.Label(barre_pondération, text="Crues dans le score :").pack(side=tk.LEFT, padx=(40, 0))
     var_crues_score = tk.StringVar(value="")
     tk.Label(barre_pondération, textvariable=var_crues_score, font=("TkDefaultFont", 9, "bold")).pack(
         side=tk.LEFT, padx=(4, 6))
@@ -363,17 +366,73 @@ def _lister_crues_pour_score(app):
             for num, iso, d in entrees]
 
 
+def _lister_crues_details_pour_score(app):
+    """Comme _lister_crues_pour_score, mais avec en plus TypEvt (Q/P), Qmax et le
+    cumul de pluie de l'épisode (mm, somme brute — voir modules.export_excel pour la
+    même donnée/le même calcul côté export) — alimente les colonnes du sélecteur de
+    crues du score (demandé). Retourne une liste de dicts {iso, libelle, typ_evt, qmax,
+    cumul_pluie}, cumul_pluie et typ_evt/qmax à None si l'événement n'a pas pu être
+    retrouvé dans CRITERES_PERF.DAT (best-effort, jamais bloquant)."""
+    lignes, _erreur = _charger_resultats(app)
+    dates_disponibles = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
+    if not dates_disponibles:
+        return []
+
+    entrees = []
+    restants = set(dates_disponibles)
+    paths = _construire_grp_paths(app)
+    if paths is not None:
+        for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
+            if not restants:
+                break
+            code_pdt = pdt["code"]
+            try:
+                evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+            except (FileNotFoundError, CriteresPerfError):
+                continue
+            for e in evenements:
+                iso = e.date_deb.isoformat()
+                if iso not in restants:
+                    continue
+                cumul_pluie = None
+                try:
+                    chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                                 f"{paths.code_site}-EV{e.num_evt:04d}.DAT")
+                    serie = parse_evenement_serie(chemin_serie)
+                    if serie:
+                        cumul_pluie = sum(p[1] for p in serie)  # déjà en mm/pas de temps, somme brute
+                except (FileNotFoundError, CriteresPerfError):
+                    pass
+                entrees.append({"num_evt": e.num_evt, "iso": iso, "date_deb": e.date_deb,
+                                  "typ_evt": e.typ_evt, "qmax": e.qmax, "cumul_pluie": cumul_pluie})
+                restants.discard(iso)
+    for iso in sorted(restants):
+        d = datetime.fromisoformat(iso)
+        entrees.append({"num_evt": None, "iso": iso, "date_deb": d,
+                          "typ_evt": None, "qmax": None, "cumul_pluie": None})
+    entrees.sort(key=lambda e: (e["num_evt"] is None, e["num_evt"] or 0))
+
+    resultat = []
+    for e in entrees:
+        prefixe = f"#{e['num_evt']}" if e["num_evt"] is not None else "?"
+        resultat.append({
+            "iso": e["iso"], "libelle": f"{prefixe} - {e['date_deb']:%d/%m/%Y %H:%M}",
+            "typ_evt": e["typ_evt"], "qmax": e["qmax"], "cumul_pluie": e["cumul_pluie"],
+        })
+    return resultat
+
+
 def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
     """Fenêtre de sélection des crues incluses dans le calcul du score composite —
     permet de recalculer le score sur un sous-ensemble de crues (ex. exclure un épisode
     atypique) sans reprendre aucun calage/rejeu GRP, voir modules.score.filtrer_par_crues.
     Pré-cochée sur la sélection ACTUELLEMENT active (toutes par défaut)."""
-    crues = _lister_crues_pour_score(app)
+    crues = _lister_crues_details_pour_score(app)
     incluses_actuelles = _crues_incluses_score(app)
 
     fenetre = tk.Toplevel(app)
     fenetre.title("Crues incluses dans le score composite")
-    fenetre.geometry("420x480")
+    fenetre.geometry("560x520")
     fenetre.transient(app)
     fenetre.grab_set()
 
@@ -381,7 +440,7 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
                            "(Vue synthèse, Sensibilité au seuil, Vue 3D, et la fenêtre "
                            "\"Combinaisons déjà réalisées\" de l'onglet Campagne) — sans "
                            "reprendre aucun calage ni rejeu GRP.",
-             wraplength=390, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(10, 6))
+             wraplength=530, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(10, 6))
 
     if not crues:
         tk.Label(fenetre, text="Aucune crue avec résultat en base pour l'instant.",
@@ -389,31 +448,43 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
 
     cadre_liste = tk.Frame(fenetre)
     cadre_liste.pack(fill=tk.BOTH, expand=True, padx=10)
-    liste = tk.Listbox(cadre_liste, selectmode=tk.EXTENDED, exportselection=False)
+    liste = ttk.Treeview(cadre_liste, columns=("crue", "type", "qmax", "pluie"),
+                          show="headings", selectmode="extended")
+    for col, libelle, largeur in (
+        ("crue", "Crue", 190), ("type", "TypEvt", 70),
+        ("qmax", "Qmax (m³/s)", 110), ("pluie", "Cumul pluie (mm)", 130),
+    ):
+        liste.heading(col, text=libelle)
+        liste.column(col, width=largeur, anchor="center" if col != "crue" else "w")
     ascenseur = ttk.Scrollbar(cadre_liste, orient=tk.VERTICAL, command=liste.yview)
     liste.configure(yscrollcommand=ascenseur.set)
     liste.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     ascenseur.pack(side=tk.RIGHT, fill=tk.Y)
-    for _iso, libelle in crues:
-        liste.insert(tk.END, libelle)
+
     isos_deja_incluses = set(incluses_actuelles) if incluses_actuelles is not None else None
-    for i, (iso, _libelle) in enumerate(crues):
-        if isos_deja_incluses is None or iso in isos_deja_incluses:
-            liste.selection_set(i)
+    for c in crues:
+        item_id = liste.insert("", tk.END, iid=c["iso"], values=(
+            c["libelle"],
+            "Q (crue)" if c["typ_evt"] == "Q" else "P (pluie)" if c["typ_evt"] == "P" else "—",
+            f"{c['qmax']:.1f}" if c["qmax"] is not None else "—",
+            f"{c['cumul_pluie']:.1f}" if c["cumul_pluie"] is not None else "—",
+        ))
+        if isos_deja_incluses is None or c["iso"] in isos_deja_incluses:
+            liste.selection_add(item_id)
 
     barre_rapide = tk.Frame(fenetre)
     barre_rapide.pack(pady=(6, 0))
     ttk.Button(barre_rapide, text="Toutes",
-               command=lambda: liste.selection_set(0, tk.END)).pack(side=tk.LEFT, padx=4)
+               command=lambda: liste.selection_set(liste.get_children())).pack(side=tk.LEFT, padx=4)
     ttk.Button(barre_rapide, text="Aucune",
-               command=lambda: liste.selection_clear(0, tk.END)).pack(side=tk.LEFT, padx=4)
+               command=lambda: liste.selection_remove(liste.get_children())).pack(side=tk.LEFT, padx=4)
 
     var_erreur = tk.StringVar(value="")
-    tk.Label(fenetre, textvariable=var_erreur, fg="#A93226", wraplength=390,
+    tk.Label(fenetre, textvariable=var_erreur, fg="#A93226", wraplength=530,
              justify=tk.LEFT).pack(anchor="w", padx=10, pady=(6, 0))
 
     def _enregistrer():
-        selection = liste.curselection()
+        selection = liste.selection()
         if not selection:
             var_erreur.set("Sélectionnez au moins une crue (un score sur aucune crue "
                             "n'a pas de sens).")
@@ -422,7 +493,7 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
         if len(selection) == len(crues):
             cfg["crues_incluses"] = None  # "toutes" — suit dynamiquement les futures crues
         else:
-            cfg["crues_incluses"] = [crues[i][0] for i in selection]
+            cfg["crues_incluses"] = list(selection)  # iid == iso (voir liste.insert ci-dessus)
         app.persist_config()
         fenetre.destroy()
         apres_enregistrement()
@@ -500,12 +571,15 @@ def _dessiner_legende_boite(fig, canvas, etat_icones, ax):
         x_disp, y_disp = ax.transData.transform((x_donnee, y_donnee))
         return fig.transFigure.inverted().transform((x_disp, y_disp))
 
-    x_icone_max, y_icone_max = _position_figure(1.35, moustache_haut - 1.3)
-    x_icone_min, y_icone_min = _position_figure(1.35, moustache_bas - 1.3)
+    # Icône réduite de moitié (taille=5, contre 10 par défaut) et décalée plus à droite
+    # (x=1.75 au lieu de 1.35) pour se poser juste APRÈS le mot "extrêmes" plutôt que de
+    # le recouvrir — signalé par l'utilisateur sur le rendu réel.
+    x_icone_max, y_icone_max = _position_figure(1.75, moustache_haut - 1.3)
+    x_icone_min, y_icone_min = _position_figure(1.75, moustache_bas - 1.3)
     _icone_info_axe(fig, canvas, etat_icones, "extremes_max", x_icone_max, y_icone_max,
-                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES)
+                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES, taille=5)
     _icone_info_axe(fig, canvas, etat_icones, "extremes_min", x_icone_min, y_icone_min,
-                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES)
+                     "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES, taille=5)
 
 
 def _build_synthese(frame, app):
@@ -830,29 +904,59 @@ def _build_detail(frame, app):
         return max(valeurs) * 1.1 if valeurs else None
 
     # ── Récapitulatif max/horodatage par courbe tracée ────────────────────────────
+    # Grille de Label (pas un ttk.Treeview) : demandé de colorer une CELLULE isolée
+    # (la valeur min de dQP/dT) plus intensément que le reste de sa ligne — un
+    # ttk.Treeview ne permet de styler qu'une ligne ENTIÈRE via un tag, jamais une
+    # cellule seule (limitation Tkinter, pas de contournement propre).
     inn_max, bg_max = make_section(frame, "Maximum de chaque courbe tracée", "gris")
     cadre_tableau_max = tk.Frame(inn_max, bg=bg_max)
     cadre_tableau_max.pack(fill=tk.BOTH, expand=True)
-    tableau_max = ttk.Treeview(
-        cadre_tableau_max,
-        columns=("courbe", "max", "horodatage", "dqp", "dt"),
-        show="headings", height=6)
-    for col, libelle, largeur in (
-        ("courbe", "Courbe", 240), ("max", "Max (m³/s)", 100),
-        ("horodatage", "Horodatage du max", 140),
-        ("dqp", "dQP vs observé (%)", 130), ("dt", "dT vs observé (pdt)", 130),
-    ):
-        tableau_max.heading(col, text=libelle)
-        tableau_max.column(col, width=largeur, anchor="center" if col != "courbe" else "w")
-    ascenseur_max = ttk.Scrollbar(cadre_tableau_max, orient=tk.VERTICAL, command=tableau_max.yview)
-    tableau_max.configure(yscrollcommand=ascenseur_max.set)
-    tableau_max.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    _COLONNES_MAX = (("Courbe", 32, "w"), ("Max (m³/s)", 12, "center"),
+                      ("Horodatage du max", 18, "center"),
+                      ("dQP vs observé (%)", 16, "center"), ("dT vs observé (pdt)", 16, "center"))
+    _COULEUR_LIGNE_MEILLEURE = "#FFFDE0"   # jaune très pâle ("plus transparent", demandé)
+    _COULEUR_CELLULE_MEILLEURE = "#FFD600"  # jaune intense, sur la seule cellule min
+
+    canvas_max = tk.Canvas(cadre_tableau_max, height=170, highlightthickness=0, bg="white")
+    ascenseur_max = ttk.Scrollbar(cadre_tableau_max, orient=tk.VERTICAL, command=canvas_max.yview)
+    canvas_max.configure(yscrollcommand=ascenseur_max.set)
+    canvas_max.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     ascenseur_max.pack(side=tk.RIGHT, fill=tk.Y)
-    # Repère visuel de la courbe simulée la plus proche de l'observé (demandé) : fond
-    # jaune + gras sur toute la ligne — ttk.Treeview ne permet de colorer/styler qu'une
-    # ligne entière via un tag, pas une cellule isolée.
-    tableau_max.tag_configure("meilleure_dqp", background="#FFF59D", font=("TkDefaultFont", 9, "bold"))
-    tableau_max.tag_configure("meilleure_dt", background="#FFF59D", font=("TkDefaultFont", 9, "bold"))
+    grille_max = tk.Frame(canvas_max, bg="white")
+    fenetre_grille_max = canvas_max.create_window((0, 0), window=grille_max, anchor="nw")
+    grille_max.bind("<Configure>", lambda e: canvas_max.configure(scrollregion=canvas_max.bbox("all")))
+    canvas_max.bind("<Configure>", lambda e: canvas_max.itemconfig(fenetre_grille_max, width=e.width))
+
+    def _molette_max(e):
+        canvas_max.yview_scroll(int(-1 * (e.delta / 120)), "units")
+    canvas_max.bind("<Enter>", lambda e: canvas_max.bind_all("<MouseWheel>", _molette_max))
+    canvas_max.bind("<Leave>", lambda e: canvas_max.unbind_all("<MouseWheel>"))
+
+    for j, (libelle, largeur, _anchor) in enumerate(_COLONNES_MAX):
+        tk.Label(grille_max, text=libelle, font=("TkDefaultFont", 9, "bold"), bg="#E0E0E0",
+                 relief=tk.RIDGE, borderwidth=1, width=largeur).grid(row=0, column=j, sticky="nsew")
+
+    etat_tableau_max = {"lignes": []}  # liste de listes de Label (une sous-liste par ligne de données)
+
+    def _vider_tableau_max():
+        for ligne in etat_tableau_max["lignes"]:
+            for lbl in ligne:
+                lbl.destroy()
+        etat_tableau_max["lignes"] = []
+
+    def _ajouter_ligne_max(valeurs):
+        """Ajoute une ligne de données, retourne sa liste de Label (index 3 = cellule
+        dQP, index 4 = cellule dT — utilisé ensuite pour le surlignage ciblé)."""
+        rang = len(etat_tableau_max["lignes"]) + 1  # +1 : la ligne 0 est l'en-tête
+        labels_ligne = []
+        for j, (_libelle, largeur, anchor) in enumerate(_COLONNES_MAX):
+            lbl = tk.Label(grille_max, text=str(valeurs[j]), bg="white", anchor=anchor,
+                            width=largeur, relief=tk.FLAT, borderwidth=1)
+            lbl.grid(row=rang, column=j, sticky="nsew", padx=1, pady=1)
+            labels_ligne.append(lbl)
+        etat_tableau_max["lignes"].append(labels_ligne)
+        return labels_ligne
 
     def _max_et_horodatage(points_xy):
         """points_xy : liste de (datetime, valeur). Retourne (max, date_du_max) en
@@ -990,7 +1094,7 @@ def _build_detail(frame, app):
             zorder=25, visible=False,
             bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#555555", linewidth=1.0, alpha=0.92),
         )
-        tableau_max.delete(*tableau_max.get_children())
+        _vider_tableau_max()
         var_indicateurs.set("")
         paths = _construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
@@ -1060,7 +1164,7 @@ def _build_detail(frame, app):
             valeur_max, date_max = _max_et_horodatage(points_obs)
             if valeur_max is not None:
                 valeur_max_obs, date_max_obs = valeur_max, date_max
-                tableau_max.insert("", tk.END, values=(
+                _ajouter_ligne_max((
                     "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}", "0.0", "0"))
                 # Annotation directement sur le graphique (même principe que OPALE v2 :
                 # point marqué + valeur/horodatage dans un encart), en plus de la ligne
@@ -1133,26 +1237,31 @@ def _build_detail(frame, app):
                 valeur_max, date_max = _max_et_horodatage(points_sim)
                 if valeur_max is not None:
                     dqp_txt, dt_txt, dqp_val, dt_val = _dqp_dt_vs_obs(valeur_max, date_max)
-                    item_id = tableau_max.insert("", tk.END, values=(
+                    labels_ligne = _ajouter_ligne_max((
                         libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}",
                         dqp_txt, dt_txt))
-                    lignes_resume.append((item_id, abs(dqp_val) if dqp_val is not None else None,
+                    lignes_resume.append((labels_ligne, abs(dqp_val) if dqp_val is not None else None,
                                            abs(dt_val) if dt_val is not None else None))
 
-        # Repère visuel (fond jaune + gras, toute la ligne) sur la courbe SIMULÉE la
-        # plus proche de l'observé — séparément pour dQP et dT, qui peuvent désigner 2
-        # courbes différentes (une combinaison peut avoir le meilleur pic en débit sans
-        # avoir le meilleur calage temporel, et inversement). Q observé exclu de la
-        # comparaison (son dQP/dT est toujours 0 par construction, pas un vrai résultat).
-        candidats_dqp = [(iid, v) for iid, v, _dt in lignes_resume if v is not None]
+        # Repère visuel sur la courbe SIMULÉE la plus proche de l'observé — séparément
+        # pour dQP et dT, qui peuvent désigner 2 courbes différentes (une combinaison
+        # peut avoir le meilleur pic en débit sans avoir le meilleur calage temporel, et
+        # inversement). Toute la ligne en jaune pâle, et en PLUS la seule cellule de la
+        # valeur min (dQP ou dT) en jaune intense — Q observé exclu de la comparaison
+        # (son dQP/dT est toujours 0 par construction, pas un vrai résultat).
+        candidats_dqp = [(lg, v) for lg, v, _dt in lignes_resume if v is not None]
         if candidats_dqp:
-            meilleur_id, _ = min(candidats_dqp, key=lambda t: t[1])
-            tableau_max.item(meilleur_id, tags=("meilleure_dqp",))
-        candidats_dt = [(iid, v) for iid, _dqp, v in lignes_resume if v is not None]
+            meilleure_ligne, _ = min(candidats_dqp, key=lambda t: t[1])
+            for lbl in meilleure_ligne:
+                lbl.configure(bg=_COULEUR_LIGNE_MEILLEURE, font=("TkDefaultFont", 9, "bold"))
+            meilleure_ligne[3].configure(bg=_COULEUR_CELLULE_MEILLEURE)  # colonne dQP
+        candidats_dt = [(lg, v) for lg, _dqp, v in lignes_resume if v is not None]
         if candidats_dt:
-            meilleur_id, _ = min(candidats_dt, key=lambda t: t[1])
-            tags_existants = tableau_max.item(meilleur_id, "tags")
-            tableau_max.item(meilleur_id, tags=tuple(tags_existants) + ("meilleure_dt",))
+            meilleure_ligne, _ = min(candidats_dt, key=lambda t: t[1])
+            for lbl in meilleure_ligne:
+                if str(lbl.cget("bg")) == "white":  # ne pas écraser un surlignage dQP déjà posé
+                    lbl.configure(bg=_COULEUR_LIGNE_MEILLEURE, font=("TkDefaultFont", 9, "bold"))
+            meilleure_ligne[4].configure(bg=_COULEUR_CELLULE_MEILLEURE)  # colonne dT
 
         # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
         # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
@@ -1390,7 +1499,7 @@ def _build_vue3d(frame, app):
     fig = Figure(figsize=(13, 5.5), dpi=100)
     # Classement légèrement resserré et décalé à droite (width_ratios) pour laisser le
     # maximum de place au nuage 3D, qui reste le graphique principal de cette vue.
-    gs = fig.add_gridspec(1, 2, width_ratios=(1.25, 0.85), wspace=0.38)
+    gs = fig.add_gridspec(1, 2, width_ratios=(1.45, 0.8), wspace=0.35)
     ax = fig.add_subplot(gs[0, 0], projection="3d")
     ax_classement = fig.add_subplot(gs[0, 1])
     canvas = FigureCanvasTkAgg(fig, master=frame)
@@ -1438,7 +1547,7 @@ def _build_vue3d(frame, app):
 
         # Un seul appel à calculer_scores sur TOUS les résultats réussis : normalisation
         # cohérente avec la Vue synthèse (même score, même échelle 0=meilleur/1=pire).
-        poids, asymetrie_dtp, _libelle_profil = _poids_actifs(app)
+        poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
         scores = [s for s in calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
                   if s.score is not None]
         var_statut.set(f"{len(scores)} combinaison(s) avec score exploitable.")
@@ -1458,7 +1567,15 @@ def _build_vue3d(frame, app):
         z_floor = min(zs) - max((max(zs) - min(zs)) * 0.08, 0.02) if zs else 0.0
         ax.scatter(xs, ys, [z_floor] * len(xs), color=(0.55, 0.55, 0.6), alpha=0.18,
                    s=26, marker="o", linewidths=0, depthshade=False)
+        # Trait fin pointillé gris entre chaque point (X, Y) au plancher et son résultat
+        # réel en Z (demandé) — relie visuellement l'intersection horizon×seuil à son
+        # score composite, en complément de l'ombre au sol déjà posée juste au-dessus.
+        for x, y, z in zip(xs, ys, zs):
+            ax.plot([x, x], [y, y], [z_floor, z], color=(0.6, 0.6, 0.6), lw=0.6,
+                     ls=":", alpha=0.5, zorder=1)
 
+        _LIBELLES_METHODE = {"T": "Méthode T - Tan.", "R": "Méthode R - RNA"}
+        handles_legende, labels_legende = [], []
         for methode, marqueur in _MARQUEURS_METHODE.items():
             indices = [i for i, s in enumerate(scores) if s.methode == methode]
             if not indices:
@@ -1467,8 +1584,10 @@ def _build_vue3d(frame, app):
                 [xs[i] for i in indices], [ys[i] for i in indices], [zs[i] for i in indices],
                 c=[zs[i] for i in indices], cmap="RdYlGn_r", vmin=0, vmax=1,
                 marker=marqueur, s=70, edgecolors=(0.3, 0.3, 0.35, 0.7), linewidths=0.5,
-                alpha=0.92, label=f"Méthode {methode}",
+                alpha=0.92,
             )
+            handles_legende.append(nuage)
+            labels_legende.append(_LIBELLES_METHODE.get(methode, f"Méthode {methode}"))
         ax.set_zlim(z_floor, max(zs) + max((max(zs) - min(zs)) * 0.08, 0.02))
         etat_colorbar["cb"] = fig.colorbar(nuage, ax=ax, shrink=0.6, pad=0.1,
                                             label="Score composite (0=meilleur)")
@@ -1478,10 +1597,27 @@ def _build_vue3d(frame, app):
         # recalculée depuis la vraie bbox de la colorbar (pas de coordonnées codées en
         # dur) : reste juste au-dessus d'elle quels que soient les width_ratios de la
         # grille (modifiés depuis pour agrandir le nuage 3D, voir plus haut).
+        # Note ajoutée à l'explication du score : pourquoi un point peut sembler plus
+        # vert (donc meilleur en apparence) que l'étoile dorée sans être réellement
+        # meilleur — question posée par l'utilisateur en conditions réelles. L'or de
+        # l'étoile est une couleur FIXE (repère visuel), PAS une position sur l'échelle
+        # RdYlGn_r : rien ne garantit qu'il paraisse "plus vert à l'œil" qu'un point
+        # voisin très proche en score, alors même que l'étoile désigne bien le score le
+        # plus bas de tout l'ensemble (vérifiable dans le texte de la légende).
+        texte_colorbar = (
+            explication_score(poids, asymetrie_dtp) + "\n\n"
+            "Note sur les couleurs : l'étoile dorée n'est PAS positionnée sur l'échelle "
+            "de couleur ci-contre — c'est une couleur fixe choisie pour rester visible, "
+            "indépendante du score. Un point voisin très proche en score (donc coloré "
+            "d'un vert tout aussi foncé) peut ainsi sembler visuellement \"aussi bon\" ou "
+            "\"meilleur\" que l'étoile sans l'être réellement : le score exact de la "
+            "meilleure combinaison est celui affiché dans la légende, pas la teinte "
+            "perçue à l'œil."
+        )
         bbox_cb = etat_colorbar["cb"].ax.get_position()
         _icone_info_axe(fig, canvas, etat_icones, "colorbar",
                          bbox_cb.x0 + 0.5 * bbox_cb.width, bbox_cb.y1 + 0.035,
-                         "Score composite", explication_score(poids, asymetrie_dtp))
+                         "Score composite", texte_colorbar)
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
         # détail (paramètres + les 4 indicateurs moyens qui composent son score) est
@@ -1492,13 +1628,14 @@ def _build_vue3d(frame, app):
         libelle_meilleure = (
             "Meilleure combinaison\n"
             f"Horizon {meilleur.horizon} / seuil {meilleur.seuil_c1:.2f} / méthode {meilleur.methode}\n"
-            f"Score composite : {meilleur.score:.3f}\n"
-            f"|dQP| {m.get('dqp'):.2f}%   |dTP| {m.get('dtp'):.2f} pdt\n"
+            f"Score composite : {meilleur.score:.3f} ({libelle_profil})\n"
+            f"|dQP| {m.get('dqp'):.2f}%   |dTP| {m.get('dtp'):.2f} pdt   "
             f"|VE| {m.get('ve'):.2f}%   (1−KGE) {m.get('kge'):.2f}"
         )
-        ax.scatter([_horizon_en_minutes(meilleur.horizon)], [meilleur.seuil_c1], [meilleur.score],
-                   marker="*", s=400, color="gold", edgecolors="#333333", linewidths=0.8,
-                   label=libelle_meilleure)
+        etoile = ax.scatter([_horizon_en_minutes(meilleur.horizon)], [meilleur.seuil_c1], [meilleur.score],
+                             marker="*", s=400, color="gold", edgecolors="#333333", linewidths=0.8)
+        handles_legende.append(etoile)
+        labels_legende.append(libelle_meilleure)
         var_meilleure.set(
             f"★ Meilleure combinaison : horizon {meilleur.horizon} / seuil "
             f"{meilleur.seuil_c1:.2f} / méthode {meilleur.methode} — score "
@@ -1514,12 +1651,15 @@ def _build_vue3d(frame, app):
         ax.set_zlabel("Score composite (0=meilleur)", fontsize=8)
         # Légende ancrée en coordonnées FIGURE (bbox_transform=fig.transFigure), pas en
         # coordonnées de l'axe 3D — reste bien dans le coin haut-gauche du cadre entier
-        # quelle que soit la largeur réelle de l'axe (demande explicite : la première
-        # version, ancrée en négatif RELATIVEMENT à l'axe, ne collait pas vraiment au
-        # coin du cadre). Marge de gauche réduite d'autant pour agrandir le nuage 3D.
-        fig.subplots_adjust(left=0.15, wspace=0.38)
-        ax.legend(loc="upper left", bbox_to_anchor=(0.005, 0.98), bbox_transform=fig.transFigure,
-                  fontsize=7, labelspacing=1.8)
+        # quelle que soit la largeur réelle de l'axe. Marge de gauche resserrée pour
+        # agrandir le nuage 3D (demandé). Sur 2 colonnes (ncol=2) : avec 3 entrées,
+        # matplotlib remplit la 1re colonne en premier (les 2 méthodes), la meilleure
+        # combinaison se retrouve donc seule en 2e colonne — demandé explicitement,
+        # sans avoir à construire un layout de légende personnalisé.
+        fig.subplots_adjust(left=0.09, wspace=0.35)
+        ax.legend(handles=handles_legende, labels=labels_legende, loc="upper left",
+                  bbox_to_anchor=(0.005, 0.98), bbox_transform=fig.transFigure,
+                  fontsize=7, labelspacing=1.8, ncol=2, columnspacing=1.5, handletextpad=0.6)
 
         # -- Classement 2D : écart de score par rapport à la meilleure combinaison ----
         # Barres triées (la meilleure en haut), longueur = à quel point chaque

@@ -595,6 +595,31 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Vue synthèse : les icônes "i" ajoutées à côté de "extrêmes" dans la légende de lecture de la boîte à moustaches recouvraient le mot au lieu de se poser juste après. Réduites de moitié et repositionnées.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Vue 3D : l'icône "i" de la colorbar précise désormais que l'étoile dorée (meilleure combinaison) est une couleur FIXE, pas une position sur l'échelle de couleur — un point voisin très proche en score peut donc sembler visuellement "aussi vert" ou plus sans être réellement meilleur (le score exact affiché dans la légende fait foi, pas la teinte perçue). Même principe déjà en place sur la heatmap de la Vue synthèse (case = moyenne des méthodes, cadre jaune = meilleure combinaison individuelle) — les deux questions ont été posées par l'utilisateur en conditions réelles.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; sélecteur "Crues incluses dans le score" : la fenêtre affiche désormais TypEvt (Q/P), Qmax et cumul de pluie pour chaque crue (tableau à colonnes au lieu d'une simple liste). Bloc "Crues dans le score" décalé plus à droite dans le bandeau pour bien le séparer du bloc pondération.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Détail par crue : dans le tableau "Maximum de chaque courbe tracée", la ligne surlignée (courbe la plus proche de l'observé) passe à un jaune plus pâle, et la cellule de la valeur min exacte (dQP ou dT) reste en jaune intense — nécessitait de remplacer le tableau (ttk.Treeview, qui ne permet de colorer qu'une ligne entière) par une grille de cellules indépendantes.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue 3D : légende réorganisée sur 2 colonnes — les 2 méthodes ("Méthode T - Tan." / "Méthode R - RNA") à gauche, le détail de la meilleure combinaison (horizon/seuil/méthode, score composite avec le nom de la pondération active, dQP/dTP/VE/(1−KGE)) à droite. Nuage de points 3D agrandi (marge de gauche resserrée). Trait fin pointillé gris ajouté entre chaque point (intersection horizon×seuil) et son ombre au sol, pour relier visuellement la position 2D au résultat de score en Z.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
