@@ -545,6 +545,11 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Onglet Crues : le "Cumul pluie de l'épisode" affiché sur chaque vignette était surestimé (×4 en pas de temps 15 min, ×2 en 30 min) — même erreur que le hyétogramme du Dashboard corrigée juste au-dessus : <code>Pobs</code> est en mm/h (intensité), pas déjà en mm par pas de temps. <code>_cumul_pluie()</code> convertit désormais chaque valeur en profondeur à partir de la durée réelle entre 2 points de la série avant de sommer, au lieu de sommer les intensités brutes.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
