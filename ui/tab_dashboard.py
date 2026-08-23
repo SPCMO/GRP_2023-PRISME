@@ -1742,6 +1742,17 @@ def _build_vue3d(frame, app):
 # ══════════════════════════════════════════════════════════════════════════════════
 
 _TEXTE_EXPLICATION_KGE = (
+    "POURQUOI LE KGE ICI, PAS LE SCORE COMPOSITE ?\n\n"
+    "Le score composite est normalisé min-max À L'INTÉRIEUR DE CHAQUE N (0=meilleur/"
+    "1=pire recalculé sur les 96 combinaisons pour ce N précis) : sa valeur absolue "
+    "n'est donc pas comparable d'un N à l'autre, une baisse ou une hausse pourrait "
+    "juste venir d'un changement d'échelle de référence, pas d'une vraie différence "
+    "de performance. Le KGE, lui, a une définition FIXE, indépendante des autres "
+    "combinaisons ou du sous-ensemble de crues retenu — il reste donc directement "
+    "comparable d'un point à l'autre du graphique. Le score composite reste affiché "
+    "dans le tableau ci-dessous (pour savoir QUI gagne à chaque N), le graphique "
+    "trace le KGE (pour comparer À QUEL POINT c'est bon, de façon cohérente).\n\n"
+    "─────────────────────────────\n\n"
     "EN SIMPLE\n\n"
     "Le KGE (Kling-Gupta Efficiency) est une note globale qui dit à quel point le "
     "débit simulé ressemble au débit observé. Plus il est ÉLEVÉ, meilleure est la "
