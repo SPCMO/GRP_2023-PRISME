@@ -1741,6 +1741,34 @@ def _build_vue3d(frame, app):
 # 5. Variation de la meilleure combinaison selon le nombre de crues
 # ══════════════════════════════════════════════════════════════════════════════════
 
+_TEXTE_EXPLICATION_KGE = (
+    "EN SIMPLE\n\n"
+    "Le KGE (Kling-Gupta Efficiency) est une note globale qui dit à quel point le "
+    "débit simulé ressemble au débit observé. Plus il est ÉLEVÉ, meilleure est la "
+    "simulation (fond vert du graphique) ; plus il est BAS ou négatif, plus elle est "
+    "mauvaise (fond rouge).\n\n"
+    "Repères utiles :\n"
+    "  • KGE = 1  →  simulation parfaite\n"
+    "  • KGE proche de 0,5 à 0,7  →  performance correcte à bonne\n"
+    "  • KGE ≤ 0  →  le modèle fait moins bien que de prévoir simplement la valeur "
+    "moyenne observée en permanence (très mauvais signe)\n\n"
+    "─────────────────────────────\n\n"
+    "PLUS TECHNIQUE\n\n"
+    "KGE = 1 − √[(r−1)² + (α−1)² + (β−1)²]\n\n"
+    "où, sur la période évaluée :\n"
+    "  • r = coefficient de corrélation de Pearson entre débits simulés et observés "
+    "(la dynamique/la forme est-elle bien reproduite ?)\n"
+    "  • α = écart-type(simulé) / écart-type(observé) (la variabilité — trop lisse "
+    "ou trop erratique ?)\n"
+    "  • β = moyenne(simulé) / moyenne(observé) (le biais global — sur- ou "
+    "sous-estimation systématique ?)\n\n"
+    "Les 3 termes valent 1 en cas de simulation parfaite, donc KGE = 1. Le KGE "
+    "pénalise autant une mauvaise corrélation, un mauvais biais ou une mauvaise "
+    "variabilité — contrairement au critère de Nash-Sutcliffe (NSE), plus focalisé "
+    "sur la seule variance. Référence : Gupta et al. (2009), Journal of Hydrology."
+)
+
+
 def _build_variation_crues(frame, app):
     """Onglet demandé explicitement : comment la combinaison optimale (et sa
     performance) évolue si on ne retient que les N crues les plus fortes (Qmax
@@ -1779,6 +1807,7 @@ def _build_variation_crues(frame, app):
     ax = fig.add_subplot(1, 1, 1)
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+    etat_icones = {}
 
     inn_tab, bg_tab = make_section(frame, "Combinaison optimale par nombre de crues (N)", "gris")
     cadre_tab = tk.Frame(inn_tab, bg=bg_tab)
@@ -1853,6 +1882,19 @@ def _build_variation_crues(frame, app):
         ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
         ax.grid(True, alpha=0.3)
 
+        # Fond dégradé rouge (bas = pire) -> vert (haut = meilleur) calé sur les
+        # limites RÉELLEMENT affichées de l'axe Y (demandé, pour lever l'ambiguïté
+        # "un KGE élevé ou faible est-il le meilleur ?" d'un coup d'œil). Semi-
+        # transparent (alpha) pour ne jamais gêner la lecture de la courbe/grille
+        # posées par-dessus (zorder plus élevé). xlim/ylim explicitement restaurés
+        # après l'imshow : matplotlib peut sinon les recaler sur l'image elle-même.
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
+        degrade = np.linspace(0, 1, 256).reshape(-1, 1)
+        ax.imshow(degrade, extent=(*xlim, *ylim), aspect="auto", cmap="RdYlGn",
+                   alpha=0.15, zorder=0, origin="lower")
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+
         # Ligne verticale + étiquette à chaque bascule (changement de combinaison gagnante) —
         # montre directement à partir de quel N l'optimum se stabilise (ou continue de changer).
         precedent = None
@@ -1862,6 +1904,13 @@ def _build_variation_crues(frame, app):
                 ax.annotate(lib, xy=(n, kges[i]), xytext=(4, 6), textcoords="offset points",
                             fontsize=6.5, rotation=90, va="bottom", ha="left", color="#333333")
                 precedent = lib
+
+        # Icône "i" à côté du titre de l'axe Y — explique ce qu'est réellement le KGE
+        # (demandé), en 2 niveaux (simple puis technique) dans la même fenêtre.
+        bbox_ax = ax.get_position()
+        _icone_info_axe(fig, canvas, etat_icones, "kge",
+                         bbox_ax.x0 + 0.012, bbox_ax.y1 - 0.02,
+                         "KGE (Kling-Gupta Efficiency)", _TEXTE_EXPLICATION_KGE, taille=7)
 
         canvas.draw_idle()
 
