@@ -103,6 +103,17 @@ def _horizon_en_minutes(horizon):
     return j * 1440 + h * 60 + mn
 
 
+def _libelle_horizon_court(horizon):
+    """Forme courte d'un horizon 'ddJhhHmmM' pour étiquettes compactes sur un graphique
+    (ex. "1H", "6H", "1J") — voir onglet Dashboard "Variation selon le nb de crues"."""
+    minutes = _horizon_en_minutes(horizon)
+    if minutes % 1440 == 0:
+        return f"{minutes // 1440}J"
+    if minutes % 60 == 0:
+        return f"{minutes // 60}H"
+    return f"{minutes}min"
+
+
 def _construire_grp_paths(app):
     chemins = app.config_data.get("chemins", {})
     station = app.config_data.get("station", {})
@@ -1867,8 +1878,11 @@ def _build_variation_crues(frame, app):
                   "zones stables (peu de variation) — voir l'icône i à côté de l'axe KGE.").pack(
         anchor="w", padx=10, pady=(0, 4))
 
-    fig = Figure(figsize=(11, 4.6), dpi=100)
+    fig = Figure(figsize=(11, 5.4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
+    ax2 = ax.twinx()  # 2e ordonnée : horizon optimal (violet) — créée une seule fois,
+                       # ax.clear() ne touche pas ax2, donc ax2.clear() aussi à chaque
+                       # rafraîchissement (voir _rafraichir).
     canvas = FigureCanvasTkAgg(fig, master=frame)
     canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
     etat_icones = {}
@@ -1897,15 +1911,16 @@ def _build_variation_crues(frame, app):
     # à une ligne cliquée) et le marqueur de sélection actuellement affiché sur le
     # graphique (à retirer avant d'en poser un nouveau, ou si le tableau est vidé).
     etat_donnees = {"points": []}
-    etat_selection = {"marqueur": None}
+    etat_selection = {"marqueur_kge": None, "marqueur_horizon": None}
 
     def _survol_selection(_evt=None):
-        if etat_selection["marqueur"] is not None:
-            try:
-                etat_selection["marqueur"].remove()
-            except Exception:
-                pass
-            etat_selection["marqueur"] = None
+        for cle in ("marqueur_kge", "marqueur_horizon"):
+            if etat_selection[cle] is not None:
+                try:
+                    etat_selection[cle].remove()
+                except Exception:
+                    pass
+                etat_selection[cle] = None
         selection = tableau.selection()
         if selection:
             valeurs = tableau.item(selection[0], "values")
@@ -1915,17 +1930,23 @@ def _build_variation_crues(frame, app):
                 _n, s = point
                 kge_val = s.moyennes_erreur.get("kge")
                 if kge_val is not None:
-                    etat_selection["marqueur"] = ax.scatter(
+                    etat_selection["marqueur_kge"] = ax.scatter(
                         [_n], [kge_val], s=200, facecolors="none", edgecolors="#C0392B",
                         linewidths=2.2, zorder=6)
+                heures = _horizon_en_minutes(s.horizon) / 60
+                etat_selection["marqueur_horizon"] = ax2.scatter(
+                    [_n], [heures], s=200, facecolors="none", edgecolors="#C0392B",
+                    linewidths=2.2, zorder=6)
         canvas.draw_idle()
 
     tableau.bind("<<TreeviewSelect>>", _survol_selection)
 
     def _rafraichir():
         ax.clear()
+        ax2.clear()
         tableau.delete(*tableau.get_children())
-        etat_selection["marqueur"] = None  # ax.clear() l'a déjà invalidé
+        etat_selection["marqueur_kge"] = None  # clear() les a déjà invalidés
+        etat_selection["marqueur_horizon"] = None
         etat_donnees["points"] = []
         lignes, erreur = _charger_resultats(app)
         if erreur:
@@ -1972,9 +1993,11 @@ def _build_variation_crues(frame, app):
 
         ns = [n for n, _s in points]
         kges = [s.moyennes_erreur.get("kge") for _n, s in points]
+        heures_horizon = [_horizon_en_minutes(s.horizon) / 60 for _n, s in points]
         libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
 
-        ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3)
+        ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3,
+                label="KGE moyen (gagnant)")
         ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
         ax.set_ylabel("KGE moyen — combinaison gagnante (brut, non normalisé)")
         ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
@@ -1987,21 +2010,64 @@ def _build_variation_crues(frame, app):
         # posées par-dessus (zorder plus élevé). xlim/ylim explicitement restaurés
         # après l'imshow : matplotlib peut sinon les recaler sur l'image elle-même.
         xlim, ylim = ax.get_xlim(), ax.get_ylim()
+
+        # Marge verticale supplémentaire (au-delà de l'autoscale par défaut) pour
+        # laisser la place aux étiquettes forcées sur CHAQUE point (demandé) sans
+        # qu'elles ne sortent du cadre — voir la boucle d'annotation plus bas.
+        marge = (ylim[1] - ylim[0]) * 0.22 or 0.05
+        ylim = (ylim[0] - marge, ylim[1] + marge)
+
         degrade = np.linspace(0, 1, 256).reshape(-1, 1)
         ax.imshow(degrade, extent=(*xlim, *ylim), aspect="auto", cmap="RdYlGn",
                    alpha=0.15, zorder=0, origin="lower")
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
 
-        # Ligne verticale + étiquette à chaque bascule (changement de combinaison gagnante) —
-        # montre directement à partir de quel N l'optimum se stabilise (ou continue de changer).
+        # Ligne verticale à chaque bascule (changement de combinaison gagnante) — montre
+        # directement à partir de quel N l'optimum se stabilise (ou continue de changer).
         precedent = None
-        for i, (n, lib) in enumerate(zip(ns, libelles_combo)):
+        for n, lib in zip(ns, libelles_combo):
             if lib != precedent:
                 ax.axvline(n, color="#7B7B7B", lw=0.7, ls="--", alpha=0.6, zorder=1)
-                ax.annotate(lib, xy=(n, kges[i]), xytext=(4, 6), textcoords="offset points",
-                            fontsize=6.5, rotation=90, va="bottom", ha="left", color="#333333")
                 precedent = lib
+
+        # Étiquette forcée sur CHAQUE point (demandé) : horizon court sur une ligne,
+        # "seuil/méthode" en dessous, pour rester lisible malgré le nombre de points.
+        # Placée au-dessus si le point est dans la moitié basse du cadre (de la place
+        # au-dessus), en dessous sinon — pour ne jamais sortir du graphique.
+        milieu_y = (ylim[0] + ylim[1]) / 2
+        for n, kge_val, s in zip(ns, kges, [s for _n, s in points]):
+            texte = f"{_libelle_horizon_court(s.horizon)}\n{s.seuil_c1:.2f}/{s.methode}"
+            if kge_val >= milieu_y:
+                ax.annotate(texte, xy=(n, kge_val), xytext=(0, -7), textcoords="offset points",
+                            fontsize=5.5, ha="center", va="top", color="#333333", linespacing=1.2)
+            else:
+                ax.annotate(texte, xy=(n, kge_val), xytext=(0, 7), textcoords="offset points",
+                            fontsize=5.5, ha="center", va="bottom", color="#333333", linespacing=1.2)
+
+        # 2e ordonnée (violette) : horizon de la combinaison gagnante à chaque N, en
+        # heures (1J = 24h) — demandé pour voir d'un coup d'œil si l'horizon optimal
+        # bouge avec le nombre de crues retenues, en plus de sa seule performance (KGE).
+        ax2.plot(ns, heures_horizon, color="#4A235A", lw=1.4, marker="s", markersize=4,
+                  zorder=4, label="Horizon optimal")
+        # ax2.clear() (voir _rafraichir) réinitialise la position de l'axe à "left" —
+        # twinx() la met à "right" une seule fois, à la création : il faut la
+        # réappliquer explicitement à chaque rafraîchissement.
+        ax2.yaxis.tick_right()
+        ax2.yaxis.set_label_position("right")
+        ax2.set_ylabel("Evol. HOR optimal f(nb crues retenues au calage)", color="#4A235A")
+        ax2.tick_params(axis="y", colors="#4A235A")
+        heures_uniques = sorted(set(heures_horizon))
+        ax2.set_yticks(heures_uniques)
+        ax2.set_yticklabels(
+            [f"{int(h // 24)}J" if h % 24 == 0 and h >= 24 else f"{int(h)}H" for h in heures_uniques])
+        marge_y2 = (max(heures_uniques) - min(heures_uniques)) * 0.25 or 1.0
+        ax2.set_ylim(min(heures_uniques) - marge_y2, max(heures_uniques) + marge_y2)
+
+        lignes_legende, labels_legende = ax.get_legend_handles_labels()
+        lignes_legende2, labels_legende2 = ax2.get_legend_handles_labels()
+        ax.legend(lignes_legende + lignes_legende2, labels_legende + labels_legende2,
+                   loc="lower right", fontsize=7)
 
         # Icône "i" à côté du titre de l'axe Y — explique ce qu'est réellement le KGE
         # (demandé), en 2 niveaux (simple puis technique) dans la même fenêtre.
