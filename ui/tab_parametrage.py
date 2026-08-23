@@ -11,6 +11,7 @@ conformément à la demande initiale. Les horizons "15 min" sont déjà connus ;
 
 import re
 import tkinter as tk
+from datetime import datetime
 from tkinter import messagebox, simpledialog, ttk
 
 from modules import results_store
@@ -146,7 +147,16 @@ def build_tab_parametrage(tab_frame, app):
     ttk.Button(r, text="Paramètres…",
                command=lambda: _ouvrir_parametres(app, _rafraichir_combo_pdt)).pack(side=tk.LEFT)
 
-    ttk.Button(r, text="🔄 Couverture des tests",
+    # Statut de dernière actualisation à côté du bouton : sans ça, cliquer sans
+    # donnée nouvelle depuis l'ouverture de l'onglet (cas courant — les badges sont
+    # déjà à jour au chargement) ne change rien à l'écran, donnant l'impression
+    # trompeuse que le bouton ne fait rien (signalé par l'utilisateur). Icône "⟳"
+    # (caractère simple, pas un emoji couleur) plutôt que "🔄", plus sûre à rendre
+    # correctement selon les polices système.
+    var_derniere_actualisation = tk.StringVar(value="")
+    tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "italic"), fg="#555555",
+             textvariable=var_derniere_actualisation).pack(side=tk.RIGHT, padx=(0, 8))
+    ttk.Button(r, text="⟳ Couverture des tests",
                command=lambda: _rafraichir_couverture()).pack(side=tk.RIGHT)
     tk.Label(r, bg=bg, font=("TkDefaultFont", 7, "italic"), fg="#555555",
              text=f"[complets/tentés]  ").pack(side=tk.RIGHT)
@@ -304,6 +314,7 @@ def build_tab_parametrage(tab_frame, app):
         liste_seuils.rafraichir()
         _rafraichir_methodes()
         var_duree.set(_texte_duree(_charger_duree()))
+        var_derniere_actualisation.set(f"actualisé à {datetime.now():%H:%M:%S}")
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

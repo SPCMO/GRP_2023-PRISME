@@ -170,22 +170,28 @@ def build_tab_dashboard(tab_frame, app):
     onglet_detail = ttk.Frame(sous_notebook)
     onglet_sensibilite = ttk.Frame(sous_notebook)
     onglet_3d = ttk.Frame(sous_notebook)
+    onglet_variation_crues = ttk.Frame(sous_notebook)
     sous_notebook.add(onglet_synthese, text="Vue synthèse")
     sous_notebook.add(onglet_detail, text="Détail par crue")
     sous_notebook.add(onglet_sensibilite, text="Sensibilité au seuil")
     sous_notebook.add(onglet_3d, text="Vue 3D")
+    sous_notebook.add(onglet_variation_crues, text="Variation selon le nb de crues")
 
     _rafraichir_synthese = _build_synthese(onglet_synthese, app)
     _build_detail(onglet_detail, app)
     _rafraichir_sensibilite = _build_sensibilite(onglet_sensibilite, app)
     _rafraichir_vue3d = _build_vue3d(onglet_3d, app)
+    _rafraichir_variation_crues = _build_variation_crues(onglet_variation_crues, app)
 
     def _rafraichir_toutes_les_vues_du_score():
         # Détail par crue n'affiche pas de score composite (dQP/dTP/VE/KGE de
-        # référence seulement) — volontairement absent de cette liste.
+        # référence seulement) — volontairement absent de cette liste. Variation selon
+        # le nb de crues EST incluse : elle utilise la même pondération, même si elle
+        # ignore délibérément le sélecteur "Crues dans le score" (voir cet onglet).
         _rafraichir_synthese()
         _rafraichir_sensibilite()
         _rafraichir_vue3d()
+        _rafraichir_variation_crues()
 
     def _appliquer_profil(*_evt):
         cfg = _config_score(app)
@@ -366,13 +372,35 @@ def _lister_crues_pour_score(app):
             for num, iso, d in entrees]
 
 
+_PALIERS_VIGILANCE = (
+    ("rouge", "Rouge"), ("zt_rouge", "ZT rouge"),
+    ("orange", "Orange"), ("zt_orange", "ZT orange"),
+    ("jaune", "Jaune"), ("zt_jaune", "ZT jaune"),
+)  # du plus sévère au moins sévère — même clés que ui.tab_config.LIBELLES_SEUILS_Q
+
+
+def _niveau_vigilance(qmax, seuils_q):
+    """Niveau de vigilance PHyC atteint par le débit de pointe d'une crue — même
+    principe que tab_crues._couleur_vigilance (comparaison aux seuils du bloc 2), mais
+    renvoie le LIBELLÉ du plus haut niveau atteint (7 valeurs possibles : Vert, ZT
+    jaune, Jaune, ZT orange, Orange, ZT rouge, Rouge) plutôt qu'une couleur de fond.
+    None si Qmax est inconnu (crue non retrouvée dans CRITERES_PERF.DAT)."""
+    if qmax is None:
+        return None
+    for cle, libelle in _PALIERS_VIGILANCE:
+        seuil = seuils_q.get(cle)
+        if seuil is not None and qmax >= seuil:
+            return libelle
+    return "Vert"
+
+
 def _lister_crues_details_pour_score(app):
-    """Comme _lister_crues_pour_score, mais avec en plus TypEvt (Q/P), Qmax et le
-    cumul de pluie de l'épisode (mm, somme brute — voir modules.export_excel pour la
-    même donnée/le même calcul côté export) — alimente les colonnes du sélecteur de
-    crues du score (demandé). Retourne une liste de dicts {iso, libelle, typ_evt, qmax,
-    cumul_pluie}, cumul_pluie et typ_evt/qmax à None si l'événement n'a pas pu être
-    retrouvé dans CRITERES_PERF.DAT (best-effort, jamais bloquant)."""
+    """Comme _lister_crues_pour_score, mais avec en plus TypEvt (Q/P), Qmax, le niveau
+    de vigilance max atteint et le cumul de pluie de l'épisode (mm, somme brute — voir
+    modules.export_excel pour la même donnée/le même calcul côté export) — alimente les
+    colonnes du sélecteur de crues du score (demandé). Retourne une liste de dicts
+    {iso, libelle, typ_evt, qmax, vigilance, cumul_pluie}, à None si l'événement n'a pas
+    pu être retrouvé dans CRITERES_PERF.DAT (best-effort, jamais bloquant)."""
     lignes, _erreur = _charger_resultats(app)
     dates_disponibles = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
     if not dates_disponibles:
@@ -412,12 +440,15 @@ def _lister_crues_details_pour_score(app):
                           "typ_evt": None, "qmax": None, "cumul_pluie": None})
     entrees.sort(key=lambda e: (e["num_evt"] is None, e["num_evt"] or 0))
 
+    seuils_q = app.config_data.get("seuils_q", {})
     resultat = []
     for e in entrees:
         prefixe = f"#{e['num_evt']}" if e["num_evt"] is not None else "?"
         resultat.append({
             "iso": e["iso"], "libelle": f"{prefixe} - {e['date_deb']:%d/%m/%Y %H:%M}",
-            "typ_evt": e["typ_evt"], "qmax": e["qmax"], "cumul_pluie": e["cumul_pluie"],
+            "typ_evt": e["typ_evt"], "qmax": e["qmax"],
+            "vigilance": _niveau_vigilance(e["qmax"], seuils_q),
+            "cumul_pluie": e["cumul_pluie"],
         })
     return resultat
 
@@ -432,7 +463,7 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
 
     fenetre = tk.Toplevel(app)
     fenetre.title("Crues incluses dans le score composite")
-    fenetre.geometry("560x520")
+    fenetre.geometry("700x520")
     fenetre.transient(app)
     fenetre.grab_set()
 
@@ -448,11 +479,11 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
 
     cadre_liste = tk.Frame(fenetre)
     cadre_liste.pack(fill=tk.BOTH, expand=True, padx=10)
-    liste = ttk.Treeview(cadre_liste, columns=("crue", "type", "qmax", "pluie"),
+    liste = ttk.Treeview(cadre_liste, columns=("crue", "type", "vigilance", "qmax", "pluie"),
                           show="headings", selectmode="extended")
     for col, libelle, largeur in (
-        ("crue", "Crue", 190), ("type", "TypEvt", 70),
-        ("qmax", "Qmax (m³/s)", 110), ("pluie", "Cumul pluie (mm)", 130),
+        ("crue", "Crue", 190), ("type", "TypEvt", 70), ("vigilance", "Vigilance max", 100),
+        ("qmax", "Qmax (m³/s)", 100), ("pluie", "Cumul pluie (mm)", 120),
     ):
         liste.heading(col, text=libelle)
         liste.column(col, width=largeur, anchor="center" if col != "crue" else "w")
@@ -461,11 +492,23 @@ def _ouvrir_selecteur_crues_score(app, apres_enregistrement):
     liste.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     ascenseur.pack(side=tk.RIGHT, fill=tk.Y)
 
+    # Fond de ligne coloré par niveau de vigilance — même logique de teintes que les
+    # vignettes de l'onglet Crues (tab_crues._couleur_vigilance), étendue aux paliers
+    # ZT intermédiaires pour rester lisible d'un coup d'œil sans lire le texte.
+    _COULEURS_VIGILANCE = {
+        "Vert": "#D5F5E3", "ZT jaune": "#FCF3CF", "Jaune": "#F9E79F",
+        "ZT orange": "#FDEBD0", "Orange": "#FAD7A0", "ZT rouge": "#FADBD8", "Rouge": "#F5B7B1",
+    }
+    for niveau, couleur in _COULEURS_VIGILANCE.items():
+        liste.tag_configure(f"vig_{niveau}", background=couleur)
+
     isos_deja_incluses = set(incluses_actuelles) if incluses_actuelles is not None else None
     for c in crues:
-        item_id = liste.insert("", tk.END, iid=c["iso"], values=(
+        tags = (f"vig_{c['vigilance']}",) if c["vigilance"] in _COULEURS_VIGILANCE else ()
+        item_id = liste.insert("", tk.END, iid=c["iso"], tags=tags, values=(
             c["libelle"],
             "Q (crue)" if c["typ_evt"] == "Q" else "P (pluie)" if c["typ_evt"] == "P" else "—",
+            c["vigilance"] or "—",
             f"{c['qmax']:.1f}" if c["qmax"] is not None else "—",
             f"{c['cumul_pluie']:.1f}" if c["cumul_pluie"] is not None else "—",
         ))
@@ -1689,6 +1732,146 @@ def _build_vue3d(frame, app):
         ax_classement.axvline(0, color="#333333", lw=0.8)
 
         canvas.draw_idle()
+
+    _rafraichir()
+    return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# 5. Variation de la meilleure combinaison selon le nombre de crues
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def _build_variation_crues(frame, app):
+    """Onglet demandé explicitement : comment la combinaison optimale (et sa
+    performance) évolue si on ne retient que les N crues les plus fortes (Qmax
+    décroissant), pour N croissant de quelques crues jusqu'au total disponible.
+
+    Volontairement INDÉPENDANT du sélecteur "Crues dans le score" du bandeau (qui
+    filtre un ensemble FIXE, choisi à la main) : ici N varie automatiquement du plus
+    petit au plus grand sous-ensemble des crues les plus fortes, toujours à partir de
+    TOUTES les crues disponibles. Utilise la même pondération que le reste du
+    Dashboard, donc rafraîchi avec elle (voir build_tab_dashboard).
+
+    ⚠️ Le score composite est normalisé min-max SUR LE SOUS-ENSEMBLE de chaque N (voir
+    modules.score.calculer_scores) : sa valeur absolue n'est donc PAS comparable d'un N
+    à l'autre (0=meilleur/1=pire est relatif à cet N précis, pas une échelle fixe). Le
+    graphique trace donc le KGE MOYEN (indicateur brut, non normalisé) de la
+    combinaison gagnante à chaque N — directement comparable d'un N à l'autre. Le
+    score normalisé reste affiché dans le tableau pour référence, mais seulement pour
+    désigner QUI gagne à ce N précis, pas pour comparer les N entre eux.
+    """
+    barre = tk.Frame(frame)
+    barre.pack(fill=tk.X, padx=8, pady=6)
+    var_statut = tk.StringVar(value="")
+    tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
+    ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT)
+
+    tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#555555", wraplength=1000,
+             justify=tk.LEFT,
+             text="Crues classées par Qmax décroissant (les plus fortes en premier). "
+                  "Indépendant du sélecteur \"Crues dans le score\" en haut du Dashboard, "
+                  "qui filtre un ensemble fixe choisi à la main — ici N grandit "
+                  "automatiquement des crues les plus fortes jusqu'à la totalité "
+                  "disponible, pour observer si la combinaison optimale reste stable.").pack(
+        anchor="w", padx=10, pady=(0, 4))
+
+    fig = Figure(figsize=(11, 4.6), dpi=100)
+    ax = fig.add_subplot(1, 1, 1)
+    canvas = FigureCanvasTkAgg(fig, master=frame)
+    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+
+    inn_tab, bg_tab = make_section(frame, "Combinaison optimale par nombre de crues (N)", "gris")
+    cadre_tab = tk.Frame(inn_tab, bg=bg_tab)
+    cadre_tab.pack(fill=tk.BOTH, expand=True)
+    tableau = ttk.Treeview(
+        cadre_tab, columns=("n", "combinaison", "score", "kge", "dqp"),
+        show="headings", height=6)
+    for col, libelle, largeur in (
+        ("n", "N crues", 70), ("combinaison", "Combinaison gagnante", 220),
+        ("score", "Score normalisé (à ce N)", 170),
+        ("kge", "KGE moyen (brut)", 130), ("dqp", "Moyenne |dQP| (brut, %)", 160),
+    ):
+        tableau.heading(col, text=libelle)
+        tableau.column(col, width=largeur, anchor="center" if col != "combinaison" else "w")
+    ascenseur_tab = ttk.Scrollbar(cadre_tab, orient=tk.VERTICAL, command=tableau.yview)
+    tableau.configure(yscrollcommand=ascenseur_tab.set)
+    tableau.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    ascenseur_tab.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _rafraichir():
+        ax.clear()
+        tableau.delete(*tableau.get_children())
+        lignes, erreur = _charger_resultats(app)
+        if erreur:
+            var_statut.set(erreur)
+            canvas.draw_idle()
+            return
+        lignes_ok = [l for l in lignes if l["statut_crue"] == "success"]
+        if not lignes_ok:
+            var_statut.set("Aucun résultat réussi en base pour l'instant.")
+            canvas.draw_idle()
+            return
+
+        crues_info = _lister_crues_details_pour_score(app)
+        crues_avec_qmax = [c for c in crues_info if c["qmax"] is not None]
+        if len(crues_avec_qmax) < 3:
+            var_statut.set("Pas assez de crues avec Qmax connu pour cette analyse "
+                            "(minimum 3 requis, via CRITERES_PERF.DAT).")
+            canvas.draw_idle()
+            return
+        crues_triees = sorted(crues_avec_qmax, key=lambda c: c["qmax"], reverse=True)
+        isos_ordre = [c["iso"] for c in crues_triees]
+
+        poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
+        points = []  # liste de (n, ScoreCombinaison gagnant à ce n)
+        for n in range(3, len(isos_ordre) + 1):
+            isos_n = set(isos_ordre[:n])
+            lignes_n = [l for l in lignes_ok if l["crue_date"] in isos_n]
+            if not lignes_n:
+                continue
+            scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp)
+                        if s.score is not None]
+            if not scores_n:
+                continue
+            points.append((n, min(scores_n, key=lambda s: s.score)))
+
+        if not points:
+            var_statut.set("Aucun score exploitable pour construire cette analyse.")
+            canvas.draw_idle()
+            return
+
+        var_statut.set(f"{len(points)} valeurs de N testées (de {points[0][0]} à {points[-1][0]} "
+                        f"crues sur {len(isos_ordre)} disponibles) — pondération : {libelle_profil}.")
+
+        ns = [n for n, _s in points]
+        kges = [s.moyennes_erreur.get("kge") for _n, s in points]
+        libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
+
+        ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3)
+        ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
+        ax.set_ylabel("KGE moyen — combinaison gagnante (brut, non normalisé)")
+        ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
+        ax.grid(True, alpha=0.3)
+
+        # Ligne verticale + étiquette à chaque bascule (changement de combinaison gagnante) —
+        # montre directement à partir de quel N l'optimum se stabilise (ou continue de changer).
+        precedent = None
+        for i, (n, lib) in enumerate(zip(ns, libelles_combo)):
+            if lib != precedent:
+                ax.axvline(n, color="#7B7B7B", lw=0.7, ls="--", alpha=0.6, zorder=1)
+                ax.annotate(lib, xy=(n, kges[i]), xytext=(4, 6), textcoords="offset points",
+                            fontsize=6.5, rotation=90, va="bottom", ha="left", color="#333333")
+                precedent = lib
+
+        canvas.draw_idle()
+
+        for n, s in points:
+            tableau.insert("", tk.END, values=(
+                n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}",
+                f"{s.score:.4f}",
+                f"{s.moyennes_erreur.get('kge'):.3f}" if s.moyennes_erreur.get("kge") is not None else "—",
+                f"{s.moyennes_erreur.get('dqp'):.2f}" if s.moyennes_erreur.get("dqp") is not None else "—",
+            ))
 
     _rafraichir()
     return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération

@@ -25,7 +25,7 @@ TEXTE_INFO_TYPEVT_P = (
     "positifs, par exemple)."
 )
 
-VIGNETTES_PAR_LIGNE = 3
+VIGNETTES_PAR_LIGNE = 4
 
 
 def _construire_grp_paths(app):
@@ -85,8 +85,27 @@ def build_tab_crues(tab_frame, app):
     tk.Label(inn, textvariable=var_statut, bg=bg, fg="#a94442",
              font=("TkDefaultFont", 9, "italic")).pack(anchor="w", pady=(2, 0))
 
-    cadre_vignettes = tk.Frame(inn, bg=bg)
-    cadre_vignettes.pack(fill=tk.BOTH, expand=True, pady=6)
+    # Ascenseur horizontal "au cas où" (demandé) : avec 4 vignettes par ligne plutôt
+    # que 3, et le texte dQP/dTP/VE/KGE tenu sur une seule ligne (voir plus bas), la
+    # grille peut devenir plus large que la fenêtre visible — un Canvas dédié avec son
+    # propre défilement horizontal permet d'y accéder sans dépendre du seul
+    # redimensionnement de la fenêtre. Le défilement vertical de l'onglet reste géré
+    # par make_scrollable_tab (ce canvas-ci n'a donc pas vocation à défiler
+    # verticalement — sa hauteur est recalée sur son contenu à chaque rafraîchissement).
+    cadre_canvas = tk.Frame(inn, bg=bg)
+    cadre_canvas.pack(fill=tk.BOTH, expand=True, pady=6)
+    canvas_vignettes = tk.Canvas(cadre_canvas, bg=bg, highlightthickness=0)
+    ascenseur_h = ttk.Scrollbar(cadre_canvas, orient=tk.HORIZONTAL, command=canvas_vignettes.xview)
+    canvas_vignettes.configure(xscrollcommand=ascenseur_h.set)
+    canvas_vignettes.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+    ascenseur_h.pack(side=tk.TOP, fill=tk.X)
+    cadre_vignettes = tk.Frame(canvas_vignettes, bg=bg)
+    fenetre_vignettes = canvas_vignettes.create_window((0, 0), window=cadre_vignettes, anchor="nw")
+
+    def _molette_horizontale(e):
+        canvas_vignettes.xview_scroll(int(-1 * (e.delta / 120)), "units")
+    canvas_vignettes.bind("<Enter>", lambda e: canvas_vignettes.bind_all("<Shift-MouseWheel>", _molette_horizontale))
+    canvas_vignettes.bind("<Leave>", lambda e: canvas_vignettes.unbind_all("<Shift-MouseWheel>"))
 
     vignette_vars = {}  # crue_date_iso -> BooleanVar
 
@@ -212,10 +231,22 @@ def build_tab_crues(tab_frame, app):
             texte_perf = f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
             if evt.suspects:
                 texte_perf += "  ⚠ suspect : " + ", ".join(evt.suspects)
+            # Pas de wraplength ici (contrairement à avant) : dQP/dTP/VE/KGE doivent
+            # tenir sur UNE seule ligne (demandé — KGE passait à la ligne suivante et
+            # faisait perdre de la place) ; la vignette est assez large (largeur fixe
+            # ci-dessous) pour ça, et l'ascenseur horizontal prend le relai si la
+            # fenêtre est trop étroite pour afficher les 4 colonnes en entier.
             tk.Label(vignette, bg=couleur, font=("TkDefaultFont", 8),
                      fg="#7B241C" if evt.suspects else "#333333", text=texte_perf,
-                     wraplength=200, justify=tk.LEFT).pack(anchor="w")
+                     justify=tk.LEFT).pack(anchor="w")
 
+        cadre_vignettes.update_idletasks()
+        canvas_vignettes.itemconfig(fenetre_vignettes, width=max(
+            cadre_vignettes.winfo_reqwidth(), canvas_vignettes.winfo_width()))
+        canvas_vignettes.configure(
+            height=cadre_vignettes.winfo_reqheight(),
+            scrollregion=canvas_vignettes.bbox("all"),
+        )
         var_statut.set(f"{len(evenements)} événement(s) trouvé(s).")
 
     def _rafraichir_combo_pdt():
