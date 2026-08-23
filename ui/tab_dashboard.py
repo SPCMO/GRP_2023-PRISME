@@ -385,7 +385,7 @@ def _build_synthese(frame, app):
         if not chemin:
             return
         try:
-            export_excel.exporter(chemin)
+            export_excel.exporter(chemin, app)
         except Exception as e:
             messagebox.showerror("Export Excel", str(e))
             return
@@ -1098,7 +1098,11 @@ def _build_sensibilite(frame, app):
         ax.set_xlabel("Seuil de calage SeuilC1 (m³/s)")
         ax.set_ylabel("Score composite (0=meilleur)")
         ax.grid(True, alpha=0.3)
-        ax.legend(loc="best", fontsize=7.5, ncol=2 if nb_courbes > 5 else 1)
+        # handlelength augmenté : par défaut, le segment de ligne dans la légende est
+        # trop court à cette taille de police pour distinguer un pointillé d'un trait
+        # plein (on ne voit qu'un ou deux tirets, visuellement proches d'un trait
+        # continu) — signalé par l'utilisateur.
+        ax.legend(loc="best", fontsize=7.5, ncol=2 if nb_courbes > 5 else 1, handlelength=3.5)
         _icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
                          "Score composite", explication_score(poids, asymetrie_dtp))
         canvas.draw_idle()

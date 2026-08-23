@@ -550,6 +550,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Export Excel entièrement refondu, passe de 2 à 4 onglets pour retrouver hors de l'outil tout ce qui est visible dans le Dashboard : <b>Paramétrage</b> (station, seuils de vigilance, pas de temps, horizons/seuils/méthodes testés avec nb de réussite/échec, liste des crues avec Qmax et cumul de pluie, pondération du score détaillée), <b>Vue synthèse</b> (classement complet, heatmap horizon×seuil en tableau avec dégradé de couleur Excel, dispersion |dQP| en tableau min/Q1/médiane/Q3/max, + image du graphique), <b>Détail par crue</b> (tableau croisé crue×combinaison dQP/dTP/VE/KGE, + un graphique par crue avec hyétogramme et la courbe de la combinaison optimale uniquement), <b>Vue 3D</b> (classement avec écart au meilleur, + image du graphique 3D et du classement 2D). Les graphiques sont regénérés directement dans l'export (backend matplotlib non interactif), indépendamment de ce qui est affiché à l'écran au moment de l'export.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">23 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Dashboard &gt; Sensibilité au seuil : dans la légende, le segment de ligne trop court à cette taille de police ne laissait voir qu'un ou deux tirets — un pointillé (méthode R) restait visuellement proche d'un trait plein (méthode T). Corrigé (<code>handlelength</code> augmenté).</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>
