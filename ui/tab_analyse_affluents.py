@@ -57,6 +57,25 @@ def _persister_affluents(app, liste_affluents):
     app.persist_config()
 
 
+_COULEUR_LOCAL = "#BDC3C7"  # gris, réservé aux écoulements locaux non expliqués par un affluent suivi
+
+
+def _barycentre_pluie(serie):
+    """`serie` : liste de (date, pobs, qobs) triée (voir modules.criteres_perf.
+    parse_evenement_serie). Retourne l'horodatage barycentrique de la pluie —
+    moyenne des horodatages pondérée par la lame Pobs de chaque pas de temps — ou
+    None si la série ne contient aucune pluie (poids total nul) ou est vide."""
+    points = [(d, p) for d, p, _q in serie if p is not None and p > 0]
+    if not points:
+        return None
+    d0 = points[0][0]
+    poids_total = sum(p for _d, p in points)
+    if poids_total <= 0:
+        return None
+    t_bary_s = sum((d - d0).total_seconds() * p for d, p in points) / poids_total
+    return d0 + timedelta(seconds=t_bary_s)
+
+
 def _prochaine_couleur(liste_affluents):
     """Première couleur de la palette pas encore utilisée par un autre affluent —
     évite deux affluents de la même couleur par défaut tant que la palette n'est pas
@@ -188,6 +207,26 @@ def build_tab_analyse_affluents(tab_frame, app):
             affluent_existant.p90_min) if affluent_existant else "")
         ttk.Entry(f_p90, textvariable=var_p90, width=10).pack(side=tk.LEFT)
 
+        f_couleur = _ligne("Couleur de la courbe :")
+        var_couleur = tk.StringVar(
+            value=(affluent_existant.couleur if affluent_existant and affluent_existant.couleur
+                   else _prochaine_couleur(_liste_affluents(app))))
+
+        def _maj_apercu_couleur():
+            btn_couleur.configure(bg=var_couleur.get(), activebackground=var_couleur.get())
+
+        def _choisir_couleur():
+            _, hex_choisi = colorchooser.askcolor(
+                color=var_couleur.get(), title="Couleur de la courbe", parent=fen)
+            if hex_choisi:
+                var_couleur.set(hex_choisi)
+                _maj_apercu_couleur()
+
+        btn_couleur = tk.Button(f_couleur, text="Choisir…", command=_choisir_couleur,
+                                  bg=var_couleur.get(), activebackground=var_couleur.get(),
+                                  fg="white", relief=tk.RAISED)
+        btn_couleur.pack(side=tk.LEFT)
+
         f_fichier = _ligne("Fichier de débits :")
         var_fichier = tk.StringVar(value=affluent_existant.fichier if affluent_existant else "")
         ttk.Entry(f_fichier, textvariable=var_fichier, width=38).pack(side=tk.LEFT, padx=(0, 4))
@@ -235,16 +274,17 @@ def build_tab_analyse_affluents(tab_frame, app):
                 return
 
             fichier = var_fichier.get().strip() or None
+            couleur = var_couleur.get()
             if affluent_existant is None:
                 liste_actuelle.append(affluents.Affluent(
                     nom=nom, surface_bv_km2=surface, p10_min=p10, p50_min=p50, p90_min=p90,
-                    fichier=fichier, couleur=_prochaine_couleur(liste_actuelle)))
+                    fichier=fichier, couleur=couleur))
             else:
                 for a in liste_actuelle:
                     if a.nom == affluent_existant.nom:
                         a.nom, a.surface_bv_km2 = nom, surface
                         a.p10_min, a.p50_min, a.p90_min = p10, p50, p90
-                        a.fichier = fichier
+                        a.fichier, a.couleur = fichier, couleur
                         break
 
             _persister_affluents(app, liste_actuelle)
@@ -311,10 +351,21 @@ def build_tab_analyse_affluents(tab_frame, app):
     cadre_graphique = tk.Frame(frm)
     cadre_graphique.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-    fig = Figure(figsize=(11, 5), dpi=100)
+    fig = Figure(figsize=(15, 5.5), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
+    # Hyétogramme (pluie de bassin observée à l'exutoire) en axe jumeau, inversé,
+    # cantonné au quart supérieur — même convention que Dashboard > Détail par crue
+    # (ui.tab_dashboard._build_detail). Créé UNE FOIS ici (comme là-bas) ; nettoyé et
+    # repositionné à chaque tracé (voir _rafraichir_graphique).
+    ax_pluie = ax.twinx()
+    ax_pluie.set_zorder(ax.get_zorder() - 1)
+    ax.patch.set_visible(False)
     canvas = FigureCanvasTkAgg(fig, master=cadre_graphique)
     canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    # Camembert de contribution au pic exutoire, recréé à chaque tracé (sa position/
+    # taille dépend de la légende, elle-même variable avec le nombre d'affluents) —
+    # voir _rafraichir_graphique.
+    etat_graphique = {"ax_pie": None}
 
     cadre_vignettes = tk.Frame(cadre_graphique, width=190)
     cadre_vignettes.pack(side=tk.LEFT, fill=tk.Y, padx=(6, 0))
@@ -501,6 +552,18 @@ def build_tab_analyse_affluents(tab_frame, app):
 
     def _rafraichir_graphique():
         ax.clear()
+        ax_pluie.clear()
+        # ax.clear() recrée le patch de fond (le rend visible par défaut) : à refaire à
+        # chaque tracé, pas seulement à la création, sinon les barres de pluie
+        # repassent au-dessus des courbes de débit dès le 2e tracé (voir
+        # ui.tab_dashboard._build_detail, même remarque).
+        ax.patch.set_visible(False)
+        if etat_graphique["ax_pie"] is not None:
+            try:
+                fig.delaxes(etat_graphique["ax_pie"])
+            except Exception:
+                pass
+            etat_graphique["ax_pie"] = None
         etat_courbes["liste"] = []
         etat_survol["artist"] = ax.annotate(
             "", xy=(0, 0), xytext=(12, 12), textcoords="offset points", fontsize=7.5,
@@ -561,8 +624,42 @@ def build_tab_analyse_affluents(tab_frame, app):
             lignes_bilan.append(("Moussoulens (exutoire)", volume_exutoire, None,
                                    qmax_exutoire, 100.0 if qmax_exutoire is not None else None))
 
+            # Échelle Y calée sur Qmax exutoire (+15 %, un peu de visibilité au-dessus
+            # du pic), PAS sur les valeurs des seuils de vigilance — demandé, pour ne
+            # plus que l'axe s'étire jusqu'au seuil "Rouge" même quand la crue reste
+            # bien en dessous. set_ylim() explicite ICI, avant le tracé des seuils plus
+            # bas : matplotlib ne réétire alors plus l'axe pour les faire rentrer.
+            if qmax_exutoire is not None and qmax_exutoire > 0:
+                ax.set_ylim(0, qmax_exutoire * 1.15)
+
+            # -- Hyétogramme (pluie de bassin observée à l'exutoire) -------------------
+            # Même source/convention que Dashboard > Détail par crue : Pobs déjà en mm
+            # par pas de temps dans <code_site>-EVxxxx.DAT, utilisée SANS conversion
+            # (voir modules.criteres_perf.parse_evenement_serie). Aucune pluie propre
+            # aux affluents dans les fichiers de débits (colonnes "date;res" seules).
+            if len(serie_exutoire) >= 2:
+                intervalle_minutes = (serie_exutoire[1][0] - serie_exutoire[0][0]).total_seconds() / 60
+                if intervalle_minutes > 0:
+                    dates_pluie = [p[0] for p in serie_exutoire]
+                    profondeurs = [p[1] for p in serie_exutoire]
+                    largeur_jours = (intervalle_minutes / (24 * 60)) * 0.8
+                    ax_pluie.bar(dates_pluie, profondeurs, width=largeur_jours,
+                                  color="#5DADE2", edgecolor="#2E86AB", linewidth=0.3,
+                                  alpha=0.75, zorder=1, label="Pluie de bassin (exutoire)")
+                    plafond = max(max(profondeurs, default=0) * 4, 1)
+                    ax_pluie.set_ylim(plafond, 0)  # inversé : la pluie "tombe" depuis le haut
+                    # ax_pluie.clear() (ci-dessus) réinitialise la position du label à
+                    # "left" à CHAQUE rafraîchissement malgré twinx() — à rappeler
+                    # explicitement (même bug que ui.tab_dashboard._build_detail et
+                    # ui.tab_dashboard._build_variation_crues, déjà rencontré et corrigé).
+                    ax_pluie.yaxis.set_label_position("right")
+                    ax_pluie.set_ylabel("Pluie (mm / pas de temps)", fontsize=7.5,
+                                         color="#2E86AB", labelpad=14)
+                    ax_pluie.tick_params(axis="y", labelsize=7, colors="#2E86AB")
+
         liste_affl = _liste_affluents(app)
         affluents_traces = []
+        contributions_pie = []  # (nom, couleur, % du Qmax exutoire) — alimente le camembert
         for a in liste_affl:
             if not a.fichier:
                 continue
@@ -600,6 +697,8 @@ def build_tab_analyse_affluents(tab_frame, app):
             pct_qmax = (q_retropropage / qmax_exutoire * 100
                         if q_retropropage is not None and qmax_exutoire else None)
             lignes_bilan.append((a.nom, volume_a, pct_volume, q_retropropage, pct_qmax))
+            if pct_qmax is not None and pct_qmax > 0:
+                contributions_pie.append((a.nom, couleur, pct_qmax))
 
             # Bande de propagation P10-P90 (très transparente) + trait épais à P50, à
             # partir du pic de CET affluent (sur la fenêtre de la crue), propagé sur
@@ -627,15 +726,64 @@ def build_tab_analyse_affluents(tab_frame, app):
 
         ax.set_ylabel("Débit (m³/s)")
         ax.grid(True, alpha=0.3)
-        fig.subplots_adjust(right=0.72)
+        fig.subplots_adjust(right=0.68)
+        # Fusionnée avec la pluie (sur ax_pluie, absente de ax.legend() par défaut) —
+        # ajoutée en DERNIER pour ne pas décaler l'association affluent -> handle
+        # ci-dessous (indices 1..N après Q observé, qu'il y ait ou non de la pluie).
+        lignes_ax, labels_ax = ax.get_legend_handles_labels()
+        lignes_pluie, labels_pluie = ax_pluie.get_legend_handles_labels()
         # Ancrée en HAUT de la marge droite (pas centrée verticalement comme avant) :
         # les vignettes Qmax du panneau Tk juste à droite du graphique sont
         # positionnées pour tomber sous elle (espaceur calé sur cette même hauteur).
-        legende = ax.legend(loc="upper left", bbox_to_anchor=(1.02, 0.98), fontsize=7.5)
+        legende = ax.legend(lignes_ax + lignes_pluie, labels_ax + labels_pluie,
+                              loc="upper left", bbox_to_anchor=(1.02, 0.98), fontsize=7.5)
         if legende is not None:
             for handle, a in zip(legende.legend_handles[1:], affluents_traces):
                 handle.set_picker(6)
                 etat_legende["mapping"][id(handle)] = a
+
+        # -- Temps de réponse (Tr) : horodatage du Qmax exutoire − barycentre des
+        # pluies (moyenne des horodatages pondérée par la lame Pobs), affiché dans le
+        # TITRE de la légende (demandé). --
+        if legende is not None and date_qmax_exutoire is not None:
+            date_bary = _barycentre_pluie(serie_exutoire)
+            if date_bary is not None:
+                minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
+                signe = "-" if minutes_tr < 0 else ""
+                h, m = divmod(abs(minutes_tr), 60)
+                legende.set_title(f"Temps de réponse (Tr) : {signe}{h} h {m:02d} min",
+                                    prop={"size": 7.5, "weight": "bold"})
+
+        # -- Camembert de contribution au pic exutoire, sous la légende, pas plus
+        # large qu'elle (demandé) — construit à partir des % de Q rétropropagé de
+        # chaque affluent (colonne "% du Qmax exutoire" du tableau ci-dessous). Un
+        # dépassement de 100 % (affluents suivis fournissant, sur le papier, plus que
+        # le débit de pointe observé — incohérence de mesure/temps de propagation)
+        # est écrêté au prorata ; un total sous 100 % laisse la part manquante à une
+        # part grise "Écoulements locaux" (bassin versant non instrumenté par un
+        # affluent suivi). Position/largeur mesurées sur la légende déjà rendue.
+        if contributions_pie:
+            total_pct = sum(p for _n, _c, p in contributions_pie)
+            if total_pct > 100:
+                facteur = 100 / total_pct
+                parts = [(n, c, p * facteur) for n, c, p in contributions_pie]
+            else:
+                parts = list(contributions_pie)
+                reste = 100 - total_pct
+                if reste > 0.5:
+                    parts.append(("Écoulements locaux", _COULEUR_LOCAL, reste))
+            fig.canvas.draw()
+            bbox_legende_fig = legende.get_window_extent(
+                renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+            hauteur_pie = 0.24
+            ax_pie = fig.add_axes([bbox_legende_fig.x0, bbox_legende_fig.y0 - 0.03 - hauteur_pie,
+                                     bbox_legende_fig.width, hauteur_pie])
+            ax_pie.pie([p for _n, _c, p in parts], colors=[_c for _n, _c, p in parts],
+                        autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
+                        textprops={"fontsize": 6}, wedgeprops={"edgecolor": "white", "linewidth": 0.6})
+            ax_pie.set_title("Contribution au pic exutoire", fontsize=7)
+            etat_graphique["ax_pie"] = ax_pie
+
         fig.autofmt_xdate()
         canvas.draw_idle()
 
