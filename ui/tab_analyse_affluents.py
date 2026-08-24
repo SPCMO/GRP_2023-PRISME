@@ -76,6 +76,18 @@ def _barycentre_pluie(serie):
     return d0 + timedelta(seconds=t_bary_s)
 
 
+def _eclaircir(couleur_hex, facteur=0.55):
+    """Éclaircit une couleur hex vers le blanc — simule un fond "semi-transparent"
+    pour les lignes de Treeview colorées par série (Tkinter n'a pas d'alpha natif sur
+    les couleurs de fond de widget, même principe que ui.tab_crues._eclaircir)."""
+    couleur_hex = couleur_hex.lstrip("#")
+    r, g, b = int(couleur_hex[0:2], 16), int(couleur_hex[2:4], 16), int(couleur_hex[4:6], 16)
+    r = int(r + (255 - r) * facteur)
+    g = int(g + (255 - g) * facteur)
+    b = int(b + (255 - b) * facteur)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
 def _prochaine_couleur(liste_affluents):
     """Première couleur de la palette pas encore utilisée par un autre affluent —
     évite deux affluents de la même couleur par défaut tant que la palette n'est pas
@@ -140,7 +152,11 @@ def build_tab_analyse_affluents(tab_frame, app):
         for a in _liste_affluents(app):
             tags = ()
             if a.couleur:
-                liste_affl.tag_configure(a.couleur, background=a.couleur, foreground="white")
+                # Fond éclairci ("semi-transparent") + texte dans la couleur pleine de
+                # la série — demandé, pour identifier la ligne sans le contraste dur
+                # d'un aplat de couleur pleine sous du texte blanc.
+                liste_affl.tag_configure(a.couleur, background=_eclaircir(a.couleur),
+                                           foreground=a.couleur)
                 tags = (a.couleur,)
             iid = liste_affl.insert("", tk.END, values=(
                 a.nom, f"{a.surface_bv_km2:.1f}" if a.surface_bv_km2 is not None else "—",
@@ -351,7 +367,7 @@ def build_tab_analyse_affluents(tab_frame, app):
     cadre_graphique = tk.Frame(frm)
     cadre_graphique.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
 
-    fig = Figure(figsize=(15, 5.5), dpi=100)
+    fig = Figure(figsize=(18, 5.5), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
     # Hyétogramme (pluie de bassin observée à l'exutoire) en axe jumeau, inversé,
     # cantonné au quart supérieur — même convention que Dashboard > Détail par crue
@@ -605,6 +621,7 @@ def build_tab_analyse_affluents(tab_frame, app):
 
         lignes_bilan = []
         qmax_exutoire, volume_exutoire, date_qmax_exutoire = None, None, None
+        y_max_visible = None
         if serie_exutoire:
             points_exutoire = [(p[0], p[2]) for p in serie_exutoire]
             ax.plot([d for d, _v in points_exutoire], [v for _d, v in points_exutoire],
@@ -622,7 +639,8 @@ def build_tab_analyse_affluents(tab_frame, app):
             # propre débit — sert de référence aux % de contribution des affluents
             # ci-dessous (mêmes colonnes, même instant de référence).
             lignes_bilan.append(("Moussoulens (exutoire)", volume_exutoire, None,
-                                   qmax_exutoire, 100.0 if qmax_exutoire is not None else None))
+                                   qmax_exutoire, 100.0 if qmax_exutoire is not None else None,
+                                   _COULEUR_OBS))
 
             # Échelle Y calée sur Qmax exutoire (+15 %, un peu de visibilité au-dessus
             # du pic), PAS sur les valeurs des seuils de vigilance — demandé, pour ne
@@ -630,7 +648,8 @@ def build_tab_analyse_affluents(tab_frame, app):
             # bien en dessous. set_ylim() explicite ICI, avant le tracé des seuils plus
             # bas : matplotlib ne réétire alors plus l'axe pour les faire rentrer.
             if qmax_exutoire is not None and qmax_exutoire > 0:
-                ax.set_ylim(0, qmax_exutoire * 1.15)
+                y_max_visible = qmax_exutoire * 1.15
+                ax.set_ylim(0, y_max_visible)
 
             # -- Hyétogramme (pluie de bassin observée à l'exutoire) -------------------
             # Même source/convention que Dashboard > Détail par crue : Pobs déjà en mm
@@ -696,7 +715,7 @@ def build_tab_analyse_affluents(tab_frame, app):
                 q_retropropage, _date_trouvee = affluents.valeur_au_plus_proche(serie_a, date_lookup)
             pct_qmax = (q_retropropage / qmax_exutoire * 100
                         if q_retropropage is not None and qmax_exutoire else None)
-            lignes_bilan.append((a.nom, volume_a, pct_volume, q_retropropage, pct_qmax))
+            lignes_bilan.append((a.nom, volume_a, pct_volume, q_retropropage, pct_qmax, couleur))
             if pct_qmax is not None and pct_qmax > 0:
                 contributions_pie.append((a.nom, couleur, pct_qmax))
 
@@ -717,6 +736,12 @@ def build_tab_analyse_affluents(tab_frame, app):
             for cle, libelle, couleur in LIBELLES_SEUILS_Q:
                 val = seuils.get(cle)
                 if val is None:
+                    continue
+                # Un seuil au-delà de l'échelle Y actuellement affichée (voir ci-dessus)
+                # est ignoré entièrement — ax.text() n'est PAS clippé par défaut par les
+                # bornes de l'axe (contrairement à axhline), il flottait sinon au-dessus
+                # du cadre du graphique au lieu de disparaître (bug constaté).
+                if y_max_visible is not None and val > y_max_visible:
                     continue
                 est_zt = cle.startswith("zt_")
                 ax.axhline(val, color=couleur, lw=1.0 if est_zt else 1.3,
@@ -745,14 +770,31 @@ def build_tab_analyse_affluents(tab_frame, app):
         # -- Temps de réponse (Tr) : horodatage du Qmax exutoire − barycentre des
         # pluies (moyenne des horodatages pondérée par la lame Pobs), affiché dans le
         # TITRE de la légende (demandé). --
-        if legende is not None and date_qmax_exutoire is not None:
+        if serie_exutoire:
             date_bary = _barycentre_pluie(serie_exutoire)
             if date_bary is not None:
-                minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
-                signe = "-" if minutes_tr < 0 else ""
-                h, m = divmod(abs(minutes_tr), 60)
-                legende.set_title(f"Temps de réponse (Tr) : {signe}{h} h {m:02d} min",
-                                    prop={"size": 7.5, "weight": "bold"})
+                # Marqueur du barycentre des pluies, sur le bord HAUT du graphique
+                # (demandé) — placé en coordonnées mixtes (x = date, en données ;
+                # y = 1, en fraction des axes) via get_xaxis_transform(), donc collé au
+                # bord supérieur quelle que soit l'échelle Y réellement affichée.
+                ax.plot([date_bary], [1], marker="o", markersize=8, color="#0B1F4B",
+                         markeredgecolor="white", markeredgewidth=0.8, zorder=15,
+                         clip_on=False, transform=ax.get_xaxis_transform())
+                # ax.annotate() avec un xycoords "transform" personnalisé ne passe PAS
+                # par le convertisseur d'unités de l'axe (contrairement à ax.plot()) —
+                # date2num() manuel nécessaire, sinon TypeError au rendu (datetime brut
+                # transmis à une transformation affine qui attend un float).
+                ax.annotate(f"Barycentre pluie\n{date_bary:%d/%m %H:%M}",
+                             xy=(mdates.date2num(date_bary), 1), xycoords=ax.get_xaxis_transform(),
+                             xytext=(0, 8), textcoords="offset points", ha="center",
+                             va="bottom", fontsize=6.5, color="#0B1F4B", clip_on=False)
+
+                if date_qmax_exutoire is not None and legende is not None:
+                    minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
+                    signe = "-" if minutes_tr < 0 else ""
+                    h, m = divmod(abs(minutes_tr), 60)
+                    legende.set_title(f"Temps de réponse (Tr) : {signe}{h} h {m:02d} min",
+                                        prop={"size": 7.5, "weight": "bold"})
 
         # -- Camembert de contribution au pic exutoire, sous la légende, pas plus
         # large qu'elle (demandé) — construit à partir des % de Q rétropropagé de
@@ -776,7 +818,7 @@ def build_tab_analyse_affluents(tab_frame, app):
             bbox_legende_fig = legende.get_window_extent(
                 renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
             hauteur_pie = 0.24
-            ax_pie = fig.add_axes([bbox_legende_fig.x0, bbox_legende_fig.y0 - 0.03 - hauteur_pie,
+            ax_pie = fig.add_axes([bbox_legende_fig.x0, bbox_legende_fig.y0 - 0.06 - hauteur_pie,
                                      bbox_legende_fig.width, hauteur_pie])
             ax_pie.pie([p for _n, _c, p in parts], colors=[_c for _n, _c, p in parts],
                         autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
@@ -787,14 +829,18 @@ def build_tab_analyse_affluents(tab_frame, app):
         fig.autofmt_xdate()
         canvas.draw_idle()
 
-        for station, volume, pct_volume, qmax, pct_qmax in lignes_bilan:
+        for station, volume, pct_volume, qmax, pct_qmax, couleur in lignes_bilan:
+            # Même principe que la liste "Stations affluentes" : fond éclairci
+            # ("semi-transparent") + texte dans la couleur pleine de la série.
+            tableau_bilan.tag_configure(couleur, background=_eclaircir(couleur),
+                                          foreground=couleur)
             tableau_bilan.insert("", tk.END, values=(
                 station,
                 f"{volume / 1e6:.3f}" if volume is not None else "—",
                 f"{pct_volume:.1f} %" if pct_volume is not None else "—",
                 f"{qmax:.1f}" if qmax is not None else "—",
                 f"{pct_qmax:.1f} %" if pct_qmax is not None else "—",
-            ))
+            ), tags=(couleur,))
 
         var_statut.set(
             f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — {len(affluents_traces)} "
