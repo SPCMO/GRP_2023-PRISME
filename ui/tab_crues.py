@@ -29,7 +29,7 @@ VIGNETTES_PAR_LIGNE = 4
 
 # Ordre croissant de sévérité — utilisé pour trier les vignettes par niveau de
 # vigilance max atteint (demandé explicitement, plutôt que par date/numéro seul).
-_ORDRE_NIVEAUX_VIGILANCE = ("Vert", "ZT jaune", "Jaune", "ZT orange", "Orange", "ZT rouge", "Rouge")
+_ORDRE_NIVEAUX_VIGILANCE = ("Rouge", "ZT rouge", "Orange", "ZT orange", "Jaune", "ZT jaune", "Vert")
 
 
 def _eclaircir(couleur_hex, facteur=0.45):
@@ -200,7 +200,7 @@ def build_tab_crues(tab_frame, app):
             var_statut.set("Aucun événement trouvé dans CRITERES_PERF.DAT pour ce filtre.")
             return
 
-        # Groupées par niveau de vigilance max atteint (Vert -> ... -> Rouge, demandé
+        # Groupées par niveau de vigilance max atteint (Rouge -> ... -> Vert, demandé
         # explicitement), et au sein d'un même niveau triées par n° d'événement
         # croissant (#1 en premier) — pas par date ni par Qmax.
         evenements_avec_niveau = [(e, *_niveau_et_couleur_vigilance(e.qmax)) for e in evenements]
