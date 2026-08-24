@@ -2012,10 +2012,11 @@ def _build_variation_crues(frame, app):
         xlim, ylim = ax.get_xlim(), ax.get_ylim()
 
         # Marge verticale supplémentaire (au-delà de l'autoscale par défaut) pour
-        # laisser la place aux étiquettes forcées sur CHAQUE point (demandé) sans
-        # qu'elles ne sortent du cadre — voir la boucle d'annotation plus bas.
-        marge = (ylim[1] - ylim[0]) * 0.22 or 0.05
-        ylim = (ylim[0] - marge, ylim[1] + marge)
+        # laisser la place aux étiquettes forcées sur CHAQUE point, toutes au-dessus
+        # de la courbe (demandé) — davantage de marge en haut qu'en bas, puisque plus
+        # aucune étiquette ne descend sous son point. Voir la boucle d'annotation plus bas.
+        etendue_y = (ylim[1] - ylim[0]) or 0.2
+        ylim = (ylim[0] - etendue_y * 0.08, ylim[1] + etendue_y * 0.32)
 
         degrade = np.linspace(0, 1, 256).reshape(-1, 1)
         ax.imshow(degrade, extent=(*xlim, *ylim), aspect="auto", cmap="RdYlGn",
@@ -2032,31 +2033,27 @@ def _build_variation_crues(frame, app):
                 precedent = lib
 
         # Étiquette forcée sur CHAQUE point (demandé) : horizon court sur une ligne,
-        # "seuil/méthode" en dessous, pour rester lisible malgré le nombre de points.
-        # Placée au-dessus si le point est dans la moitié basse du cadre (de la place
-        # au-dessus), en dessous sinon — pour ne jamais sortir du graphique.
-        milieu_y = (ylim[0] + ylim[1]) / 2
+        # "seuil/méthode" en dessous, toujours placée AU-DESSUS de la courbe (demandé —
+        # la marge verticale plus généreuse en haut, ci-dessus, lui laisse la place).
         for n, kge_val, s in zip(ns, kges, [s for _n, s in points]):
             texte = f"{_libelle_horizon_court(s.horizon)}\n{s.seuil_c1:.2f}/{s.methode}"
-            if kge_val >= milieu_y:
-                ax.annotate(texte, xy=(n, kge_val), xytext=(0, -7), textcoords="offset points",
-                            fontsize=5.5, ha="center", va="top", color="#333333", linespacing=1.2)
-            else:
-                ax.annotate(texte, xy=(n, kge_val), xytext=(0, 7), textcoords="offset points",
-                            fontsize=5.5, ha="center", va="bottom", color="#333333", linespacing=1.2)
+            ax.annotate(texte, xy=(n, kge_val), xytext=(0, 8), textcoords="offset points",
+                        fontsize=7, ha="center", va="bottom", color="#333333", linespacing=1.2)
 
-        # 2e ordonnée (violette) : horizon de la combinaison gagnante à chaque N, en
-        # heures (1J = 24h) — demandé pour voir d'un coup d'œil si l'horizon optimal
-        # bouge avec le nombre de crues retenues, en plus de sa seule performance (KGE).
-        ax2.plot(ns, heures_horizon, color="#4A235A", lw=1.4, marker="s", markersize=4,
-                  zorder=4, label="Horizon optimal")
+        # 2e ordonnée (violette clair, semi-transparente — demandé) : horizon de la
+        # combinaison gagnante à chaque N, en heures (1J = 24h) — pour voir d'un coup
+        # d'œil si l'horizon optimal bouge avec le nombre de crues retenues, en plus de
+        # sa seule performance (KGE).
+        COULEUR_HORIZON = "#9B59B6"
+        ax2.plot(ns, heures_horizon, color=COULEUR_HORIZON, alpha=0.65, lw=1.4,
+                  marker="s", markersize=4, zorder=4, label="Horizon optimal")
         # ax2.clear() (voir _rafraichir) réinitialise la position de l'axe à "left" —
         # twinx() la met à "right" une seule fois, à la création : il faut la
         # réappliquer explicitement à chaque rafraîchissement.
         ax2.yaxis.tick_right()
         ax2.yaxis.set_label_position("right")
-        ax2.set_ylabel("Evol. HOR optimal f(nb crues retenues au calage)", color="#4A235A")
-        ax2.tick_params(axis="y", colors="#4A235A")
+        ax2.set_ylabel("Evol. HOR optimal f(nb crues retenues au calage)", color=COULEUR_HORIZON)
+        ax2.tick_params(axis="y", colors=COULEUR_HORIZON)
         heures_uniques = sorted(set(heures_horizon))
         ax2.set_yticks(heures_uniques)
         ax2.set_yticklabels(
