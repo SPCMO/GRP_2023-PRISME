@@ -9,9 +9,10 @@ qui compare Qobs à une combinaison de calage) : ici on ne regarde que les obser
 
 import os
 import tkinter as tk
-from datetime import datetime
+from datetime import datetime, timedelta
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
+from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
@@ -305,15 +306,92 @@ def build_tab_analyse_affluents(tab_frame, app):
     tk.Label(frm, textvariable=var_statut, fg="#555555", wraplength=1000, justify=tk.LEFT).pack(
         anchor="w", padx=10, pady=(2, 0))
 
-    # ── Graphique ─────────────────────────────────────────────────────────────────
+    # ── Graphique + panneau Qmax (à droite, sous la légende — demandé pour gagner de
+    # la place plutôt qu'une bande de vignettes pleine largeur sous le graphique) ────
+    cadre_graphique = tk.Frame(frm)
+    cadre_graphique.pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+
     fig = Figure(figsize=(11, 5), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
-    canvas = FigureCanvasTkAgg(fig, master=frm)
-    canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=8, pady=6)
+    canvas = FigureCanvasTkAgg(fig, master=cadre_graphique)
+    canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    cadre_vignettes = tk.Frame(cadre_graphique, width=190)
+    cadre_vignettes.pack(side=tk.LEFT, fill=tk.Y, padx=(6, 0))
+    cadre_vignettes.pack_propagate(False)
+    # Espaceur : la légende matplotlib est ancrée en haut du même axe (bbox_to_anchor
+    # y=0.98, voir plus bas) — ce Label vide pousse les vignettes visuellement SOUS
+    # elle plutôt que de les faire chevaucher, sans dépendre d'un calcul de pixels
+    # fragile (la hauteur réelle de la légende varie avec le nombre d'affluents).
+    tk.Label(cadre_vignettes, text="Qmax observé par courbe :",
+              font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(anchor="w", pady=(58, 4))
+
+    def _vider_vignettes():
+        for w in cadre_vignettes.winfo_children()[1:]:  # [0] = le libellé ci-dessus, conservé
+            w.destroy()
+
+    def _ajouter_vignette(nom, couleur, qmax, date_qmax):
+        v = tk.Frame(cadre_vignettes, bg=couleur, relief=tk.RIDGE, borderwidth=2)
+        v.pack(fill=tk.X, pady=3)
+        tk.Label(v, text=nom, bg=couleur, fg="white", font=("TkDefaultFont", 8, "bold"),
+                  wraplength=175, justify=tk.LEFT).pack(anchor="w", padx=5, pady=(3, 0))
+        tk.Label(v, text=f"Qmax {qmax:.1f} m³/s" if qmax is not None else "Qmax indisponible",
+                 bg=couleur, fg="white", font=("TkDefaultFont", 8)).pack(anchor="w", padx=5)
+        if date_qmax is not None:
+            tk.Label(v, text=f"{date_qmax:%d/%m/%Y %H:%M}", bg=couleur, fg="white",
+                      font=("TkDefaultFont", 8)).pack(anchor="w", padx=5, pady=(0, 3))
+
     # Association handle de légende (proxy Line2D) -> Affluent, pour permettre de
     # changer la couleur d'une courbe affluente en cliquant directement dans la
     # légende (demandé — alternative au bouton "Couleur" du tableau de gestion).
     etat_legende = {"mapping": {}}
+
+    # Survol à la souris pour lire une valeur de débit directement sur la courbe
+    # (comme OPALE v2, demandé) — même principe que Dashboard > Détail par crue
+    # (ui.tab_dashboard._build_detail._survol_courbes) : recherche du point le plus
+    # proche du curseur EN PIXELS parmi toutes les courbes tracées, pas juste la plus
+    # proche en X, pour rester correct quand plusieurs courbes se croisent.
+    etat_courbes = {"liste": []}
+    etat_survol = {"artist": None}
+
+    def _survol_courbes(event):
+        artist = etat_survol.get("artist")
+        courbes = etat_courbes["liste"]
+        if artist is None:
+            return
+        if event.inaxes is not ax or event.xdata is None or not courbes:
+            if artist.get_visible():
+                artist.set_visible(False)
+                canvas.draw_idle()
+            return
+        SEUIL_PX = 20
+        meilleure, meilleure_dist = None, None
+        for c in courbes:
+            xs = c["x"]
+            if not xs:
+                continue
+            idx = min(range(len(xs)), key=lambda i: abs(xs[i] - event.xdata))
+            yi = c["y"][idx]
+            if yi is None:
+                continue
+            xpix, ypix = ax.transData.transform((xs[idx], yi))
+            dist = ((xpix - event.x) ** 2 + (ypix - event.y) ** 2) ** 0.5
+            if meilleure_dist is None or dist < meilleure_dist:
+                meilleure_dist, meilleure = dist, (c, xs[idx], yi)
+        if meilleure is None or meilleure_dist > SEUIL_PX:
+            if artist.get_visible():
+                artist.set_visible(False)
+                canvas.draw_idle()
+            return
+        c, xi, yi = meilleure
+        date_i = mdates.num2date(xi).replace(tzinfo=None)
+        artist.set_text(f"{c['label']}\n{date_i:%d/%m %H:%M} — {yi:.1f} m³/s")
+        artist.xy = (xi, yi)
+        artist.get_bbox_patch().set_edgecolor(c["couleur"])
+        artist.set_visible(True)
+        canvas.draw_idle()
+
+    canvas.mpl_connect("motion_notify_event", _survol_courbes)
 
     def _clic_legende(event):
         aff = etat_legende["mapping"].get(id(event.artist))
@@ -340,28 +418,9 @@ def build_tab_analyse_affluents(tab_frame, app):
 
     canvas.mpl_connect("pick_event", _clic_legende)
 
-    # ── Vignettes Qmax / horodatage par courbe tracée ───────────────────────────
-    inn_vign, bg_vign = make_section(frm, "Qmax observé par courbe", "gris")
-    cadre_vignettes = tk.Frame(inn_vign, bg=bg_vign)
-    cadre_vignettes.pack(fill=tk.X)
-
-    def _vider_vignettes():
-        for w in cadre_vignettes.winfo_children():
-            w.destroy()
-
-    def _ajouter_vignette(nom, couleur, qmax, date_qmax):
-        v = tk.Frame(cadre_vignettes, bg=couleur, relief=tk.RIDGE, borderwidth=2)
-        v.pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Label(v, text=nom, bg=couleur, fg="white", font=("TkDefaultFont", 9, "bold")).pack(
-            anchor="w", padx=6, pady=(4, 0))
-        tk.Label(v, text=f"Qmax {qmax:.1f} m³/s" if qmax is not None else "Qmax indisponible",
-                 bg=couleur, fg="white").pack(anchor="w", padx=6)
-        if date_qmax is not None:
-            tk.Label(v, text=f"{date_qmax:%d/%m/%Y %H:%M}", bg=couleur, fg="white").pack(
-                anchor="w", padx=6, pady=(0, 4))
-
-    # ── Tableau bilan volume/Qmax — exutoire vs affluents ───────────────────────
-    inn_tab, bg_tab = make_section(frm, "Volume transité et Qmax — exutoire vs affluents", "gris")
+    # ── Tableau bilan volume/Q — exutoire vs affluents ──────────────────────────
+    inn_tab, bg_tab = make_section(
+        frm, "Volumes transités et Q - exutoire et affluents", "gris")
     cadre_tab = tk.Frame(inn_tab, bg=bg_tab)
     cadre_tab.pack(fill=tk.BOTH, expand=True)
     tableau_bilan = ttk.Treeview(
@@ -370,10 +429,28 @@ def build_tab_analyse_affluents(tab_frame, app):
     for col, libelle, largeur in (
         ("station", "Station", 200), ("volume", "Volume transité (hm³)", 170),
         ("pct_volume", "% du volume exutoire", 150),
-        ("qmax", "Qmax (m³/s)", 120), ("pct_qmax", "% du Qmax exutoire", 150),
+        ("qmax", "Q à Qmax exutoire (m³/s)  ⓘ", 190), ("pct_qmax", "% du Qmax exutoire", 150),
     ):
         tableau_bilan.heading(col, text=libelle)
         tableau_bilan.column(col, width=largeur, anchor="center" if col != "station" else "w")
+    # Clic sur l'en-tête de la colonne "Q à Qmax exutoire" pour expliquer le principe
+    # (demandé) — ttk.Treeview ne permet pas d'insérer une icône DANS l'en-tête, le
+    # "ⓘ" fait donc partie du texte du libellé, tout l'en-tête déclenche l'explication.
+    tableau_bilan.heading("qmax", command=lambda: messagebox.showinfo(
+        "Q à Qmax exutoire — principe",
+        "Ce n'est PAS le Qmax propre de chaque affluent, mais son débit RÉTROPROPAGÉ "
+        "au pic de l'exutoire :\n\n"
+        "1. On part de l'horodatage du Qmax observé à la station exutoire "
+        "(Moussoulens).\n"
+        "2. Pour chaque affluent, on recule de la médiane (P50) de son temps de "
+        "propagation jusqu'à l'exutoire.\n"
+        "3. On lit le débit de l'affluent à cet instant reculé.\n\n"
+        "Résultat : la contribution de chaque affluent AU MOMENT PRÉCIS du pic de "
+        "l'exutoire, tous alignés sur un même instant de référence — plutôt que des "
+        "Qmax propres à chaque affluent, qui ne se produisent pas forcément en même "
+        "temps. La colonne suivante (% du Qmax exutoire) exprime cette contribution "
+        "en pourcentage du débit de pointe de l'exutoire.",
+        parent=tab_frame.winfo_toplevel()))
     tableau_bilan.pack(fill=tk.BOTH, expand=True)
 
     # ── Logique de sélection / tracé ─────────────────────────────────────────────
@@ -424,6 +501,12 @@ def build_tab_analyse_affluents(tab_frame, app):
 
     def _rafraichir_graphique():
         ax.clear()
+        etat_courbes["liste"] = []
+        etat_survol["artist"] = ax.annotate(
+            "", xy=(0, 0), xytext=(12, 12), textcoords="offset points", fontsize=7.5,
+            zorder=25, visible=False,
+            bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#555555", linewidth=1.0, alpha=0.92),
+        )
         _vider_vignettes()
         tableau_bilan.delete(*tableau_bilan.get_children())
         etat_legende["mapping"] = {}
@@ -458,17 +541,25 @@ def build_tab_analyse_affluents(tab_frame, app):
             serie_exutoire = []
 
         lignes_bilan = []
-        qmax_exutoire, volume_exutoire = None, None
+        qmax_exutoire, volume_exutoire, date_qmax_exutoire = None, None, None
         if serie_exutoire:
             points_exutoire = [(p[0], p[2]) for p in serie_exutoire]
             ax.plot([d for d, _v in points_exutoire], [v for _d, v in points_exutoire],
                      color=_COULEUR_OBS, lw=1.8, label="Q observé — Moussoulens (exutoire)")
+            etat_courbes["liste"].append({
+                "label": "Q observé — Moussoulens (exutoire)", "couleur": _COULEUR_OBS,
+                "x": [mdates.date2num(d) for d, _v in points_exutoire],
+                "y": [v for _d, v in points_exutoire],
+            })
             qmax_exutoire, date_qmax_exutoire = affluents.qmax_et_horodatage(points_exutoire)
             volume_exutoire = affluents.volume_m3(points_exutoire)
             _ajouter_vignette("Moussoulens (exutoire)", _COULEUR_OBS,
                                qmax_exutoire, date_qmax_exutoire)
+            # Au moment de son propre Qmax, l'exutoire "contribue" à 100 % de son
+            # propre débit — sert de référence aux % de contribution des affluents
+            # ci-dessous (mêmes colonnes, même instant de référence).
             lignes_bilan.append(("Moussoulens (exutoire)", volume_exutoire, None,
-                                   qmax_exutoire, None))
+                                   qmax_exutoire, 100.0 if qmax_exutoire is not None else None))
 
         liste_affl = _liste_affluents(app)
         affluents_traces = []
@@ -485,19 +576,37 @@ def build_tab_analyse_affluents(tab_frame, app):
             couleur = a.couleur or "#7D3C98"
             ax.plot([d for d, _v in serie_a], [v for _d, v in serie_a],
                      color=couleur, lw=1.4, ls="--", label=a.nom)
+            etat_courbes["liste"].append({
+                "label": a.nom, "couleur": couleur,
+                "x": [mdates.date2num(d) for d, _v in serie_a],
+                "y": [v for _d, v in serie_a],
+            })
             affluents_traces.append(a)
             qmax_a, date_qmax_a = affluents.qmax_et_horodatage(serie_a)
             volume_a = affluents.volume_m3(serie_a)
             _ajouter_vignette(a.nom, couleur, qmax_a, date_qmax_a)
             pct_volume = (volume_a / volume_exutoire * 100
                           if volume_a is not None and volume_exutoire else None)
-            pct_qmax = (qmax_a / qmax_exutoire * 100
-                        if qmax_a is not None and qmax_exutoire else None)
-            lignes_bilan.append((a.nom, volume_a, pct_volume, qmax_a, pct_qmax))
+
+            # Q rétropropagé (demandé) : PAS le Qmax propre de l'affluent, mais son
+            # débit au moment où l'eau qu'il fournissait atteignait (en théorie) le pic
+            # de l'exutoire — càd à (horodatage du Qmax exutoire − P50 de CET
+            # affluent). Permet de lire, pour un instant de référence commun (le pic à
+            # l'exutoire), la contribution de chaque affluent à ce pic précis.
+            q_retropropage = None
+            if date_qmax_exutoire is not None and a.p50_min is not None:
+                date_lookup = date_qmax_exutoire - timedelta(minutes=a.p50_min)
+                q_retropropage, _date_trouvee = affluents.valeur_au_plus_proche(serie_a, date_lookup)
+            pct_qmax = (q_retropropage / qmax_exutoire * 100
+                        if q_retropropage is not None and qmax_exutoire else None)
+            lignes_bilan.append((a.nom, volume_a, pct_volume, q_retropropage, pct_qmax))
 
             # Bande de propagation P10-P90 (très transparente) + trait épais à P50, à
             # partir du pic de CET affluent (sur la fenêtre de la crue), propagé sur
-            # l'axe temporel de l'hydrogramme de l'exutoire (demandé explicitement).
+            # l'axe temporel de l'hydrogramme de l'exutoire (demandé explicitement) —
+            # sens INVERSE de la rétropropagation ci-dessus (ici : pic affluent -> pic
+            # exutoire ; ci-dessus : pic exutoire -> instant correspondant chez
+            # l'affluent). Les deux usent le même P50, dans des directions opposées.
             date_p10, date_p50, date_p90 = affluents.bornes_bande_propagation(date_qmax_a, a)
             if date_p10 is not None and date_p90 is not None:
                 ax.axvspan(date_p10, date_p90, color=couleur, alpha=0.12, zorder=0)
@@ -519,7 +628,10 @@ def build_tab_analyse_affluents(tab_frame, app):
         ax.set_ylabel("Débit (m³/s)")
         ax.grid(True, alpha=0.3)
         fig.subplots_adjust(right=0.72)
-        legende = ax.legend(loc="center left", bbox_to_anchor=(1.02, 0.5), fontsize=7.5)
+        # Ancrée en HAUT de la marge droite (pas centrée verticalement comme avant) :
+        # les vignettes Qmax du panneau Tk juste à droite du graphique sont
+        # positionnées pour tomber sous elle (espaceur calé sur cette même hauteur).
+        legende = ax.legend(loc="upper left", bbox_to_anchor=(1.02, 0.98), fontsize=7.5)
         if legende is not None:
             for handle, a in zip(legende.legend_handles[1:], affluents_traces):
                 handle.set_picker(6)

@@ -114,6 +114,18 @@ def charger_serie_affluent(chemin, date_deb=None, date_fin=None):
     return serie
 
 
+def valeur_au_plus_proche(serie, date_cible):
+    """Retourne (valeur, date_trouvee) au point de `serie` dont l'horodatage est le
+    plus proche de `date_cible`, ou (None, None) si la série est vide ou `date_cible`
+    est None. Utilisé pour la rétropropagation : la valeur d'un affluent au moment où
+    l'eau qu'il a fournie atteint (en théorie) le pic de l'exutoire n'existe pas
+    forcément exactement dans son échantillonnage — on prend le point le plus proche."""
+    if not serie or date_cible is None:
+        return None, None
+    date_trouvee, valeur = min(serie, key=lambda p: abs((p[0] - date_cible).total_seconds()))
+    return valeur, date_trouvee
+
+
 def qmax_et_horodatage(serie):
     """serie : liste de (datetime, valeur). Retourne (qmax, date_qmax), ou (None, None)
     si la série est vide."""
