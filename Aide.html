@@ -124,7 +124,7 @@
 
 <section id="archi-simple">
   <h2>Architecture simplifiée</h2>
-  <p>Vue d'ensemble en images, avant le détail technique de l'onglet Architecture. Trois questions : qui parle à qui, à quoi ressemble une campagne de bout en bout, et en quoi c'est différent de GMAO.</p>
+  <p>Vue d'ensemble en images, avant le détail technique de l'onglet Architecture. Trois questions : qui parle à qui, à quoi ressemble une campagne de bout en bout, et pourquoi il n'y a ni serveur ni navigateur à lancer.</p>
 
   <h3>Qui parle à qui</h3>
   <div class="legende">
@@ -138,7 +138,7 @@
     <div class="schema-couche">
       <div class="schema-titre-couche">Poste de l'utilisateur — un seul programme (aucun serveur à lancer)</div>
       <div class="schema-ligne">
-        <div class="schema-boite b-py">Interface Tkinter<span class="note">main.py + ui/tab_*.py — 5 onglets (Configuration, Paramétrage, Crues, Campagne, Dashboard)</span></div>
+        <div class="schema-boite b-py">Interface Tkinter<span class="note">main.py + ui/tab_*.py — 6 onglets (Configuration, Paramétrage, Crues, Analyse crues affl., Campagne, Dashboard)</span></div>
       </div>
     </div>
 
@@ -152,6 +152,7 @@
         <div class="schema-boite b-py">criteres_perf.py + fiche_controle_pdf.py + grp_series.py<span class="note">lecture des résultats GRP</span></div>
         <div class="schema-boite b-py">phyc_client.py<span class="note">connexion PHyC (station, seuils) — en direct, sans proxy (service RIE-interne)</span></div>
         <div class="schema-boite b-py">score.py + export_excel.py<span class="note">scoring et export du Dashboard</span></div>
+        <div class="schema-boite b-py">affluents.py<span class="note">stations affluentes — lecture des débits, Qmax/volume, propagation</span></div>
       </div>
       <div class="schema-ligne" style="margin-top:.6rem;">
         <div class="schema-boite b-lib">matplotlib<span class="note">graphiques du Dashboard</span></div>
@@ -183,28 +184,14 @@
     </div>
   </div>
 
-  <h3>Ce qui est différent de GMAO (pas de front/back séparés)</h3>
-  <p>GMAO est une application <b>web</b> : deux programmes séparés qui se parlent par le réseau. GRP_2023-PRISME est une application <b>desktop</b> : un seul programme, tout tourne dans le même processus. Ni serveur à démarrer, ni navigateur, ni port à ouvrir.</p>
-  <div class="compare">
-    <div class="col">
-      <h4>GMAO — application web</h4>
-      <ul>
-        <li><b>Front</b> : navigateur (pages HTML + Leaflet.js)</li>
-        <li><b>Back</b> : serveur Flask (<code>run.py</code>), à lancer séparément</li>
-        <li>Front ↔ Back : requêtes HTTP sur <code>localhost:5000</code></li>
-        <li>Utilisable depuis plusieurs postes via le réseau</li>
-      </ul>
-    </div>
-    <div class="col">
-      <h4>GRP_2023-PRISME — application desktop</h4>
-      <ul>
-        <li>Un seul programme : <code>main.py</code> (fenêtre Tkinter)</li>
-        <li>Pas de serveur, pas de navigateur, pas de port réseau</li>
-        <li>L'interface et la logique s'appellent directement en mémoire</li>
-        <li>Un seul poste à la fois (comme OPALE v2)</li>
-      </ul>
-    </div>
-  </div>
+  <h3>Une application desktop simple (pas de front/back séparés)</h3>
+  <p>Certains outils métier fonctionnent en application <b>web</b> : deux programmes séparés (un serveur et un navigateur) qui se parlent par le réseau, avec un serveur à démarrer et un port à ouvrir. GRP_2023-PRISME fait le choix inverse, plus simple à installer et à faire tourner sur un poste isolé :</p>
+  <ul>
+    <li>Un seul programme : <code>main.py</code> (fenêtre Tkinter)</li>
+    <li>Pas de serveur, pas de navigateur, pas de port réseau à ouvrir</li>
+    <li>L'interface et la logique métier s'appellent directement en mémoire, dans le même processus</li>
+    <li>Un seul poste à la fois — pas d'usage partagé simultané depuis plusieurs postes</li>
+  </ul>
 
   <h3>Le cycle d'une campagne, de bout en bout</h3>
   <div class="schema">
@@ -296,7 +283,7 @@
   <h2>Paramétrage</h2>
 
   <h3>Proxy sortant du réseau RIE</h3>
-  <p>Comme GMAO et OPALE v2, le proxy réseau SPCMO/RIE est en dur dans <code>config.py</code> (<code>PROXY_RIE</code>) car <code>pip</code>/<code>git</code> ne le détectent pas automatiquement contrairement à un navigateur. Une variable d'environnement <code>HTTPS_PROXY</code>, si définie, reste prioritaire.</p>
+  <p>Comme dans d'autres outils du SPCMO, le proxy réseau SPCMO/RIE est en dur dans <code>config.py</code> (<code>PROXY_RIE</code>) car <code>pip</code>/<code>git</code> ne le détectent pas automatiquement contrairement à un navigateur. Une variable d'environnement <code>HTTPS_PROXY</code>, si définie, reste prioritaire.</p>
 
   <h3>Installer l'outil sur un nouveau poste</h3>
   <ol>
@@ -307,8 +294,8 @@
   </ol>
 
   <h3>Dépôt GitHub</h3>
-  <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023-PRISME</code>. Authentification par token dans l'URL du remote git, comme les dépôts GMAO et OPALE v2 (voir la remarque de sécurité ci-dessous).</p>
-  <div class="warn">⚠️ Ce pattern d'authentification stocke le token en clair dans <code>.git/config</code>, lisible par quiconque a accès au dossier local. Choix assumé pour rester cohérent avec l'existant (GMAO, OPALE v2) — l'alternative plus sûre (Git Credential Manager, token jamais stocké en clair) a été proposée et écartée en connaissance de cause.</div>
+  <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023-PRISME</code>. Authentification par token dans l'URL du remote git, comme sur d'autres dépôts du SPCMO (voir la remarque de sécurité ci-dessous).</p>
+  <div class="warn">⚠️ Ce pattern d'authentification stocke le token en clair dans <code>.git/config</code>, lisible par quiconque a accès au dossier local. Choix assumé pour rester cohérent avec l'existant — l'alternative plus sûre (Git Credential Manager, token jamais stocké en clair) a été proposée et écartée en connaissance de cause.</div>
 
   <h3>Copie réseau (partage SPCMO)</h3>
   <p>Une copie miroir est également maintenue sur le partage réseau <code>\\oc-spc-11.dreal-oc.ad.e2.rie.gouv.fr\SUIVI\Pole_prevision\40_Modèles Opérationnels\40_Modeles_GRP\02_calage\scripts\GRP_2023-PRISME</code>, pour les collègues sans accès GitHub. Exactement les fichiers suivis par git (<code>git ls-files</code>) y sont copiés — l'outil lui-même, <code>Aide.html</code> et <code>PRISME_vs_Calage_Multiple.html</code> — jamais les données de travail (<code>00_GRP_v2023/</code>, <code>00_Donnees_*/</code>, etc., gitignorées), ni <code>config/config.json</code> (identifiants PHyC), ni les fichiers d'analyse ponctuels non versionnés. Mis à jour à chaque correctif, en parallèle du push GitHub.</p>
@@ -755,6 +742,11 @@
   <div class="changelog-entry">
     <div class="changelog-date">24 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Documentation (onglets Utilisation et Architecture) remise à jour pour refléter tous les ajouts récents : onglet "Analyse crues affl.", sous-onglet Dashboard "Variation selon le nb de crues", sélecteur "Crues dans le score", case à cocher vigilance, bouton "Réinitialiser la vue 3D", export Excel à 5 feuilles avec confirmation, arborescence du projet (<code>modules/affluents.py</code>, <code>ui/tab_analyse_affluents.py</code>). Ajout d'une copie miroir sur un partage réseau SPCMO, en parallèle de GitHub (voir Paramétrage &gt; Copie réseau).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">24 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Aide.html : retrait des références à GMAO (outil interne SPCMO non forcément connu des utilisateurs de la copie réseau) — la comparaison "application web vs desktop" est reformulée de façon générique, sans nommer d'outil spécifique. Nombre d'onglets et arborescence du schéma "Qui parle à qui" mis à jour (6 onglets, <code>affluents.py</code> ajouté).</p>
   </div>
 
   <div class="changelog-entry">
