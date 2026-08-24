@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config as app_config
 from modules import config_manager
+from ui.tab_analyse_affluents import build_tab_analyse_affluents
 from ui.tab_config import build_tab_config
 from ui.tab_crues import build_tab_crues
 from ui.tab_dashboard import build_tab_dashboard
@@ -106,12 +107,14 @@ class App(tk.Tk):
         self.tab_config = ttk.Frame(notebook)
         self.tab_parametrage = ttk.Frame(notebook)
         self.tab_crues = ttk.Frame(notebook)
+        self.tab_analyse_affluents = ttk.Frame(notebook)
         self.tab_orchestration = ttk.Frame(notebook)
         self.tab_dashboard = ttk.Frame(notebook)
 
         notebook.add(self.tab_config, text="  Configuration  ")
         notebook.add(self.tab_parametrage, text="  Paramétrage  ")
         notebook.add(self.tab_crues, text="  Crues  ")
+        notebook.add(self.tab_analyse_affluents, text="  Analyse crues affl.  ")
         notebook.add(self.tab_orchestration, text="  Campagne  ")
         notebook.add(self.tab_dashboard, text="  Dashboard  ")
 
@@ -134,6 +137,7 @@ class App(tk.Tk):
         build_tab_config(self.tab_config, self)
         build_tab_parametrage(self.tab_parametrage, self)
         build_tab_crues(self.tab_crues, self)
+        build_tab_analyse_affluents(self.tab_analyse_affluents, self)
         build_tab_orchestration(self.tab_orchestration, self)
         build_tab_dashboard(self.tab_dashboard, self)
 

@@ -700,6 +700,16 @@
   </div>
 
   <div class="changelog-entry">
+    <div class="changelog-date">24 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Nouvel onglet <b>"Analyse crues affl."</b>, juste après "Crues" — analyse la contribution des stations affluentes à l'hydrogramme observé à l'exutoire (Moussoulens), indépendamment de tout calage GRP. Bandeau "Dossier d'import des débits affluents" (couleur ocre, comme "Dossiers de travail" en Configuration) servant de dossier par défaut au sélecteur de fichier. Gestion de la liste des affluents (Ajouter/Modifier/Supprimer) : nom, surface de BV (km²), temps de propagation P10/P50/P90 (format hh:mm, P50 en gras et obligatoire, P10/P90 facultatifs), fichier de débits (CSV ';' <code>date;res</code>, même format de date AAAAMMJJHHMM que les EVxxxx.DAT — fichiers réels dans <code>00_Donnees_Moussoulens/Autres_Q</code>). Pour la crue affichée (sélecteur pas de temps + crue, comme Détail par crue) : Qobs de l'exutoire en trait plein bleu, débits affluents en pointillés (couleur modifiable en cliquant directement sur l'entrée de la légende, sélecteur de couleur système), vignettes Qmax + horodatage par courbe, seuils de vigilance superposés avec case à cocher pour les masquer, bandes verticales de propagation semi-transparentes (P10-P90, couleur de l'affluent) avec trait épais à P50 — calculées à partir du pic de CHAQUE affluent sur la crue affichée, propagé sur l'axe temporel de l'exutoire. Tableau bilan sous le graphique : volume transité (intégration trapézoïdale, en hm³) et Qmax de chaque station, avec le % de chacun par rapport à l'exutoire.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">24 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Détail par crue : case à cocher "Afficher les seuils de vigilance" pour les masquer temporairement (l'échelle Y commune à toutes les crues reste, elle, toujours calculée) — même fonctionnalité ajoutée au nouvel onglet "Analyse crues affl." pour cohérence.</p>
+  </div>
+
+  <div class="changelog-entry">
     <div class="changelog-date">à venir</div>
     <p><span class="tag tag-feat">À faire</span> Ajout des horizons de calage possibles pour les pas de temps 30 min et 1 h (en attente des valeurs métier) — via l'onglet Paramétrage &gt; Paramètres, aucun code à modifier.</p>
   </div>

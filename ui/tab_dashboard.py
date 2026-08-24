@@ -893,6 +893,10 @@ def _build_detail(frame, app):
                command=lambda: _selectionner_toutes(False)).pack(fill=tk.X, pady=1)
     ttk.Button(r2, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, anchor="n")
 
+    var_vigilance = tk.BooleanVar(value=True)
+    ttk.Checkbutton(r2, text="Afficher les seuils de vigilance", variable=var_vigilance,
+                     command=lambda: _tracer()).pack(side=tk.LEFT, padx=(12, 0), anchor="n")
+
     var_indicateurs = tk.StringVar(value="")
     tk.Label(frame, textvariable=var_indicateurs, font=("TkDefaultFont", 9, "bold"),
              wraplength=900, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(4, 0))
@@ -1349,7 +1353,9 @@ def _build_detail(frame, app):
         # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
         # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
         # niveau, ZT et seuil principal partagent la teinte), différenciés par le style
-        # de trait (pointillé pour la ZT, plein pour le seuil principal).
+        # de trait (pointillé pour la ZT, plein pour le seuil principal). Case à cocher
+        # "Afficher les seuils de vigilance" (demandé) pour les masquer temporairement
+        # sans perdre l'échelle Y commune, qui reste calculée dans tous les cas.
         seuils = app.config_data.get("seuils_q", {})
         # Échelle Y COMMUNE à toutes les crues (Qmax observé+simulé de l'ensemble des
         # crues, +10%, calculé une fois par _rafraichir_crues) plutôt que réajustée à
@@ -1359,16 +1365,17 @@ def _build_detail(frame, app):
         y_max = etat_y_max["global"] or max(toutes_valeurs, default=None)
         if y_max is not None:
             ax.set_ylim(0, y_max)
-        for cle, libelle, couleur in LIBELLES_SEUILS_Q:
-            val = seuils.get(cle)
-            if val is None:
-                continue
-            est_zt = cle.startswith("zt_")
-            ax.axhline(val, color=couleur, lw=1.0 if est_zt else 1.3,
-                       ls=":" if est_zt else "-", alpha=0.85)
-            if y_max is None or val <= y_max * 1.3:
-                ax.text(0.002, val, f" {libelle} {val:.0f} m³/s", va="bottom", fontsize=6.5,
-                        color=couleur, transform=ax.get_yaxis_transform())
+        if var_vigilance.get():
+            for cle, libelle, couleur in LIBELLES_SEUILS_Q:
+                val = seuils.get(cle)
+                if val is None:
+                    continue
+                est_zt = cle.startswith("zt_")
+                ax.axhline(val, color=couleur, lw=1.0 if est_zt else 1.3,
+                           ls=":" if est_zt else "-", alpha=0.85)
+                if y_max is None or val <= y_max * 1.3:
+                    ax.text(0.002, val, f" {libelle} {val:.0f} m³/s", va="bottom", fontsize=6.5,
+                            color=couleur, transform=ax.get_yaxis_transform())
 
         ax.set_ylabel("Débit (m³/s)")
         ax.grid(True, alpha=0.3)
