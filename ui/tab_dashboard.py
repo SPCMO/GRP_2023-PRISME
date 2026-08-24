@@ -1740,9 +1740,39 @@ def _build_vue3d(frame, app):
         # combinaison se retrouve donc seule en 2e colonne — demandé explicitement,
         # sans avoir à construire un layout de légende personnalisé.
         fig.subplots_adjust(left=0.09, wspace=0.35)
-        ax.legend(handles=handles_legende, labels=labels_legende, loc="upper left",
-                  bbox_to_anchor=(0.005, 0.98), bbox_transform=fig.transFigure,
-                  fontsize=7, labelspacing=1.8, ncol=2, columnspacing=1.5, handletextpad=0.6)
+        legende = ax.legend(handles=handles_legende, labels=labels_legende, loc="upper left",
+                              bbox_to_anchor=(0.005, 0.98), bbox_transform=fig.transFigure,
+                              fontsize=7, labelspacing=1.8, ncol=2, columnspacing=1.5, handletextpad=0.6)
+
+        # -- Bouton "Réinitialiser la vue 3D", juste sous la légende (demandé — la vue
+        # 3D se manipule à la souris et il est facile de se retrouver sous un angle peu
+        # lisible sans moyen simple d'y revenir). Dessiné DANS la figure (comme l'icône
+        # "i", voir _icone_info_axe) plutôt qu'en widget Tkinter classique, pour rester
+        # collé à la position réelle de la légende quelle que soit sa hauteur — mesurée
+        # ici via get_window_extent() après un premier rendu, plutôt que devinée.
+        ancien_reset = etat_icones.get("reset_vue3d")
+        if ancien_reset is not None:
+            marqueur_prec, cid_prec = ancien_reset
+            try:
+                marqueur_prec.remove()
+            except Exception:
+                pass
+            canvas.mpl_disconnect(cid_prec)
+        fig.canvas.draw()
+        bbox_legende_fig = legende.get_window_extent(
+            renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+        marqueur_reset = fig.text(
+            bbox_legende_fig.x0, bbox_legende_fig.y0 - 0.025, "Réinitialiser la vue 3D",
+            fontsize=8, color="#1A5276", ha="left", va="top", picker=True,
+            bbox=dict(boxstyle="round,pad=0.35", fc="#D6EAF8", ec="#1A5276", lw=0.8))
+
+        def _au_clic_reset(event):
+            if event.artist is marqueur_reset:
+                ax.view_init(elev=20, azim=-55)
+                canvas.draw_idle()
+
+        cid_reset = canvas.mpl_connect("pick_event", _au_clic_reset)
+        etat_icones["reset_vue3d"] = (marqueur_reset, cid_reset)
 
         # -- Classement 2D : écart de score par rapport à la meilleure combinaison ----
         # Barres triées (la meilleure en haut), longueur = à quel point chaque
