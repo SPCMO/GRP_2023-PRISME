@@ -35,11 +35,16 @@
   },
 
   "parametrage": {
-    "_comment": "pas_de_temps : liste éditable (ajout/suppression/réorganisation) via l'écran Paramètres, code au format GRP xxJxxHxxM (utilisé tel quel dans les noms de dossiers GRP, ex. Evenements/<code_site>_00J00H15M/). horizons_par_pdt : horizons possibles pour chaque pas de temps, même format, clé = code du pas de temps — pour 30min et 1h, valeurs reprises telles quelles du Tableau 3 (colonnes '30 min' et '1 h') de GRP_Manuel_Utilisation.pdf p.34 ; 15min conservé tel quel (sélection métier existante, distincte du Tableau 3, gardée à la demande explicite de l'utilisateur). horizons_selectionnes / seuils_calage / methodes_selectionnees : dernière sélection de campagne (bloc 3), reprise au prochain lancement.",
+    "_comment": "pas_de_temps : liste éditable (ajout/suppression/réorganisation) via l'écran Paramètres, code au format GRP xxJxxHxxM (utilisé tel quel dans les noms de dossiers GRP, ex. Evenements/<code_site>_00J00H15M/). horizons_par_pdt : horizons possibles pour chaque pas de temps, même format, clé = code du pas de temps — pour 30min, 1h, 5min, 6min, 3h, 6h et 12h, valeurs reprises telles quelles du Tableau 3 de GRP_Manuel_Utilisation.pdf p.34 (colonne correspondante) ; 15min conservé tel quel (sélection métier existante, distincte du Tableau 3, gardée à la demande explicite de l'utilisateur). horizons_selectionnes / seuils_calage / methodes_selectionnees : dernière sélection de campagne (bloc 3), reprise au prochain lancement.",
     "pas_de_temps": [
       {"code": "00J00H15M", "libelle": "15 min"},
       {"code": "00J00H30M", "libelle": "30 min"},
-      {"code": "00J01H00M", "libelle": "1 h"}
+      {"code": "00J01H00M", "libelle": "1 h"},
+      {"code": "00J00H05M", "libelle": "5 min"},
+      {"code": "00J00H06M", "libelle": "6 min"},
+      {"code": "00J03H00M", "libelle": "3 h"},
+      {"code": "00J06H00M", "libelle": "6 h"},
+      {"code": "00J12H00M", "libelle": "12 h"}
     ],
     "horizons_par_pdt": {
       "00J00H15M": [
@@ -58,6 +63,34 @@
         "00J18H00M", "01J00H00M", "01J06H00M", "01J12H00M", "01J18H00M",
         "02J00H00M", "02J06H00M", "02J12H00M", "02J18H00M", "03J00H00M",
         "05J00H00M"
+      ],
+      "00J00H05M": [
+        "00J00H05M", "00J00H10M", "00J00H15M", "00J00H30M", "00J01H00M",
+        "00J01H30M", "00J02H00M", "00J03H00M", "00J06H00M", "00J12H00M",
+        "00J18H00M", "01J00H00M", "01J12H00M", "02J00H00M", "03J00H00M",
+        "05J00H00M"
+      ],
+      "00J00H06M": [
+        "00J00H06M", "00J00H12M", "00J00H18M", "00J00H30M", "00J01H00M",
+        "00J01H30M", "00J02H00M", "00J03H00M", "00J06H00M", "00J12H00M",
+        "00J18H00M", "01J00H00M", "01J12H00M", "02J00H00M", "03J00H00M",
+        "05J00H00M"
+      ],
+      "00J03H00M": [
+        "00J03H00M", "00J06H00M", "00J09H00M", "00J12H00M", "00J15H00M",
+        "00J18H00M", "01J00H00M", "01J06H00M", "01J12H00M", "01J18H00M",
+        "02J00H00M", "02J06H00M", "02J12H00M", "02J18H00M", "03J00H00M",
+        "05J00H00M"
+      ],
+      "00J06H00M": [
+        "00J06H00M", "00J12H00M", "00J18H00M", "01J00H00M", "01J06H00M",
+        "01J12H00M", "01J18H00M", "02J00H00M", "02J06H00M", "02J12H00M",
+        "02J18H00M", "03J00H00M", "03J06H00M", "03J12H00M", "04J00H00M",
+        "05J00H00M"
+      ],
+      "00J12H00M": [
+        "00J12H00M", "01J00H00M", "01J12H00M", "02J00H00M", "02J12H00M",
+        "03J00H00M", "03J12H00M", "04J00H00M", "04J12H00M", "05J00H00M"
       ]
     },
     "horizons_selectionnes": {},
