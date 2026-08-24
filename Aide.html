@@ -91,17 +91,25 @@
   <p class="muted"><b>Conseil</b> : une campagne complète (tous les horizons × tous les seuils × toutes les crues) peut être très longue. Lancez d'abord une campagne sur quelques horizons/seuils espacés (grille grossière), consultez le Dashboard pour repérer la zone prometteuse, puis affinez avec une seconde campagne resserrée — les résultats des deux campagnes se cumulent automatiquement, pas besoin de tout refaire.</p>
 
   <h3>Onglet Crues</h3>
-  <p>Les crues ne sont plus une liste figée dans le code : elles sont <b>détectées automatiquement par GRP lui-même</b>, lues depuis <code>CRITERES_PERF.DAT</code> (généré par le calage complet, exe 01 + exe 03) — chaque vignette affiche la date, le débit de pointe, les seuils de vigilance PHyC et les indicateurs dQP/dTP/VE/KGE de référence pour la configuration de calage actuellement en place. Une case « Inclure aussi les événements de pluie » élargit la liste aux événements pluviométriques (par défaut, seuls les événements de débit sont affichés). Cocher les crues à inclure dans la campagne.</p>
+  <p>Les crues ne sont plus une liste figée dans le code : elles sont <b>détectées automatiquement par GRP lui-même</b>, lues depuis <code>CRITERES_PERF.DAT</code> (généré par le calage complet, exe 01 + exe 03) — chaque vignette affiche la date, le débit de pointe, les seuils de vigilance PHyC et les indicateurs dQP/dTP/VE/KGE de référence pour la configuration de calage actuellement en place. Une case « Inclure aussi les événements de pluie » élargit la liste aux événements pluviométriques (par défaut, seuls les événements de débit sont affichés). Cocher les crues à inclure dans la campagne. Les vignettes sont groupées par niveau de vigilance max atteint, du plus sévère (Rouge) au moins sévère (Vert), triées par n° d'événement croissant au sein d'un même niveau.</p>
+
+  <h3>Onglet Analyse crues affl.</h3>
+  <p>Analyse la contribution des <b>stations affluentes</b> à l'hydrogramme observé à la station exutoire (Moussoulens), <b>indépendamment de tout calage GRP</b> (aucune campagne requise). Bandeau <b>Dossier d'import des débits affluents</b> : dossier par défaut du sélecteur de fichier ci-dessous. Bandeau <b>Stations affluentes</b> : gestion (Ajouter/Modifier/Supprimer) de chaque affluent — nom, surface de BV (km²), temps de propagation jusqu'à l'exutoire en P10/P50/P90 (format hh:mm, P50 obligatoire, P10/P90 facultatifs), fichier de débits (CSV <code>date;res</code>, même format de date AAAAMMJJHHMM que les <code>EVxxxx.DAT</code> — voir <code>modules/affluents.py</code>) et couleur de la courbe.</p>
+  <p>Pour la crue sélectionnée (pas de temps + crue, flèches ◀▶ comme Détail par crue) : Qobs de l'exutoire en trait plein bleu, débits affluents en pointillés, hyétogramme de la pluie de bassin de l'exutoire, seuils de vigilance PHyC (case à cocher pour les masquer), survol à la souris pour lire une valeur exacte (comme OPALE v2). Couleur d'une courbe affluente modifiable en cliquant sur son entrée dans la légende. Bandes verticales de propagation semi-transparentes (P10-P90, couleur de l'affluent, trait épais à P50), calculées à partir du pic de <i>cet affluent</i> propagé sur l'axe de l'exutoire. Temps de réponse (Tr = horodatage du Qmax exutoire − barycentre temporel des pluies) affiché dans le titre de la légende. Camembert de contribution au pic exutoire sous la légende, à partir des % de <b>Q rétropropagé</b> de chaque affluent (débit de l'affluent à l'instant [Qmax exutoire − son P50] — pas son propre Qmax) : écrêté au prorata si le total dépasse 100 %, complété par une part grise « Écoulements locaux » s'il est inférieur à 100 %.</p>
+  <p>Vignettes Qmax + horodatage de chaque courbe, à droite du graphique sous la légende. Tableau <b>Volumes transités et Q - exutoire et affluents</b> : volume transité (intégration trapézoïdale, hm³) et Q rétropropagé au pic exutoire pour chaque station, avec le % de chacune par rapport à l'exutoire (icône ⓘ cliquable sur l'en-tête de colonne pour le détail du calcul).</p>
+  <p class="muted">La case « Afficher les seuils de vigilance » a aussi été ajoutée à Dashboard &gt; Détail par crue pour cohérence.</p>
 
   <h3>Onglet Campagne</h3>
   <p>Bouton <b>Lancer la campagne</b> : boucle sur toutes les combinaisons horizon × seuil × méthode sélectionnées, et pour chacune, rejoue chaque crue cochée (mode opérationnel temps différé, comme la boucle magique d'origine mais avec le bug du <code>.bat</code> corrigé). La campagne tourne en arrière-plan, la fenêtre reste utilisable. La progression, un tableau des combinaisons avec leur statut, et un journal détaillé s'affichent en temps réel.</p>
   <p>Si des combinaisons ou des crues ont échoué (erreur explicite dans le journal), le bouton <b>Relancer les échecs</b> ne refait que le nécessaire : si le calage d'une combinaison a déjà réussi, il n'est pas relancé — seules les crues manquantes ou en échec le sont.</p>
 
   <h3>Onglet Dashboard</h3>
-  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel (classeur Détail + Synthèse) à la demande.</p>
-  <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec une ou plusieurs courbes <b>simulées</b> superposées (sélection multiple des combinaisons, une couleur/légende par combinaison), les 6 seuils de vigilance PHyC (jaune/orange/rouge + zones de transition), et un tableau du maximum + horodatage de chaque courbe tracée. Flèches ◀▶ à côté du menu "Crue" pour naviguer épisode par épisode (retrace automatiquement avec la même sélection de combinaisons). Si aucune courbe simulée n'apparaît pour une combinaison, c'est qu'elle n'a pas encore été rejouée pour cette crue précise.</p>
+  <p>Bandeau partagé en haut : choix de la <b>pondération du score composite</b> (poids égaux / profil métier / personnalisé, avec asymétrie dTP retard/avance réglable) et sélecteur <b>« Crues dans le score »</b> — restreint, si besoin, le calcul du score à un sous-ensemble de crues choisi à la main (fenêtre listant TypEvt, Vigilance max, Qmax, cumul de pluie de chaque crue). Ces deux réglages s'appliquent à toutes les vues à score ci-dessous, sauf « Variation selon le nb de crues » qui varie N automatiquement et reste volontairement indépendante de la sélection de crues.</p>
+  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel : une fenêtre de vérification (pondération, station, crues incluses, seuils, méthodes) s'affiche avant de choisir le fichier de destination. Classeur à 5 feuilles : Paramétrage, Vue synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.</p>
+  <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec une ou plusieurs courbes <b>simulées</b> superposées (sélection multiple des combinaisons, une couleur/légende par combinaison), les 6 seuils de vigilance PHyC (jaune/orange/rouge + zones de transition — case à cocher pour les masquer), et un tableau du maximum + horodatage de chaque courbe tracée. Flèches ◀▶ à côté du menu "Crue" pour naviguer épisode par épisode (retrace automatiquement avec la même sélection de combinaisons). Survol à la souris pour lire une valeur exacte sur une courbe. Si aucune courbe simulée n'apparaît pour une combinaison, c'est qu'elle n'a pas encore été rejouée pour cette crue précise.</p>
   <p><b>Sensibilité au seuil</b> : évolution du score composite en fonction du seuil de calage, pour un ou plusieurs horizons superposés (sélection multiple, une couleur par horizon) à méthode fixée.</p>
-  <p><b>Vue 3D</b> : nuage de points horizon × seuil × score composite — couleur du point = score (vert = meilleur), forme du marqueur = méthode (rond T, triangle R), meilleure combinaison mise en évidence par une étoile dorée avec le détail de ses indicateurs. Vue orientable à la souris (clic-glisser).</p>
+  <p><b>Vue 3D</b> : nuage de points horizon × seuil × score composite — couleur du point = score (vert = meilleur), forme du marqueur = méthode (rond T, triangle R), meilleure combinaison mise en évidence par une étoile dorée avec le détail de ses indicateurs. Vue orientable à la souris (clic-glisser) ; bouton <b>Réinitialiser la vue 3D</b> sous la légende pour revenir à l'angle initial en un clic.</p>
+  <p><b>Variation selon le nb de crues</b> : trace comment la combinaison optimale (KGE moyen brut, comparable d'un N à l'autre — pas le score composite, normalisé par N donc non comparable) évolue selon le nombre de crues les plus fortes retenues (Qmax décroissant), avec une 2<sup>e</sup> ordonnée (violette) montrant l'horizon de la combinaison gagnante à chaque N. Points de bascule repérés par une ligne pointillée ; étiquettes forcées sur chaque point ; sélectionner une ligne du tableau entoure le point correspondant sur les 2 courbes.</p>
 
   <h3>Score composite (Dashboard)</h3>
   <p>Calculé <b>uniquement sur les combinaisons actuellement affichées</b> (jamais sur une seule, ni sur toute la base) :</p>
@@ -260,13 +268,15 @@
 │   ├── run_orchestrator.py     # boucle horizon×seuil×méthode×crue, reprise sur échec
 │   ├── results_store.py        # persistance SQLite (data/runs.sqlite3) + séries archivées
 │   ├── score.py                # score composite de performance
-│   └── export_excel.py         # export à la demande
+│   ├── export_excel.py         # export à la demande (5 feuilles)
+│   └── affluents.py            # stations affluentes : modèle, lecture des débits, Qmax/volume, propagation
 ├── ui/
 │   ├── tab_config.py           # onglet Configuration
 │   ├── tab_parametrage.py      # onglet Paramétrage (+ écran Paramètres)
 │   ├── tab_crues.py            # onglet Crues
+│   ├── tab_analyse_affluents.py  # onglet Analyse crues affl. (contribution des affluents)
 │   ├── tab_orchestration.py    # onglet Campagne
-│   ├── tab_dashboard.py        # onglet Dashboard (3 sous-onglets)
+│   ├── tab_dashboard.py        # onglet Dashboard (4 sous-onglets)
 │   └── widgets_common.py       # helpers UI partagés (sections colorées, listes réordonnables)
 ├── data/runs.sqlite3           # gitignored
 └── logs/                       # gitignored
@@ -299,6 +309,9 @@
   <h3>Dépôt GitHub</h3>
   <p>Code hébergé sur <code>github.com/SPCMO/GRP_2023-PRISME</code>. Authentification par token dans l'URL du remote git, comme les dépôts GMAO et OPALE v2 (voir la remarque de sécurité ci-dessous).</p>
   <div class="warn">⚠️ Ce pattern d'authentification stocke le token en clair dans <code>.git/config</code>, lisible par quiconque a accès au dossier local. Choix assumé pour rester cohérent avec l'existant (GMAO, OPALE v2) — l'alternative plus sûre (Git Credential Manager, token jamais stocké en clair) a été proposée et écartée en connaissance de cause.</div>
+
+  <h3>Copie réseau (partage SPCMO)</h3>
+  <p>Une copie miroir est également maintenue sur le partage réseau <code>\\oc-spc-11.dreal-oc.ad.e2.rie.gouv.fr\SUIVI\Pole_prevision\40_Modèles Opérationnels\40_Modeles_GRP\02_calage\scripts\GRP_2023-PRISME</code>, pour les collègues sans accès GitHub. Exactement les fichiers suivis par git (<code>git ls-files</code>) y sont copiés — l'outil lui-même, <code>Aide.html</code> et <code>PRISME_vs_Calage_Multiple.html</code> — jamais les données de travail (<code>00_GRP_v2023/</code>, <code>00_Donnees_*/</code>, etc., gitignorées), ni <code>config/config.json</code> (identifiants PHyC), ni les fichiers d'analyse ponctuels non versionnés. Mis à jour à chaque correctif, en parallèle du push GitHub.</p>
 </section>
 
 <section id="changelog">
@@ -737,6 +750,11 @@
   <div class="changelog-entry">
     <div class="changelog-date">24 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Analyse crues affl. : temps de réponse (Tr) affiché dans le titre de la légende du graphique — horodatage du Qmax exutoire moins le barycentre temporel de la pluie de bassin (moyenne des horodatages pondérée par la lame Pobs de chaque pas de temps).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">24 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Documentation (onglets Utilisation et Architecture) remise à jour pour refléter tous les ajouts récents : onglet "Analyse crues affl.", sous-onglet Dashboard "Variation selon le nb de crues", sélecteur "Crues dans le score", case à cocher vigilance, bouton "Réinitialiser la vue 3D", export Excel à 5 feuilles avec confirmation, arborescence du projet (<code>modules/affluents.py</code>, <code>ui/tab_analyse_affluents.py</code>). Ajout d'une copie miroir sur un partage réseau SPCMO, en parallèle de GitHub (voir Paramétrage &gt; Copie réseau).</p>
   </div>
 
   <div class="changelog-entry">
