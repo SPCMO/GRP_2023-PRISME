@@ -50,9 +50,10 @@ class App(tk.Tk):
 
         try:
             self.config_data = config_manager.load_config()
-        except FileNotFoundError as e:
-            # Installation incomplète (config.exemple.json manquant) — erreur bloquante
-            # explicite plutôt qu'un plantage silencieux plus loin dans l'appli.
+        except (FileNotFoundError, ValueError) as e:
+            # Installation incomplète (config.exemple.json manquant) ou config.json
+            # corrompu (JSON invalide) — erreur bloquante explicite plutôt qu'un
+            # plantage silencieux plus loin dans l'appli.
             messagebox.showerror("Erreur au démarrage", str(e))
             self.destroy()
             raise
