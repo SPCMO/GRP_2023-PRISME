@@ -889,6 +889,11 @@
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Audit de code (voir la section "Tests automatisés" ci-dessus) suivi de plusieurs correctifs : nom de station "Moussoulens" sorti du code en dur dans Analyse crues affl. (lu depuis la config, comme les 5 autres onglets) ; <code>_construire_grp_paths</code>, dupliquée dans 5 fichiers avec 2 comportements différents, unifiée dans <code>modules/grp_paths.py</code> ; couleurs de séries, couleur "semi-transparente" et icône ⓘ cliquable sur graphique regroupées dans <code>ui/widgets_common.py</code> (auparavant dupliquées entre onglets) ; sauvegarde de <code>config.json</code> rendue atomique (écriture dans un fichier temporaire puis remplacement) avec détection explicite d'un JSON corrompu ; première suite de tests automatisés (33 tests, fonctions pures de <code>modules/</code>).</p>
   </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Analyse crues affl. : les éléments positionnés "à la main" sur le graphique (icône du barycentre, légende multi-lignes du Tr, percentiles P10/P50/P90, bandes de propagation) restaient figés à leur position calculée au dernier changement de crue — redimensionner la fenêtre de l'outil (Figure matplotlib redessinée automatiquement à la nouvelle taille) pouvait les laisser chevauchés ou désalignés jusqu'au prochain changement de pas de temps/crue. Un redimensionnement redéclenche désormais leur repositionnement (anti-rebond 300 ms, pour ne pas redessiner à chaque pixel pendant un glisser-déposer du bord de fenêtre).</p>
+  </div>
 </section>
 
 </main>

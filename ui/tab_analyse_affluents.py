@@ -1264,6 +1264,24 @@ def build_tab_analyse_affluents(tab_frame, app):
     combo_crue.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_graphique())
     enregistrer_observateur_pdt(app, _pdt_change_externe)
 
+    # Repositionne les éléments custom (icône barycentre, légende multi-lignes,
+    # bandes Tr, camemberts) quand la fenêtre est redimensionnée — leur position est
+    # calculée par mesure de bbox au moment du tracé (voir _rafraichir_graphique),
+    # jamais recalculée automatiquement par matplotlib quand la Figure change de
+    # taille (contrairement aux axes eux-mêmes) : sans ce binding, redimensionner la
+    # fenêtre laissait ces éléments désalignés jusqu'au prochain changement de crue.
+    # Anti-rebond (300 ms) : un redimensionnement au clic-glisser déclenche de
+    # nombreux événements <Configure> successifs, un seul rafraîchissement (relit les
+    # fichiers de la crue affichée) suffit une fois le geste terminé.
+    etat_resize = {"apres_id": None}
+
+    def _sur_resize(_evt=None):
+        if etat_resize["apres_id"] is not None:
+            app.after_cancel(etat_resize["apres_id"])
+        etat_resize["apres_id"] = app.after(300, _rafraichir_graphique)
+
+    canvas.get_tk_widget().bind("<Configure>", _sur_resize)
+
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]
     libelle_init = libelle_dernier_pdt(app, pdt_list)
