@@ -15,7 +15,11 @@ from datetime import datetime
 from tkinter import messagebox, simpledialog, ttk
 
 from modules import results_store
-from ui.widgets_common import bouton_enregistrer, build_liste_reordonnable, make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import (
+    bouton_enregistrer, build_liste_reordonnable, enregistrer_observateur_pdt,
+    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
+    sauvegarder_dernier_pdt,
+)
 
 _MOTIF_DUREE_GRP = re.compile(r"^\d{2}J\d{2}H\d{2}M$")
 
@@ -228,10 +232,27 @@ def build_tab_parametrage(tab_frame, app):
         if not parametrage["pas_de_temps"]:
             var_pdt_libelle.set("")
         elif var_pdt_libelle.get() not in combo_pdt["values"]:
-            var_pdt_libelle.set(parametrage["pas_de_temps"][0]["libelle"])
+            libelle_init = libelle_dernier_pdt(app, parametrage["pas_de_temps"])
+            if libelle_init:
+                var_pdt_libelle.set(libelle_init)
         _rafraichir_horizons()
 
-    combo_pdt.bind("<<ComboboxSelected>>", _rafraichir_horizons)
+    def _on_pdt_change(*_evt):
+        sauvegarder_dernier_pdt(app, _code_pdt_courant(), source=_pdt_change_externe)
+        _rafraichir_horizons()
+
+    def _pdt_change_externe(code_pdt):
+        # Le pas de temps a été changé dans un AUTRE onglet (Crues, Dashboard, Analyse
+        # crues affl. ou Campagne) — aligne ce combo sans re-notifier (déjà fait par
+        # la source).
+        libelle = next((p["libelle"] for p in parametrage["pas_de_temps"]
+                         if p["code"] == code_pdt), None)
+        if libelle and var_pdt_libelle.get() != libelle:
+            var_pdt_libelle.set(libelle)
+            _rafraichir_horizons()
+
+    combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
+    enregistrer_observateur_pdt(app, _pdt_change_externe)
     _rafraichir_combo_pdt()
 
     # ── Seuils de calage ─────────────────────────────────────────────────────────

@@ -491,12 +491,16 @@ def build_tab_analyse_affluents(tab_frame, app):
     cadre_vignettes = tk.Frame(cadre_graphique, width=190)
     cadre_vignettes.pack(side=tk.LEFT, fill=tk.Y, padx=(6, 0))
     cadre_vignettes.pack_propagate(False)
-    # Espaceur : la légende matplotlib est ancrée en haut du même axe (bbox_to_anchor
-    # y=0.98, voir plus bas) — ce Label vide pousse les vignettes visuellement SOUS
-    # elle plutôt que de les faire chevaucher, sans dépendre d'un calcul de pixels
-    # fragile (la hauteur réelle de la légende varie avec le nombre d'affluents).
-    tk.Label(cadre_vignettes, text="Qmax observé par courbe :",
-              font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(anchor="w", pady=(58, 4))
+    # La légende matplotlib est ancrée en haut du même axe (bbox_to_anchor y=0.98, voir
+    # plus bas) — l'espace au-dessus de ce label est recalé à chaque tracé sur la
+    # hauteur RÉELLE de la légende (voir _rafraichir_graphique), pour ne pas gâcher de
+    # place avec une marge fixe généreuse (l'ancienne valeur fixe, 58 px, laissait
+    # trop de vide dès qu'il y avait peu d'affluents, et coupait le camembert de
+    # surfaces en bas du panneau — signalé par l'utilisateur).
+    label_titre_vignettes = tk.Label(
+        cadre_vignettes, text="Qmax observé par courbe :",
+        font=("TkDefaultFont", 8, "italic"), fg="#555555")
+    label_titre_vignettes.pack(anchor="w", pady=(8, 4))
 
     def _vider_vignettes():
         for w in cadre_vignettes.winfo_children()[1:]:  # [0] = le libellé ci-dessus, conservé
@@ -993,6 +997,21 @@ def build_tab_analyse_affluents(tab_frame, app):
                     legende.set_title(f"Temps de réponse (Tr) : {signe}{h} h {m:02d} min",
                                         prop={"size": 7.5, "weight": "bold"})
 
+        # Position réelle du bas de la légende (mesurée sur le rendu effectif, pas
+        # devinée) — sert au camembert de contribution ci-dessous. Le panneau
+        # vignettes Tk, lui, N'EST PLUS aligné sous la légende (essai précédent :
+        # s'aligner exactement dessous demandait ~180 px de marge en haut du panneau,
+        # bien plus que les 58 px fixes d'avant — les deux widgets sont côte à côte,
+        # pas superposés, un vrai chevauchement est donc impossible ; l'alignement
+        # esthétique coûtait plus de place qu'il n'en valait la peine). Marge fixe
+        # réduite à 12 px (voir label_titre_vignettes) pour remonter tout le panneau
+        # (vignettes + camembert de surfaces) et ne plus le couper en bas — demandé.
+        bbox_legende_fig = None
+        if legende is not None:
+            fig.canvas.draw()
+            bbox_legende_fig = legende.get_window_extent(
+                renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+
         # -- Camembert de contribution au pic exutoire, sous la légende, pas plus
         # large qu'elle (demandé) — construit à partir des % de Q rétropropagé de
         # chaque affluent (colonne "% du Qmax exutoire" du tableau ci-dessous). Un
@@ -1001,7 +1020,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         # est écrêté au prorata ; un total sous 100 % laisse la part manquante à une
         # part grise "Écoulements locaux" (bassin versant non instrumenté par un
         # affluent suivi). Position/largeur mesurées sur la légende déjà rendue.
-        if contributions_pie:
+        if contributions_pie and bbox_legende_fig is not None:
             total_pct = sum(p for _n, _c, p in contributions_pie)
             if total_pct > 100:
                 facteur = 100 / total_pct
@@ -1011,9 +1030,6 @@ def build_tab_analyse_affluents(tab_frame, app):
                 reste = 100 - total_pct
                 if reste > 0.5:
                     parts.append(("Écoulements locaux", _COULEUR_LOCAL, reste))
-            fig.canvas.draw()
-            bbox_legende_fig = legende.get_window_extent(
-                renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
             # Bord bas aligné sur le bord bas du graphique principal (demandé) — haut
             # calé juste sous la légende comme avant, hauteur déduite des deux.
             y0_pie = ax.get_position().y0
