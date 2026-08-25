@@ -13,6 +13,7 @@ import tkinter as tk
 from datetime import datetime, timedelta
 from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
+import numpy as np
 from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -488,6 +489,10 @@ def build_tab_analyse_affluents(tab_frame, app):
     # supprimée/reconnectée à chaque tracé, sa position dépend de la date affichée.
     etat_graphique = {"ax_pie": None}
     etat_icone_bary = {"artist": None, "cid": None}
+    # Textes P10/P50/P90 (voir _rafraichir_graphique) : fig.text(), pas ax.text(),
+    # donc PAS supprimés par ax.clear() — à retirer manuellement à chaque tracé,
+    # même principe que l'icône du barycentre ci-dessus.
+    etat_percentiles_tr = {"artists": []}
 
     cadre_vignettes = tk.Frame(cadre_graphique, width=190)
     cadre_vignettes.pack(side=tk.LEFT, fill=tk.Y, padx=(6, 0))
@@ -713,6 +718,35 @@ def build_tab_analyse_affluents(tab_frame, app):
             return None
         return valeurs[libelles.index(var_crue.get())][1]
 
+    def _tr_crues_selectionnees(paths, code_pdt, evenements):
+        """Liste des temps de réponse (Tr, en minutes) calculés sur les crues
+        actuellement sélectionnées pour la campagne (app.config_data
+        ["crues_selectionnees"], même liste que l'onglet Crues) — un Tr par crue
+        sélectionnée pour laquelle le calcul est possible (Qmax exutoire ET
+        barycentre pluie connus, même méthode que pour la crue affichée)."""
+        isos_selectionnes = set(app.config_data.get("crues_selectionnees", []))
+        if not isos_selectionnes:
+            return []
+        trs = []
+        for e in evenements:
+            if e.date_deb.isoformat() not in isos_selectionnes:
+                continue
+            chemin = os.path.join(paths.evenements_dir(code_pdt),
+                                   f"{paths.code_site}-EV{e.num_evt:04d}.DAT")
+            try:
+                serie_e = parse_evenement_serie(chemin)
+            except (FileNotFoundError, CriteresPerfError):
+                continue
+            points_q = [(p[0], p[2]) for p in serie_e]
+            _qmax_e, date_qmax_e = affluents.qmax_et_horodatage(points_q)
+            if date_qmax_e is None:
+                continue
+            date_bary_e = _barycentre_pluie(serie_e, date_limite=date_qmax_e)
+            if date_bary_e is None:
+                continue
+            trs.append((date_qmax_e - date_bary_e).total_seconds() / 60)
+        return trs
+
     def _rafraichir_crues(*_evt):
         paths = _construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
@@ -765,6 +799,12 @@ def build_tab_analyse_affluents(tab_frame, app):
                 pass
             canvas.mpl_disconnect(etat_icone_bary["cid"])
             etat_icone_bary["artist"] = None
+        for artiste in etat_percentiles_tr["artists"]:
+            try:
+                artiste.remove()
+            except Exception:
+                pass
+        etat_percentiles_tr["artists"] = []
         etat_courbes["liste"] = []
         etat_survol["artist"] = ax.annotate(
             "", xy=(0, 0), xytext=(12, 12), textcoords="offset points", fontsize=7.5,
@@ -1008,7 +1048,7 @@ def build_tab_analyse_affluents(tab_frame, app):
                 fig.canvas.draw()
                 bbox_titre = txt_titre.get_window_extent(renderer=fig.canvas.get_renderer())
                 x_icone, y_icone = fig.transFigure.inverted().transform(
-                    (bbox_titre.x1 + 4, (bbox_titre.y0 + bbox_titre.y1) / 2))
+                    (bbox_titre.x1 + 9, (bbox_titre.y0 + bbox_titre.y1) / 2))
                 icone = fig.text(x_icone, y_icone, "i", fontsize=6, color="white",
                                    fontweight="bold", fontstyle="italic", ha="center",
                                    va="center", picker=True, clip_on=False,
@@ -1025,8 +1065,45 @@ def build_tab_analyse_affluents(tab_frame, app):
                 etat_icone_bary["cid"] = canvas.mpl_connect("pick_event", _clic_icone_bary)
 
                 if date_qmax_exutoire is not None and legende is not None:
-                    legende.set_title(f"Temps de réponse (Tr) : {signe}{h_tr} h {m_tr:02d} min",
-                                        prop={"size": 7.5, "weight": "bold"})
+                    trs_selection = _tr_crues_selectionnees(paths, code_pdt, evenements)
+                    texte_titre_legende = f"Temps de réponse (Tr) : {signe}{h_tr} h {m_tr:02d} min"
+                    if trs_selection:
+                        # Ligne vide supplémentaire : réserve la hauteur d'une 2e ligne
+                        # dans le titre (agrandit la légende en conséquence, repousse
+                        # ses entrées vers le bas) — les P10/P50/P90 y sont posés
+                        # PAR-DESSUS juste après, en 3 textes séparés (voir plus bas) :
+                        # set_title() n'admet qu'une seule police pour tout son texte,
+                        # impossible d'avoir P10/P90 petits et P50 normal-gras sinon.
+                        texte_titre_legende += "\n "
+                    legende.set_title(texte_titre_legende, prop={"size": 7.5, "weight": "bold"})
+                    if trs_selection:
+                        def _fmt_tr(minutes):
+                            s = "-" if minutes < 0 else ""
+                            hh, mm = divmod(round(abs(minutes)), 60)
+                            return f"{s}{hh}h {mm:02d}min"
+                        p10_tr, p50_tr, p90_tr = np.percentile(trs_selection, [10, 50, 90])
+                        fig.canvas.draw()
+                        bbox_titre_legende = legende.get_title().get_window_extent(
+                            renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+                        # La 2e ligne (vide, réservée ci-dessus) occupe le quart inférieur
+                        # de la bbox du titre 2 lignes (même interligne que la ligne 1).
+                        y_ligne2 = (bbox_titre_legende.y0
+                                    + (bbox_titre_legende.y1 - bbox_titre_legende.y0) * 0.22)
+                        x_centre_legende = (bbox_titre_legende.x0 + bbox_titre_legende.x1) / 2
+                        txt_p50 = fig.text(
+                            x_centre_legende, y_ligne2, f"P50 = {_fmt_tr(p50_tr)}",
+                            ha="center", va="center", fontsize=7, fontweight="bold",
+                            color="#0B1F4B")
+                        fig.canvas.draw()
+                        bbox_p50 = txt_p50.get_window_extent(
+                            renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+                        txt_p10 = fig.text(
+                            bbox_p50.x0 - 0.006, y_ligne2, f"P10 = {_fmt_tr(p10_tr)}",
+                            ha="right", va="center", fontsize=5.5, color="#0B1F4B")
+                        txt_p90 = fig.text(
+                            bbox_p50.x1 + 0.006, y_ligne2, f"P90 = {_fmt_tr(p90_tr)}",
+                            ha="left", va="center", fontsize=5.5, color="#0B1F4B")
+                        etat_percentiles_tr["artists"] = [txt_p50, txt_p10, txt_p90]
 
         # Position réelle du bas de la légende (mesurée sur le rendu effectif, pas
         # devinée) — sert au camembert de contribution ci-dessous. Le panneau
@@ -1071,7 +1148,24 @@ def build_tab_analyse_affluents(tab_frame, app):
             ax_pie.pie([p for _n, _c, p in parts], colors=[_c for _n, _c, p in parts],
                         autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
                         textprops={"fontsize": 6}, wedgeprops={"edgecolor": "white", "linewidth": 0.6})
-            ax_pie.set_title(f"Contribution au pic exutoire : {total_pct:.0f} %", fontsize=7)
+            # Titre sur 2 lignes (demandé) — 2 annotations séparées ancrées en offset
+            # POINTS (pas en fraction d'axe, indépendant de la taille du camembert qui
+            # varie avec le nombre d'affluents) pour garder un écart fixe et éviter
+            # tout chevauchement entre les 2 lignes.
+            ax_pie.annotate("Contribution au pic exutoire", xy=(0.5, 1.0),
+                              xycoords="axes fraction", xytext=(0, 15),
+                              textcoords="offset points", ha="center", va="bottom",
+                              fontsize=6.5, color="black", clip_on=False)
+            # %age total sur sa propre ligne pour pouvoir le mettre en gras rouge si le
+            # total dépasse 100 % (affluents suivis fournissant, sur le papier, plus
+            # que le débit de pointe observé — signal d'alerte visuel, demandé) sans
+            # changer le style du reste du titre.
+            couleur_pct = "#C0392B" if total_pct > 100 else "black"
+            poids_pct = "bold" if total_pct > 100 else "normal"
+            ax_pie.annotate(f"{total_pct:.0f} %", xy=(0.5, 1.0), xycoords="axes fraction",
+                              xytext=(0, 2), textcoords="offset points", ha="center",
+                              va="bottom", fontsize=7, color=couleur_pct,
+                              fontweight=poids_pct, clip_on=False)
             # ax.pie() applique un aspect 1:1 (adjustable="box") : matplotlib RÉDUIT et
             # RECENTRE verticalement la boîte donnée pour garder un cercle parfait, le
             # bord bas ne tombe donc PAS sur y0_pie tel quel. On mesure la taille
