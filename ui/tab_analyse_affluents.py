@@ -448,6 +448,18 @@ def build_tab_analyse_affluents(tab_frame, app):
     ttk.Checkbutton(r_sel, text="Afficher les seuils de vigilance", variable=var_vigilance,
                      command=lambda: _rafraichir_graphique()).pack(side=tk.LEFT, padx=(12, 0))
 
+    # Cases à cocher pour alléger le graphique à la demande (demandé — l'onglet cumule
+    # beaucoup d'éléments superposés : hydrogramme, hyétogramme, seuils, bandes de
+    # propagation, barycentre, 2 camemberts, panneau de vignettes) — même principe que
+    # la case vigilance ci-dessus, par défaut cochées (comportement inchangé tant que
+    # l'utilisateur ne les décoche pas explicitement).
+    var_propagation = tk.BooleanVar(value=True)
+    ttk.Checkbutton(r_sel, text="Bandes de propagation", variable=var_propagation,
+                     command=lambda: _rafraichir_graphique()).pack(side=tk.LEFT, padx=(12, 0))
+    var_camemberts = tk.BooleanVar(value=True)
+    ttk.Checkbutton(r_sel, text="Camemberts", variable=var_camemberts,
+                     command=lambda: _rafraichir_graphique()).pack(side=tk.LEFT, padx=(12, 0))
+
     var_statut = tk.StringVar(value="")
     tk.Label(frm, textvariable=var_statut, fg="#555555", wraplength=1000, justify=tk.LEFT).pack(
         anchor="w", padx=10, pady=(2, 0))
@@ -943,15 +955,17 @@ def build_tab_analyse_affluents(tab_frame, app):
             # exutoire ; ci-dessus : pic exutoire -> instant correspondant chez
             # l'affluent). Les deux usent le même P50, dans des directions opposées.
             date_p10, date_p50, date_p90 = affluents.bornes_bande_propagation(date_qmax_a, a)
-            if date_p10 is not None and date_p90 is not None:
-                ax.axvspan(date_p10, date_p90, color=couleur, alpha=0.12, zorder=0)
-            if date_p50 is not None:
-                ax.axvline(date_p50, color=couleur, lw=2.4, alpha=0.75, zorder=2)
+            if var_propagation.get():
+                if date_p10 is not None and date_p90 is not None:
+                    ax.axvspan(date_p10, date_p90, color=couleur, alpha=0.12, zorder=0)
+                if date_p50 is not None:
+                    ax.axvline(date_p50, color=couleur, lw=2.4, alpha=0.75, zorder=2)
 
-        _dessiner_camembert_surfaces(
-            app.config_data.get("station", {}).get("surface_bv_km2"),
-            [(a.nom, a.couleur or "#7D3C98", a.surface_bv_km2) for a in affluents_traces],
-        )
+        if var_camemberts.get():
+            _dessiner_camembert_surfaces(
+                app.config_data.get("station", {}).get("surface_bv_km2"),
+                [(a.nom, a.couleur or "#7D3C98", a.surface_bv_km2) for a in affluents_traces],
+            )
 
         if var_vigilance.get():
             seuils = app.config_data.get("seuils_q", {})
@@ -1104,19 +1118,20 @@ def build_tab_analyse_affluents(tab_frame, app):
                         # bandes de propagation des affluents (couleur propre à chacun) ;
                         # trait P50 plus fin (1.2 contre 2.4) — estimation statistique,
                         # pas une mesure directe, moins de poids visuel voulu.
-                        date_p10_tr = date_bary + timedelta(minutes=p10_tr)
-                        date_p50_tr = date_bary + timedelta(minutes=p50_tr)
-                        date_p90_tr = date_bary + timedelta(minutes=p90_tr)
-                        ax.axvspan(date_p10_tr, date_p90_tr, color="#2E86AB", alpha=0.12,
-                                    zorder=0)
-                        ax.axvline(date_p50_tr, color="#2E86AB", lw=1.2, alpha=0.85,
-                                    zorder=2)
-                        ax.annotate(
-                            "Pic de crue estimé\nà partir du Tr",
-                            xy=(mdates.date2num(date_p50_tr), 1),
-                            xycoords=ax.get_xaxis_transform(), xytext=(0, 8),
-                            textcoords="offset points", ha="center", va="bottom",
-                            fontsize=6.5, color="#2E86AB", clip_on=False)
+                        if var_propagation.get():
+                            date_p10_tr = date_bary + timedelta(minutes=p10_tr)
+                            date_p50_tr = date_bary + timedelta(minutes=p50_tr)
+                            date_p90_tr = date_bary + timedelta(minutes=p90_tr)
+                            ax.axvspan(date_p10_tr, date_p90_tr, color="#2E86AB",
+                                        alpha=0.12, zorder=0)
+                            ax.axvline(date_p50_tr, color="#2E86AB", lw=1.2, alpha=0.85,
+                                        zorder=2)
+                            ax.annotate(
+                                "Pic de crue estimé\nà partir du Tr",
+                                xy=(mdates.date2num(date_p50_tr), 1),
+                                xycoords=ax.get_xaxis_transform(), xytext=(0, 8),
+                                textcoords="offset points", ha="center", va="bottom",
+                                fontsize=6.5, color="#2E86AB", clip_on=False)
 
                         artistes = _poser_percentiles()
                         fig.canvas.draw()
@@ -1180,7 +1195,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         # est écrêté au prorata ; un total sous 100 % laisse la part manquante à une
         # part grise "Écoulements locaux" (bassin versant non instrumenté par un
         # affluent suivi). Position/largeur mesurées sur la légende déjà rendue.
-        if contributions_pie and bbox_legende_fig is not None:
+        if var_camemberts.get() and contributions_pie and bbox_legende_fig is not None:
             total_pct = sum(p for _n, _c, p in contributions_pie)
             if total_pct > 100:
                 facteur = 100 / total_pct

@@ -894,6 +894,11 @@
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-fix">Correctif</span> Analyse crues affl. : les éléments positionnés "à la main" sur le graphique (icône du barycentre, légende multi-lignes du Tr, percentiles P10/P50/P90, bandes de propagation) restaient figés à leur position calculée au dernier changement de crue — redimensionner la fenêtre de l'outil (Figure matplotlib redessinée automatiquement à la nouvelle taille) pouvait les laisser chevauchés ou désalignés jusqu'au prochain changement de pas de temps/crue. Un redimensionnement redéclenche désormais leur repositionnement (anti-rebond 300 ms, pour ne pas redessiner à chaque pixel pendant un glisser-déposer du bord de fenêtre).</p>
   </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Analyse crues affl. : 2 cases à cocher "Bandes de propagation" et "Camemberts", à côté de "Afficher les seuils de vigilance" — permettent d'alléger le graphique à la demande (cochées par défaut, comportement inchangé) plutôt que de toujours tout afficher en même temps sur un graphique déjà dense (hydrogramme, hyétogramme, seuils, bandes, barycentre, 2 camemberts, panneau de vignettes).</p>
+  </div>
 </section>
 
 </main>
