@@ -13,8 +13,8 @@ from tkinter import messagebox, ttk
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
 from ui.widgets_common import (
-    bouton_enregistrer, bouton_info, libelle_dernier_pdt, make_label, make_row,
-    make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
+    bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
+    make_label, make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
 )
 
 TEXTE_INFO_TYPEVT_P = (
@@ -302,10 +302,20 @@ def build_tab_crues(tab_frame, app):
         _rafraichir()
 
     def _on_pdt_change(*_evt):
-        sauvegarder_dernier_pdt(app, _code_pdt_courant())
+        sauvegarder_dernier_pdt(app, _code_pdt_courant(), source=_pdt_change_externe)
         _rafraichir()
 
+    def _pdt_change_externe(code_pdt):
+        # Le pas de temps a été changé dans un AUTRE onglet (Dashboard ou Analyse
+        # crues affl.) — aligne ce combo sans re-notifier (déjà fait par la source).
+        pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+        libelle = next((p["libelle"] for p in pdt_list if p["code"] == code_pdt), None)
+        if libelle and var_pdt_libelle.get() != libelle:
+            var_pdt_libelle.set(libelle)
+            _rafraichir()
+
     combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
+    enregistrer_observateur_pdt(app, _pdt_change_externe)
     _rafraichir_combo_pdt()
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────

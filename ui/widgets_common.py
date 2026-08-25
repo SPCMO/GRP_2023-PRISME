@@ -45,14 +45,36 @@ def libelle_dernier_pdt(app, pdt_list):
     return pdt_list[0]["libelle"]
 
 
-def sauvegarder_dernier_pdt(app, code_pdt):
+def sauvegarder_dernier_pdt(app, code_pdt, source=None):
     """Mémorise `code_pdt` comme dernier pas de temps sélectionné — voir
     libelle_dernier_pdt(). Persisté immédiatement (pas d'état "non sauvegardé" qui
-    pourrait se perdre à la fermeture) ; no-op si `code_pdt` est vide/None."""
+    pourrait se perdre à la fermeture) ; no-op si `code_pdt` est vide/None.
+
+    Notifie aussi tout de suite les autres onglets déjà ouverts (voir
+    enregistrer_observateur_pdt) : les 3 onglets restant en mémoire pendant toute la
+    session (voir main.py::App._build_ui, construits une seule fois), sans cette
+    notification en direct, changer le pas de temps dans un onglet n'était répercuté
+    dans les autres qu'à leur PROCHAINE reconstruction (donc jamais, un onglet n'étant
+    reconstruit qu'au redémarrage de l'outil) — demandé : un seul endroit à changer.
+    `source` (le callback de l'onglet à l'origine du changement, s'il s'est lui-même
+    enregistré comme observateur) est exclu de la notification pour éviter un
+    rafraîchissement redondant de l'onglet qui vient déjà de se rafraîchir."""
     if not code_pdt:
         return
     app.config_data.setdefault("parametrage", {})["dernier_pdt_selectionne"] = code_pdt
     app.persist_config()
+    for callback in getattr(app, "_observateurs_pdt", []):
+        if callback is not source:
+            callback(code_pdt)
+
+
+def enregistrer_observateur_pdt(app, callback):
+    """Abonne `callback(code_pdt)` aux changements de pas de temps décidés dans un
+    AUTRE onglet (voir sauvegarder_dernier_pdt) — à appeler une fois à la construction
+    de chaque onglet proposant un combo "Pas de temps" partagé."""
+    if not hasattr(app, "_observateurs_pdt"):
+        app._observateurs_pdt = []
+    app._observateurs_pdt.append(callback)
 
 
 def init_styles(root):

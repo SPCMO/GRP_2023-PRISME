@@ -23,8 +23,8 @@ from modules.phyc_client import PhycAuthError, PhycClient
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
-    sauvegarder_dernier_pdt,
+    enregistrer_observateur_pdt, libelle_dernier_pdt, make_label, make_row,
+    make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
 )
 
 _COULEUR_OBS = "#1B4F72"
@@ -210,10 +210,6 @@ def build_tab_analyse_affluents(tab_frame, app):
             tk.Label(f, text=texte, width=largeur_label, anchor="w").pack(side=tk.LEFT)
             return f
 
-        f_nom = _ligne("Nom de l'affluent :")
-        var_nom = tk.StringVar(value=affluent_existant.nom if affluent_existant else "")
-        ttk.Entry(f_nom, textvariable=var_nom, width=30).pack(side=tk.LEFT)
-
         f_code_station = _ligne("Code station (ex. Y161202001) :")
         var_code_station = tk.StringVar(
             value=affluent_existant.code_station if affluent_existant
@@ -222,6 +218,7 @@ def build_tab_analyse_affluents(tab_frame, app):
             side=tk.LEFT, padx=(0, 4))
 
         var_erreur_phyc = tk.StringVar(value="")
+        var_nom = tk.StringVar(value=affluent_existant.nom if affluent_existant else "")
 
         def _recuperer_infos_phyc():
             try:
@@ -280,7 +277,12 @@ def build_tab_analyse_affluents(tab_frame, app):
                 var_nom.set(infos_site.libelle_usuel_site)
             if infos_site.surface_bv_km2 is not None:
                 var_surface.set(f"{infos_site.surface_bv_km2:g}")
-            var_erreur_phyc.set("Infos PHyC récupérées (nom et surface restent modifiables).")
+            message = "Infos PHyC récupérées (nom et surface restent modifiables)."
+            if infos_site.surface_est_approximative:
+                message += (" Surface approximative (BassinVersantSiteHydro absent de "
+                             "PHyC pour ce site — repli sur la surface de la BNBV, "
+                             "SurfBNBV, un périmètre légèrement différent).")
+            var_erreur_phyc.set(message)
 
         btn_phyc = ttk.Button(f_code_station, text="Récupérer infos PHyC",
                                command=_recuperer_infos_phyc)
@@ -289,6 +291,9 @@ def build_tab_analyse_affluents(tab_frame, app):
         tk.Label(cadre, textvariable=var_erreur_phyc, fg="#6b7280", wraplength=420,
                  justify=tk.LEFT, font=("TkDefaultFont", 8, "italic")).pack(
             anchor="w", pady=(0, 4))
+
+        f_nom = _ligne("Nom de l'affluent :")
+        ttk.Entry(f_nom, textvariable=var_nom, width=30).pack(side=tk.LEFT)
 
         f_surface = _ligne("Surface de BV (km²) :")
         var_surface = tk.StringVar(
@@ -497,16 +502,62 @@ def build_tab_analyse_affluents(tab_frame, app):
         for w in cadre_vignettes.winfo_children()[1:]:  # [0] = le libellé ci-dessus, conservé
             w.destroy()
 
-    def _ajouter_vignette(nom, couleur, qmax, date_qmax):
+    def _ajouter_vignette(nom, couleur, qmax, date_qmax, surface=None):
         v = tk.Frame(cadre_vignettes, bg=couleur, relief=tk.RIDGE, borderwidth=2)
         v.pack(fill=tk.X, pady=3)
         tk.Label(v, text=nom, bg=couleur, fg="white", font=("TkDefaultFont", 8, "bold"),
                   wraplength=175, justify=tk.LEFT).pack(anchor="w", padx=5, pady=(3, 0))
+        if surface is not None:
+            tk.Label(v, text=f"BV {surface:.0f} km²", bg=couleur, fg="white",
+                     font=("TkDefaultFont", 8)).pack(anchor="w", padx=5)
         tk.Label(v, text=f"Qmax {qmax:.1f} m³/s" if qmax is not None else "Qmax indisponible",
                  bg=couleur, fg="white", font=("TkDefaultFont", 8)).pack(anchor="w", padx=5)
         if date_qmax is not None:
             tk.Label(v, text=f"{date_qmax:%d/%m/%Y %H:%M}", bg=couleur, fg="white",
                       font=("TkDefaultFont", 8)).pack(anchor="w", padx=5, pady=(0, 3))
+
+    def _dessiner_camembert_surfaces(surface_exutoire, items):
+        """items : liste de (nom, couleur, surface_km2) des affluents tracés. Camembert
+        Tk (le panneau vignettes est en Tk pur, pas matplotlib) du prorata de surface de
+        BV suivie par un affluent par rapport à la surface totale du BV exutoire — même
+        principe que le camembert matplotlib de contribution au pic (écrêtage au prorata
+        si le total dépasse 100 %, part grise _COULEUR_LOCAL pour le reste non suivi),
+        mais en surface plutôt qu'en débit. Placé sous les vignettes Qmax (demandé),
+        largeur bornée par celle du panneau (cadre_vignettes, 190 px)."""
+        tk.Label(cadre_vignettes, text="Surface de BV suivie :",
+                  font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(
+            anchor="w", pady=(10, 2))
+        if surface_exutoire is None or surface_exutoire <= 0:
+            tk.Label(cadre_vignettes, text="Surface exutoire inconnue (Configuration).",
+                      font=("TkDefaultFont", 7), fg="#888888", wraplength=175,
+                      justify=tk.LEFT).pack(anchor="w")
+            return
+        diametre, marge = 150, 4
+        taille = diametre + marge * 2
+        canvas = tk.Canvas(cadre_vignettes, width=taille, height=taille,
+                            highlightthickness=0, bg=cadre_vignettes.cget("bg"))
+        canvas.pack(pady=(2, 2))
+        parts = [(n, c, s) for n, c, s in items if s]
+        total_suivi = sum(s for _n, _c, s in parts)
+        if total_suivi > surface_exutoire:
+            facteur = surface_exutoire / total_suivi
+            parts = [(n, c, s * facteur) for n, c, s in parts]
+            total_suivi = surface_exutoire
+        reste = surface_exutoire - total_suivi
+        if reste > 0.5:
+            parts = parts + [("Écoulements locaux", _COULEUR_LOCAL, reste)]
+        bbox = (marge, marge, marge + diametre, marge + diametre)
+        angle = 90.0
+        for _nom, couleur, surface in parts:
+            extent = -360.0 * (surface / surface_exutoire)
+            canvas.create_arc(bbox, start=angle, extent=extent, fill=couleur,
+                                outline="white", width=1)
+            angle += extent
+        pct_suivi = total_suivi / surface_exutoire * 100
+        tk.Label(cadre_vignettes,
+                  text=f"{pct_suivi:.0f} % suivi ({total_suivi:.0f} / {surface_exutoire:.0f} km²)",
+                  font=("TkDefaultFont", 7), fg="#555555", wraplength=175,
+                  justify=tk.LEFT).pack(anchor="w", pady=(0, 4))
 
     # Association handle de légende (proxy Line2D) -> Affluent, pour permettre de
     # changer la couleur d'une courbe affluente en cliquant directement dans la
@@ -740,8 +791,9 @@ def build_tab_analyse_affluents(tab_frame, app):
             })
             qmax_exutoire, date_qmax_exutoire = affluents.qmax_et_horodatage(points_exutoire)
             volume_exutoire = affluents.volume_m3(points_exutoire)
-            _ajouter_vignette("Moussoulens (exutoire)", _COULEUR_OBS,
-                               qmax_exutoire, date_qmax_exutoire)
+            _ajouter_vignette(
+                "Moussoulens (exutoire)", _COULEUR_OBS, qmax_exutoire, date_qmax_exutoire,
+                surface=app.config_data.get("station", {}).get("surface_bv_km2"))
             # Au moment de son propre Qmax, l'exutoire "contribue" à 100 % de son
             # propre débit — sert de référence aux % de contribution des affluents
             # ci-dessous (mêmes colonnes, même instant de référence).
@@ -807,7 +859,7 @@ def build_tab_analyse_affluents(tab_frame, app):
             affluents_traces.append(a)
             qmax_a, date_qmax_a = affluents.qmax_et_horodatage(serie_a)
             volume_a = affluents.volume_m3(serie_a)
-            _ajouter_vignette(a.nom, couleur, qmax_a, date_qmax_a)
+            _ajouter_vignette(a.nom, couleur, qmax_a, date_qmax_a, surface=a.surface_bv_km2)
             pct_volume = (volume_a / volume_exutoire * 100
                           if volume_a is not None and volume_exutoire else None)
 
@@ -837,6 +889,11 @@ def build_tab_analyse_affluents(tab_frame, app):
                 ax.axvspan(date_p10, date_p90, color=couleur, alpha=0.12, zorder=0)
             if date_p50 is not None:
                 ax.axvline(date_p50, color=couleur, lw=2.4, alpha=0.75, zorder=2)
+
+        _dessiner_camembert_surfaces(
+            app.config_data.get("station", {}).get("surface_bv_km2"),
+            [(a.nom, a.couleur or "#7D3C98", a.surface_bv_km2) for a in affluents_traces],
+        )
 
         if var_vigilance.get():
             seuils = app.config_data.get("seuils_q", {})
@@ -998,11 +1055,21 @@ def build_tab_analyse_affluents(tab_frame, app):
             f"affluent(s) tracé(s) sur {len(liste_affl)} configuré(s).")
 
     def _on_pdt_change(*_evt):
-        sauvegarder_dernier_pdt(app, _pas_de_temps_courant())
+        sauvegarder_dernier_pdt(app, _pas_de_temps_courant(), source=_pdt_change_externe)
         _rafraichir_crues()
+
+    def _pdt_change_externe(code_pdt):
+        # Le pas de temps a été changé dans un AUTRE onglet (Dashboard ou Crues) —
+        # aligne ce combo sur le même choix sans re-notifier (déjà fait par la source).
+        pdt_list_actuelle = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+        libelle = next((p["libelle"] for p in pdt_list_actuelle if p["code"] == code_pdt), None)
+        if libelle and var_pdt.get() != libelle:
+            var_pdt.set(libelle)
+            _rafraichir_crues()
 
     combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
     combo_crue.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_graphique())
+    enregistrer_observateur_pdt(app, _pdt_change_externe)
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]

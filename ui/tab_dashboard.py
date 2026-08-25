@@ -33,8 +33,8 @@ from modules.score import (
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    bouton_info, libelle_dernier_pdt, make_label, make_row, make_section,
-    sauvegarder_dernier_pdt,
+    bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt, make_label, make_row,
+    make_section, sauvegarder_dernier_pdt,
 )
 
 # Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
@@ -1407,11 +1407,21 @@ def _build_detail(frame, app):
         var_indicateurs.set(texte)
 
     def _on_pdt_change(*_evt):
-        sauvegarder_dernier_pdt(app, _pas_de_temps_courant())
+        sauvegarder_dernier_pdt(app, _pas_de_temps_courant(), source=_pdt_change_externe)
         _rafraichir_crues()
+
+    def _pdt_change_externe(code_pdt):
+        # Le pas de temps a été changé dans un AUTRE onglet (Crues ou Analyse crues
+        # affl.) — aligne ce combo sans re-notifier (déjà fait par la source).
+        pdt_list_actuelle = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+        libelle = next((p["libelle"] for p in pdt_list_actuelle if p["code"] == code_pdt), None)
+        if libelle and var_pdt.get() != libelle:
+            var_pdt.set(libelle)
+            _rafraichir_crues()
 
     combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
     combo_crue.bind("<<ComboboxSelected>>", lambda *_: (_rafraichir_combis(), _tracer()))
+    enregistrer_observateur_pdt(app, _pdt_change_externe)
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]

@@ -138,7 +138,9 @@ def build_tab_config(tab_frame, app):
         bnbv = app.config_data.get("station", {}).get("code_bnbv")
         code_site = app.config_data.get("station", {}).get("code_site")
         surface = app.config_data.get("station", {}).get("surface_bv_km2")
-        surface_txt = f"{surface:.1f} km²" if surface is not None else "?"
+        surface_approx = app.config_data.get("station", {}).get("surface_bv_est_approximative")
+        surface_txt = (f"{surface:.1f} km²" + (" (approx. BNBV)" if surface_approx else "")
+                       if surface is not None else "?")
         if nom or bnbv:
             var_resultat_station.set(
                 f"{nom or '?'}  (code site : {code_site or '?'} — BNBV : {bnbv or '?'} — "
@@ -217,6 +219,7 @@ def build_tab_config(tab_frame, app):
         app.config_data["station"]["nom_station"] = nom or app.config_data["station"].get("nom_station", "")
         app.config_data["station"]["code_bnbv"] = code_bnbv
         app.config_data["station"]["surface_bv_km2"] = infos_site.surface_bv_km2
+        app.config_data["station"]["surface_bv_est_approximative"] = infos_site.surface_est_approximative
         app.config_data["seuils_q"] = {cle: seuils_q.get(cle) for cle, _, _ in LIBELLES_SEUILS_Q}
         app.persist_config()
         app.on_config_changed()

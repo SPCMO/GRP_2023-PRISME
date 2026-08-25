@@ -80,7 +80,8 @@ class InfosSite:
     libelle: Optional[str] = None               # LbUsuelStationHydro > LbStationHydro > LbUsuelSiteHydro > LbSiteHydro (1er trouvé)
     libelle_usuel_site: Optional[str] = None     # LbUsuelSiteHydro seul, sans repli
     code_bnbv: Optional[str] = None
-    surface_bv_km2: Optional[float] = None       # BassinVersantSiteHydro
+    surface_bv_km2: Optional[float] = None       # BassinVersantSiteHydro, ou SurfBNBV en repli (voir surface_est_approximative)
+    surface_est_approximative: bool = False      # True si surface_bv_km2 vient de SurfBNBV (BassinVersantSiteHydro absent)
 
 
 class PhycClient:
@@ -231,6 +232,12 @@ class PhycClient:
         la valeur métier connue — à distinguer de SurfBNBV (~4828 km², surface du
         référentiel BNBV, périmètre légèrement différent, PAS la bonne valeur ici).
 
+        BassinVersantSiteHydro n'est cependant pas toujours renseigné dans PHyC
+        (confirmé absent pour Y1584020/Orbieu à Villedaigne, par exemple, alors
+        que SurfBNBV y est présent) — dans ce cas, on se replie sur SurfBNBV
+        plutôt que de laisser la surface vide, avec surface_est_approximative=True
+        pour que l'appelant puisse le signaler à l'utilisateur.
+
         Retourne un InfosSite — tous les champs à None si l'appel échoue ou si le
         site n'est pas trouvé (jamais d'exception pour un champ manquant, cohérent
         avec get_libelle_et_bnbv())."""
@@ -257,6 +264,14 @@ class PhycClient:
                     infos.surface_bv_km2 = float(surface_str.strip())
                 except ValueError:
                     pass
+            if infos.surface_bv_km2 is None:
+                surface_bnbv_str = racine.findtext(".//SurfBNBV")
+                if surface_bnbv_str and surface_bnbv_str.strip():
+                    try:
+                        infos.surface_bv_km2 = float(surface_bnbv_str.strip())
+                        infos.surface_est_approximative = True
+                    except ValueError:
+                        pass
         except Exception:
             pass
         return infos
