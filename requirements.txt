@@ -5,3 +5,4 @@ lxml
 zeep
 pdfplumber
 openpyxl
+pytest

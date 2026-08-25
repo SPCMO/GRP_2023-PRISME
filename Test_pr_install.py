@@ -39,7 +39,13 @@ REQUIRED = [
     ("openpyxl",   "openpyxl",    None),              # export Excel
 ]
 
-OPTIONAL = []
+# Pas nécessaires pour LANCER l'outil (main.py) — seulement pour exécuter la suite de
+# tests (tests/, voir la feuille de route de l'audit du 25/08/2026, point code n°5) :
+# proposées à l'installation comme les paquets requis, mais leur absence n'empêche pas
+# l'outil de démarrer (voir bilan(), basé uniquement sur manq_req_final).
+OPTIONAL = [
+    ("pytest", "pytest", None),
+]
 
 SEP2 = "=" * 60
 
