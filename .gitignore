@@ -16,6 +16,13 @@ logs/
 boucle_magique_relatif_absolu_HOR1_pdf.py
 readme_boucle_magique.txt
 
+# ── Scripts de diagnostic manuel ad hoc (Test_*.py à la racine, hors Test_pr_install.py
+#    qui est le vérificateur d'environnement destiné aux utilisateurs, documenté dans
+#    Aide.html) — usage local ponctuel, parfois avec des identifiants/chemins réels,
+#    n'ont pas leur place sur le dépôt partagé (demandé) ──
+Test_Fiche_PDF.py
+Test_PHyC.py
+
 # ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
