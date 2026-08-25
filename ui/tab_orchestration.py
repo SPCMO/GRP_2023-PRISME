@@ -445,6 +445,10 @@ def build_tab_orchestration(tab_frame, app):
                     btn_lancer.config(state="normal")
                     btn_reprise.config(state="normal")
                     btn_annuler.config(state="disabled")
+                    # Badge du libellé d'onglet (demandé) — reflète les nouveaux
+                    # résultats dès la fin du run, sans attendre un changement de
+                    # config sans rapport pour se mettre à jour.
+                    app.rafraichir_badges_onglets()
         except queue.Empty:
             pass
         if etat["thread"] and etat["thread"].is_alive():

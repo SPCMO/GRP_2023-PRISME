@@ -18,7 +18,8 @@ from tkinter import messagebox, ttk
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import config as app_config
-from modules import config_manager
+from modules import config_manager, results_store
+from modules.grp_paths import construire_grp_paths
 from ui.tab_analyse_affluents import build_tab_analyse_affluents
 from ui.tab_config import build_tab_config
 from ui.tab_crues import build_tab_crues
@@ -81,6 +82,29 @@ class App(tk.Tk):
         a changé — branché aux Phases 3+ lorsqu'ils liront LISTE_BASSINS.DAT /
         CRITERES_PERF.DAT. Le titre de la fenêtre, lui, est déjà tenu à jour ici."""
         self._maj_titre()
+        self.rafraichir_badges_onglets()
+
+    def rafraichir_badges_onglets(self):
+        """Signale l'état d'avancement du workflow directement sur les libellés
+        d'onglets (demandé) — sans ça, rien n'indique si Configuration est complète ou
+        si une campagne a déjà produit des résultats avant même d'ouvrir ces onglets.
+        Appelée après tout changement de config (via on_config_changed) et par l'onglet
+        Campagne à la fin d'un run, pour rester à jour sans attendre un changement de
+        config sans rapport."""
+        paths, _manquants = construire_grp_paths(
+            self, exiger_dossier_grp=True, exiger_dossier_bddtr=True)
+        self.notebook.tab(self.tab_config, text=(
+            "  Configuration ✓  " if paths is not None else "  Configuration  "))
+
+        nb_combinaisons_ok = 0
+        try:
+            results_store.init_db()  # sans effet si la base existe déjà
+            with results_store.db_session() as conn:
+                nb_combinaisons_ok = len(results_store.list_combinaisons_completes(conn))
+        except Exception:
+            pass  # badge informatif seulement — jamais bloquant si la base est absente/verrouillée
+        self.notebook.tab(self.tab_orchestration, text=(
+            f"  Campagne ({nb_combinaisons_ok})  " if nb_combinaisons_ok else "  Campagne  "))
 
     # ------------------------------------------------------------------------
     # Construction de l'interface
@@ -104,6 +128,7 @@ class App(tk.Tk):
     def _build_ui(self):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+        self.notebook = notebook
 
         self.tab_config = ttk.Frame(notebook)
         self.tab_parametrage = ttk.Frame(notebook)
@@ -141,6 +166,7 @@ class App(tk.Tk):
         build_tab_analyse_affluents(self.tab_analyse_affluents, self)
         build_tab_orchestration(self.tab_orchestration, self)
         build_tab_dashboard(self.tab_dashboard, self)
+        self.rafraichir_badges_onglets()
 
 
 if __name__ == "__main__":
