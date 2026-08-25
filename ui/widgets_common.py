@@ -324,17 +324,26 @@ def placeholder_tab(tab_frame, texte):
         expand=True, pady=40)
 
 
-def bouton_enregistrer(parent, app, texte_confirmation="Configuration enregistrée."):
+def bouton_enregistrer(parent, app, texte_confirmation="Configuration enregistrée.",
+                        avant_enregistrer=None):
     """Bouton "Enregistrer" générique pour un onglet — persiste app.config_data (déjà à
     jour : les widgets de l'onglet appelant le mettent à jour en direct à chaque
     interaction) et affiche une confirmation brève. Action explicite et rassurante en
     plus des sauvegardes automatiques déjà en place, pour ne jamais avoir à ressaisir
     une sélection après une fermeture ou une erreur. Retourne le Frame conteneur, à
-    placer par l'appelant (pack/grid)."""
+    placer par l'appelant (pack/grid).
+
+    `avant_enregistrer` (optionnel) : callback sans argument appelé juste avant
+    persist_config() — pour les onglets dont certains champs ne sont PAS recopiés dans
+    app.config_data en direct à chaque frappe (ex. Configuration : les chemins ne sont
+    validés/recopiés qu'au clic sur Enregistrer), afin de rester factorisé ici plutôt
+    que de réimplémenter tout le bouton pour ce seul besoin."""
     cadre = tk.Frame(parent)
     var_confirmation = tk.StringVar(value="")
 
     def _enregistrer():
+        if avant_enregistrer is not None:
+            avant_enregistrer()
         app.persist_config()
         app.on_config_changed()
         var_confirmation.set(texte_confirmation)

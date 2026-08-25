@@ -8,7 +8,9 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
-from ui.widgets_common import make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import (
+    bouton_enregistrer, make_label, make_row, make_scrollable_tab, make_section,
+)
 
 # Libellés affichés à l'utilisateur pour chaque couleur de seuil de vigilance PHyC (débit),
 # avec la couleur de texte associée — mêmes teintes que les zones de vigilance tracées
@@ -236,18 +238,11 @@ def build_tab_config(tab_frame, app):
     # identifiants PHyC, station, horizons/seuils/méthodes sélectionnés...), pour ne
     # jamais avoir à tout ressaisir après une fermeture ou une erreur (ex. échec
     # d'identification PHyC).
-    cadre_bas = tk.Frame(frm)
-    cadre_bas.pack(fill=tk.X, padx=12, pady=14)
-    var_confirmation = tk.StringVar(value="")
-
-    def _enregistrer():
+    def _recopier_champs_avant_enregistrement():
         for cle, var in chemins_vars.items():
             app.config_data.setdefault("chemins", {})[cle] = var.get().strip()
         app.config_data.setdefault("station", {})["nom_station"] = var_nom_station.get().strip()
-        app.persist_config()
-        app.on_config_changed()
-        var_confirmation.set("Configuration enregistrée.")
 
-    ttk.Button(cadre_bas, text="Enregistrer", command=_enregistrer).pack(side=tk.LEFT)
-    tk.Label(cadre_bas, textvariable=var_confirmation, fg="#1D6A39",
-             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(10, 0))
+    bouton_enregistrer(
+        frm, app, avant_enregistrer=_recopier_champs_avant_enregistrement,
+    ).pack(fill=tk.X, padx=12, pady=14)

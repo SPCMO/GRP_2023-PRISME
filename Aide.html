@@ -899,6 +899,11 @@
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Analyse crues affl. : 2 cases à cocher "Bandes de propagation" et "Camemberts", à côté de "Afficher les seuils de vigilance" — permettent d'alléger le graphique à la demande (cochées par défaut, comportement inchangé) plutôt que de toujours tout afficher en même temps sur un graphique déjà dense (hydrogramme, hyétogramme, seuils, bandes, barycentre, 2 camemberts, panneau de vignettes).</p>
   </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Configuration : le bouton "Enregistrer" réimplémentait son propre pattern au lieu d'utiliser le helper partagé (<code>ui.widgets_common.bouton_enregistrer</code>, déjà utilisé par Paramétrage/Crues/Campagne) — harmonisé, avec un nouveau paramètre <code>avant_enregistrer</code> sur le helper pour couvrir le besoin propre à cet onglet (recopier les champs chemins/nom de station dans la config juste avant la sauvegarde). Dashboard et Analyse crues affl. n'en ont volontairement pas : ils persistent déjà chaque interaction immédiatement, un bouton "Enregistrer" n'y confirmerait rien de nouveau.</p>
+  </div>
 </section>
 
 </main>
