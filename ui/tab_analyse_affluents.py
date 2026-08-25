@@ -149,7 +149,8 @@ def build_tab_analyse_affluents(tab_frame, app):
     ttk.Button(r1, text="Parcourir…", command=_parcourir_dossier).pack(side=tk.LEFT)
 
     # ── Bandeau 2 — gestion des stations affluentes ─────────────────────────────
-    inn2, bg2 = make_section(frm, "Stations affluentes", "bleu")
+    inn2, bg2 = make_section(
+        frm, "Stations affluentes et temps de propagation à la station exutoire", "bleu")
     cadre_liste = tk.Frame(inn2, bg=bg2)
     cadre_liste.pack(fill=tk.X, expand=True)
     colonnes_affl = ("nom", "surface", "p10", "p50", "p90", "fichier")
@@ -1114,6 +1115,30 @@ def build_tab_analyse_affluents(tab_frame, app):
                             return txt_p50, txt_p10, txt_p90
 
                         p10_tr, p50_tr, p90_tr = np.percentile(trs_selection, [10, 50, 90])
+
+                        # Bande de propagation du Tr — même principe que les bandes
+                        # P10-P90 par affluent plus haut, mais projetée depuis le
+                        # barycentre de la pluie de LA CRUE AFFICHÉE avec le Tr
+                        # statistique des crues sélectionnées (demandé) : estime où
+                        # pourrait tomber le pic de cette crue. Couleur du hyétogramme
+                        # (#2E86AB, même teinte que son axe Y) pour la distinguer des
+                        # bandes de propagation des affluents (couleur propre à chacun) ;
+                        # trait P50 plus fin (1.2 contre 2.4) — estimation statistique,
+                        # pas une mesure directe, moins de poids visuel voulu.
+                        date_p10_tr = date_bary + timedelta(minutes=p10_tr)
+                        date_p50_tr = date_bary + timedelta(minutes=p50_tr)
+                        date_p90_tr = date_bary + timedelta(minutes=p90_tr)
+                        ax.axvspan(date_p10_tr, date_p90_tr, color="#2E86AB", alpha=0.12,
+                                    zorder=0)
+                        ax.axvline(date_p50_tr, color="#2E86AB", lw=1.2, alpha=0.85,
+                                    zorder=2)
+                        ax.annotate(
+                            "Pic de crue estimé\nà partir du Tr",
+                            xy=(mdates.date2num(date_p50_tr), 1),
+                            xycoords=ax.get_xaxis_transform(), xytext=(0, 8),
+                            textcoords="offset points", ha="center", va="bottom",
+                            fontsize=6.5, color="#2E86AB", clip_on=False)
+
                         artistes = _poser_percentiles()
                         fig.canvas.draw()
                         renderer = fig.canvas.get_renderer()
