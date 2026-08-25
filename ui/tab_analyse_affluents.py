@@ -1101,13 +1101,15 @@ def build_tab_analyse_affluents(tab_frame, app):
                             fig.canvas.draw()
                             bbox_p50 = txt_p50.get_window_extent(
                                 renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
-                            # Séparateur " / " inclus dans le texte (plutôt qu'un grand
-                            # espace vide entre les segments) pour resserrer l'ensemble.
+                            # Séparateur "/" inclus dans le texte (plutôt qu'un grand
+                            # espace vide entre les segments) pour resserrer l'ensemble —
+                            # collé à P50 des deux côtés (pas d'espace entre "/" et le
+                            # libellé P50), espace conservé côté P10/P90 uniquement.
                             txt_p10 = fig.text(
-                                bbox_p50.x0, y_ligne2, f"P10 = {_fmt_tr(p10_tr)} / ",
+                                bbox_p50.x0, y_ligne2, f"P10 = {_fmt_tr(p10_tr)} /",
                                 ha="right", va="center", fontsize=5.5, color="#0B1F4B")
                             txt_p90 = fig.text(
-                                bbox_p50.x1, y_ligne2, f" / P90 = {_fmt_tr(p90_tr)}",
+                                bbox_p50.x1, y_ligne2, f"/ P90 = {_fmt_tr(p90_tr)}",
                                 ha="left", va="center", fontsize=5.5, color="#0B1F4B")
                             return txt_p50, txt_p10, txt_p90
 
@@ -1124,17 +1126,22 @@ def build_tab_analyse_affluents(tab_frame, app):
                         # entrées + titre — pas par ces textes posés par-dessus, en
                         # dehors de son système de mise en page). Élargit le cadre en
                         # ajoutant des espaces au titre (seul levier disponible pour une
-                        # Legend matplotlib) et repositionne — demandé, "au besoin".
-                        if bbox_p90.x1 > bbox_cadre_legende.x1:
+                        # Legend matplotlib) et repositionne — demandé. Marge de sécurité
+                        # (8 px) ajoutée au manque mesuré : un rendu réel (police système,
+                        # DPI) peut légèrement différer du rendu de test, mieux vaut
+                        # élargir un peu trop que pas assez.
+                        marge_securite_px = 15
+                        if bbox_p90.x1 > bbox_cadre_legende.x1 - marge_securite_px / fig.bbox.width:
                             for w in artistes:
                                 w.remove()
-                            manque_px = (bbox_p90.x1 - bbox_cadre_legende.x1) * fig.bbox.width
+                            manque_px = ((bbox_p90.x1 - bbox_cadre_legende.x1) * fig.bbox.width
+                                          + marge_securite_px)
                             txt_espace = fig.text(0, 0, "  ", fontsize=7.5, fontweight="bold")
                             fig.canvas.draw()
                             largeur_espace_px = txt_espace.get_window_extent(
                                 renderer=fig.canvas.get_renderer()).width / 2
                             txt_espace.remove()
-                            nb_espaces = int(manque_px / max(largeur_espace_px, 1e-6)) + 3
+                            nb_espaces = int(manque_px / max(largeur_espace_px, 1e-6)) + 5
                             # Espaces répartis de part et d'autre (pas tous à la fin) pour
                             # garder le texte "Temps de réponse..." centré dans le cadre
                             # élargi, plutôt que de le faire glisser visuellement à gauche.
