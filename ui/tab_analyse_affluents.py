@@ -25,18 +25,12 @@ from modules.phyc_client import PhycAuthError, PhycClient
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    enregistrer_observateur_pdt, libelle_dernier_pdt, make_label, make_row,
-    make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
+    PALETTE_COURBES, eclaircir_couleur, enregistrer_observateur_pdt, icone_info_axe,
+    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
+    sauvegarder_dernier_pdt,
 )
 
 _COULEUR_OBS = "#1B4F72"
-# Même palette que ui.tab_dashboard._PALETTE_COURBES, dupliquée ici pour la même
-# raison que le reste du projet (voir modules/export_excel.py) : chaque couche évite
-# de dépendre d'une constante privée d'un autre fichier de la même couche.
-_PALETTE_AFFLUENTS = (
-    "#CC5500", "#1D6A39", "#7B241C", "#7D3C98", "#117864", "#B7950B",
-    "#2874A6", "#A93226", "#5D6D7E", "#943126",
-)
 
 
 
@@ -95,16 +89,10 @@ def _barycentre_pluie(serie, date_limite=None):
     return d0 + timedelta(seconds=t_bary_s)
 
 
-def _eclaircir(couleur_hex, facteur=0.55):
-    """Éclaircit une couleur hex vers le blanc — simule un fond "semi-transparent"
-    pour les lignes de Treeview colorées par série (Tkinter n'a pas d'alpha natif sur
-    les couleurs de fond de widget, même principe que ui.tab_crues._eclaircir)."""
-    couleur_hex = couleur_hex.lstrip("#")
-    r, g, b = int(couleur_hex[0:2], 16), int(couleur_hex[2:4], 16), int(couleur_hex[4:6], 16)
-    r = int(r + (255 - r) * facteur)
-    g = int(g + (255 - g) * facteur)
-    b = int(b + (255 - b) * facteur)
-    return f"#{r:02X}{g:02X}{b:02X}"
+def _eclaircir(couleur_hex):
+    """Facteur 0.55 propre à cet onglet (ui.tab_crues en utilise un autre, 0.45) —
+    voir ui.widgets_common.eclaircir_couleur pour l'implémentation partagée."""
+    return eclaircir_couleur(couleur_hex, facteur=0.55)
 
 
 def _prochaine_couleur(liste_affluents):
@@ -112,10 +100,10 @@ def _prochaine_couleur(liste_affluents):
     évite deux affluents de la même couleur par défaut tant que la palette n'est pas
     épuisée (au-delà, elle boucle)."""
     couleurs_prises = {a.couleur for a in liste_affluents if a.couleur}
-    for c in _PALETTE_AFFLUENTS:
+    for c in PALETTE_COURBES:
         if c not in couleurs_prises:
             return c
-    return _PALETTE_AFFLUENTS[len(liste_affluents) % len(_PALETTE_AFFLUENTS)]
+    return PALETTE_COURBES[len(liste_affluents) % len(PALETTE_COURBES)]
 
 
 def build_tab_analyse_affluents(tab_frame, app):
@@ -483,10 +471,11 @@ def build_tab_analyse_affluents(tab_frame, app):
     # Camembert de contribution au pic exutoire, recréé à chaque tracé (sa position/
     # taille dépend de la légende, elle-même variable avec le nombre d'affluents) —
     # voir _rafraichir_graphique. Icône "i" à côté de l'étiquette du barycentre pluie
-    # (fig.text + pick_event, même principe que ui.tab_dashboard._icone_info_axe) :
-    # supprimée/reconnectée à chaque tracé, sa position dépend de la date affichée.
+    # via ui.widgets_common.icone_info_axe (gère elle-même son propre nettoyage à
+    # chaque appel, pas besoin de le refaire ici) — sa position dépend de la date
+    # affichée, recalculée à chaque tracé.
     etat_graphique = {"ax_pie": None}
-    etat_icone_bary = {"artist": None, "cid": None}
+    etat_icones = {}
     # Textes P10/P50/P90 (voir _rafraichir_graphique) : fig.text(), pas ax.text(),
     # donc PAS supprimés par ax.clear() — à retirer manuellement à chaque tracé,
     # même principe que l'icône du barycentre ci-dessus.
@@ -790,13 +779,6 @@ def build_tab_analyse_affluents(tab_frame, app):
             except Exception:
                 pass
             etat_graphique["ax_pie"] = None
-        if etat_icone_bary["artist"] is not None:
-            try:
-                etat_icone_bary["artist"].remove()
-            except Exception:
-                pass
-            canvas.mpl_disconnect(etat_icone_bary["cid"])
-            etat_icone_bary["artist"] = None
         for artiste in etat_percentiles_tr["artists"]:
             try:
                 artiste.remove()
@@ -1058,20 +1040,9 @@ def build_tab_analyse_affluents(tab_frame, app):
                 bbox_titre = txt_titre.get_window_extent(renderer=fig.canvas.get_renderer())
                 x_icone, y_icone = fig.transFigure.inverted().transform(
                     (bbox_titre.x1 + 9, (bbox_titre.y0 + bbox_titre.y1) / 2))
-                icone = fig.text(x_icone, y_icone, "i", fontsize=6, color="white",
-                                   fontweight="bold", fontstyle="italic", ha="center",
-                                   va="center", picker=True, clip_on=False,
-                                   bbox=dict(boxstyle="circle,pad=0.25", fc="#0B1F4B",
-                                              ec="#0B1F4B", lw=0.6))
-
-                def _clic_icone_bary(event):
-                    if event.artist is icone:
-                        messagebox.showinfo("Barycentre de la pluie",
-                                              _TEXTE_EXPLICATION_BARYCENTRE,
-                                              parent=tab_frame.winfo_toplevel())
-
-                etat_icone_bary["artist"] = icone
-                etat_icone_bary["cid"] = canvas.mpl_connect("pick_event", _clic_icone_bary)
+                icone_info_axe(fig, canvas, etat_icones, "barycentre", x_icone, y_icone,
+                                 "Barycentre de la pluie", _TEXTE_EXPLICATION_BARYCENTRE,
+                                 taille=6)
 
                 if date_qmax_exutoire is not None and legende is not None:
                     trs_selection = _tr_crues_selectionnees(paths, code_pdt, evenements)

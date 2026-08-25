@@ -21,6 +21,72 @@ COLORS = {
     "rose":   ("#AD1457", "#FCE4EC"),  # rosé doux, semi-transparent à l'œil
 }
 
+# Palette de couleurs pour courbes/séries multiples (Dashboard > Vue 3D/dispersion,
+# Analyse crues affl. > courbes affluentes) — partagée entre les 2 onglets qui en ont
+# besoin (auparavant dupliquée verbatim dans chacun). modules/export_excel.py garde
+# volontairement sa propre copie : ce module ne doit pas dépendre de ui/ (voir son
+# en-tête), la duplication y est délibérée.
+PALETTE_COURBES = (
+    "#CC5500", "#1D6A39", "#7B241C", "#7D3C98", "#117864", "#B7950B",
+    "#2874A6", "#A93226", "#5D6D7E", "#943126",
+)
+
+
+def eclaircir_couleur(couleur_hex, facteur=0.5):
+    """Éclaircit une couleur hex vers le blanc (0=inchangé, 1=blanc pur) — simule un
+    fond "semi-transparent" pour les lignes de Treeview colorées par série (Tkinter
+    n'a pas d'alpha natif sur les couleurs de fond de widget). `facteur` par défaut
+    à 0.5 : chaque appelant garde la valeur qu'il utilisait déjà (0.45 ou 0.55) en la
+    passant explicitement, pour ne rien changer visuellement à la factorisation."""
+    couleur_hex = couleur_hex.lstrip("#")
+    r, g, b = int(couleur_hex[0:2], 16), int(couleur_hex[2:4], 16), int(couleur_hex[4:6], 16)
+    r = int(r + (255 - r) * facteur)
+    g = int(g + (255 - g) * facteur)
+    b = int(b + (255 - b) * facteur)
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte, taille=10):
+    """Dessine un repère "i" cliquable (rond bleu) directement DANS la figure
+    matplotlib, à la position figure-relative (x, y) — contrairement au bouton "ⓘ"
+    Tkinter classique (bouton_info ci-dessous, pour les icônes du bandeau/légende),
+    celui-ci peut se coller précisément à un élément qui fait partie du rendu
+    matplotlib (label d'axe, colorbar, étiquette de tracé), pas des widgets Tkinter.
+
+    ⚠️ Le caractère "ⓘ" (U+24D8) n'existe pas dans la police par défaut de matplotlib
+    (DejaVu Sans) — il s'affichait comme un glyphe manquant (rectangle vide) une fois
+    réellement rendu, constaté en testant le rendu réel de la figure. D'où le simple
+    "i" italique sur fond rond bleu ci-dessous plutôt que le caractère Unicode dédié
+    (qui, lui, s'affiche correctement dans les boutons Tkinter classiques, rendus par
+    une police système différente).
+
+    `etat` est un dict partagé entre les appels successifs de la fonction de tracé du
+    même graphique (clé `cle` dédiée si plusieurs icônes sur la même figure) : un
+    ax.clear()/fig.clear() ne supprime PAS les éléments ajoutés directement sur la
+    figure (fig.text), donc sans ce nettoyage explicite chaque rafraîchissement
+    empilerait un nouveau marqueur par-dessus les précédents.
+    """
+    ancien = etat.get(cle)
+    if ancien is not None:
+        marqueur_prec, cid_prec = ancien
+        try:
+            marqueur_prec.remove()
+        except Exception:
+            pass
+        canvas.mpl_disconnect(cid_prec)
+
+    marqueur = fig.text(x, y, "i", fontsize=taille, color="white", fontweight="bold",
+                         fontstyle="italic", ha="center", va="center", picker=True,
+                         bbox=dict(boxstyle=f"circle,pad={0.3 * taille / 10:.3f}",
+                                    fc="#1A5276", ec="#0B2C40", lw=0.8))
+
+    def _au_clic(event):
+        if event.artist is marqueur:
+            messagebox.showinfo(titre, texte)
+
+    cid = canvas.mpl_connect("pick_event", _au_clic)
+    etat[cle] = (marqueur, cid)
+
 
 def libelle_dernier_pdt(app, pdt_list):
     """Retourne le libellé du pas de temps à présélectionner dans un combo "Pas de

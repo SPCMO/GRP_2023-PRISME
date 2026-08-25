@@ -33,63 +33,13 @@ from modules.score import (
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt, make_label, make_row,
-    make_section, sauvegarder_dernier_pdt,
+    PALETTE_COURBES, bouton_info, enregistrer_observateur_pdt, icone_info_axe,
+    libelle_dernier_pdt, make_label, make_row, make_section, sauvegarder_dernier_pdt,
 )
 
 # Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
-# de _PALETTE_COURBES ci-dessous pour ne jamais être confondu avec une courbe simulée.
+# de PALETTE_COURBES pour ne jamais être confondu avec une courbe simulée.
 _COULEUR_OBS = "#1B4F72"
-
-# Palette qualitative pour différencier les courbes simulées superposées (Q observé
-# garde toujours sa propre couleur fixe, jamais piochée ici, pour rester reconnaissable
-# quel que soit le nombre de combinaisons sélectionnées).
-_PALETTE_COURBES = (
-    "#CC5500", "#1D6A39", "#7B241C", "#7D3C98", "#117864", "#B7950B",
-    "#2874A6", "#A93226", "#5D6D7E", "#943126",
-)
-
-
-def _icone_info_axe(fig, canvas, etat, cle, x, y, titre, texte, taille=10):
-    """Dessine un repère "i" cliquable (rond bleu) directement DANS la figure
-    matplotlib, à la position figure-relative (x, y) — contrairement au bouton "ⓘ"
-    Tkinter classique (ui.widgets_common.bouton_info, utilisé pour les icônes du
-    bandeau/légende), celui-ci peut se coller précisément à un label d'axe ou de
-    colorbar qui fait partie du rendu matplotlib, pas des widgets Tkinter.
-
-    ⚠️ Le caractère "ⓘ" (U+24D8) n'existe pas dans la police par défaut de matplotlib
-    (DejaVu Sans) — il s'affichait comme un glyphe manquant (rectangle vide) une fois
-    réellement rendu, constaté en testant le rendu réel de la figure. D'où le simple
-    "i" italique sur fond rond bleu ci-dessous plutôt que le caractère Unicode dédié
-    (qui, lui, s'affiche correctement dans les boutons Tkinter classiques, rendus par
-    une police système différente).
-
-    `etat` est un dict partagé entre les appels successifs de la fonction de tracé du
-    même graphique (clé `cle` dédiée si plusieurs icônes sur la même figure) : un
-    ax.clear()/fig.clear() ne supprime PAS les éléments ajoutés directement sur la
-    figure (fig.text), donc sans ce nettoyage explicite chaque rafraîchissement
-    empilerait un nouveau marqueur par-dessus les précédents.
-    """
-    ancien = etat.get(cle)
-    if ancien is not None:
-        marqueur_prec, cid_prec = ancien
-        try:
-            marqueur_prec.remove()
-        except Exception:
-            pass
-        canvas.mpl_disconnect(cid_prec)
-
-    marqueur = fig.text(x, y, "i", fontsize=taille, color="white", fontweight="bold",
-                         fontstyle="italic", ha="center", va="center", picker=True,
-                         bbox=dict(boxstyle=f"circle,pad={0.3 * taille / 10:.3f}",
-                                    fc="#1A5276", ec="#0B2C40", lw=0.8))
-
-    def _au_clic(event):
-        if event.artist is marqueur:
-            messagebox.showinfo(titre, texte)
-
-    cid = canvas.mpl_connect("pick_event", _au_clic)
-    etat[cle] = (marqueur, cid)
 
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
@@ -621,9 +571,9 @@ def _dessiner_legende_boite(fig, canvas, etat_icones, ax):
     # le recouvrir — signalé par l'utilisateur sur le rendu réel.
     x_icone_max, y_icone_max = _position_figure(1.75, moustache_haut - 1.3)
     x_icone_min, y_icone_min = _position_figure(1.75, moustache_bas - 1.3)
-    _icone_info_axe(fig, canvas, etat_icones, "extremes_max", x_icone_max, y_icone_max,
+    icone_info_axe(fig, canvas, etat_icones, "extremes_max", x_icone_max, y_icone_max,
                      "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES, taille=5)
-    _icone_info_axe(fig, canvas, etat_icones, "extremes_min", x_icone_min, y_icone_min,
+    icone_info_axe(fig, canvas, etat_icones, "extremes_min", x_icone_min, y_icone_min,
                      "Valeurs extrêmes (boîte à moustaches)", _TEXTE_VALEURS_EXTREMES, taille=5)
 
 
@@ -785,7 +735,7 @@ def _build_synthese(frame, app):
                 "sans contradiction : elle reflète 2 méthodes moyennement bonnes, alors "
                 "que le cadre désigne la seule méthode la plus performante prise seule."
             )
-            _icone_info_axe(fig, canvas, etat_icones, "heatmap",
+            icone_info_axe(fig, canvas, etat_icones, "heatmap",
                              bbox_hm.x0 + 0.98 * bbox_hm.width, bbox_hm.y1 + 0.025,
                              "Score composite", texte_heatmap)
 
@@ -1302,7 +1252,7 @@ def _build_detail(frame, app):
                 if not serie_sim:
                     continue
                 points_sim = [(p[0], p[1]) for p in serie_sim]
-                couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+                couleur = PALETTE_COURBES[i % len(PALETTE_COURBES)]
                 libelle = f"Sim {h}/{s:.2f}/{m}"
                 ax.plot([p[0] for p in points_sim], [p[1] for p in points_sim],
                          color=couleur, lw=1.3, ls="--", label=libelle)
@@ -1453,7 +1403,7 @@ def _build_sensibilite(frame, app):
     # Centré verticalement par défaut (pack sans anchor="n") et décalé à droite
     # (padx gauche) pour se démarquer visuellement du reste de la ligne — l'icône
     # d'explication du score, redondante avec celle désormais posée directement sur le
-    # graphique (voir _icone_info_axe ci-dessous), a été retirée d'ici. Le tracé se
+    # graphique (voir icone_info_axe ci-dessous), a été retirée d'ici. Le tracé se
     # déclenche aussi automatiquement à chaque changement de sélection (horizon ou
     # méthode) — ce bouton reste utile pour forcer un nouveau tracé sans changer la
     # sélection (ex. après une nouvelle campagne).
@@ -1527,7 +1477,7 @@ def _build_sensibilite(frame, app):
         # RNA) — permet de comparer aussi bien tous les horizons pour une méthode fixée
         # que les 2 méthodes pour un horizon fixé, sur le même graphique.
         for i, horizon in enumerate(horizons_selectionnes):
-            couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+            couleur = PALETTE_COURBES[i % len(PALETTE_COURBES)]
             for methode in methodes_selectionnees:
                 scores_hm = sorted((s for s in scores if s.horizon == horizon and s.methode == methode),
                                     key=lambda s: s.seuil_c1)
@@ -1546,7 +1496,7 @@ def _build_sensibilite(frame, app):
         # plein (on ne voit qu'un ou deux tirets, visuellement proches d'un trait
         # continu) — signalé par l'utilisateur.
         ax.legend(loc="best", fontsize=7.5, ncol=2 if nb_courbes > 5 else 1, handlelength=3.5)
-        _icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
+        icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
                          "Score composite", explication_score(poids, asymetrie_dtp))
         canvas.draw_idle()
 
@@ -1711,7 +1661,7 @@ def _build_vue3d(frame, app):
             "perçue à l'œil."
         )
         bbox_cb = etat_colorbar["cb"].ax.get_position()
-        _icone_info_axe(fig, canvas, etat_icones, "colorbar",
+        icone_info_axe(fig, canvas, etat_icones, "colorbar",
                          bbox_cb.x0 + 0.5 * bbox_cb.width, bbox_cb.y1 + 0.035,
                          "Score composite", texte_colorbar)
 
@@ -1760,7 +1710,7 @@ def _build_vue3d(frame, app):
         # -- Bouton "Réinitialiser la vue 3D", juste sous la légende (demandé — la vue
         # 3D se manipule à la souris et il est facile de se retrouver sous un angle peu
         # lisible sans moyen simple d'y revenir). Dessiné DANS la figure (comme l'icône
-        # "i", voir _icone_info_axe) plutôt qu'en widget Tkinter classique, pour rester
+        # "i", voir icone_info_axe) plutôt qu'en widget Tkinter classique, pour rester
         # collé à la position réelle de la légende quelle que soit sa hauteur — mesurée
         # ici via get_window_extent() après un premier rendu, plutôt que devinée.
         ancien_reset = etat_icones.get("reset_vue3d")
@@ -2112,7 +2062,7 @@ def _build_variation_crues(frame, app):
         # Icône "i" à côté du titre de l'axe Y — explique ce qu'est réellement le KGE
         # (demandé), en 2 niveaux (simple puis technique) dans la même fenêtre.
         bbox_ax = ax.get_position()
-        _icone_info_axe(fig, canvas, etat_icones, "kge",
+        icone_info_axe(fig, canvas, etat_icones, "kge",
                          bbox_ax.x0 + 0.012, bbox_ax.y1 - 0.02,
                          "KGE (Kling-Gupta Efficiency)", _TEXTE_EXPLICATION_KGE, taille=7)
 

@@ -13,8 +13,9 @@ from tkinter import messagebox, ttk
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
-    bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
-    make_label, make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
+    bouton_enregistrer, bouton_info, eclaircir_couleur, enregistrer_observateur_pdt,
+    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
+    sauvegarder_dernier_pdt,
 )
 
 TEXTE_INFO_TYPEVT_P = (
@@ -35,16 +36,10 @@ VIGNETTES_PAR_LIGNE = 4
 _ORDRE_NIVEAUX_VIGILANCE = ("Rouge", "ZT rouge", "Orange", "ZT orange", "Jaune", "ZT jaune", "Vert")
 
 
-def _eclaircir(couleur_hex, facteur=0.45):
-    """Éclaircit une couleur hex vers le blanc (facteur 0=inchangé, 1=blanc pur) — sert
-    à simuler une transparence pour les niveaux ZT (Tkinter n'a pas d'alpha réel sur
-    les couleurs de fond des widgets)."""
-    couleur_hex = couleur_hex.lstrip("#")
-    r, g, b = int(couleur_hex[0:2], 16), int(couleur_hex[2:4], 16), int(couleur_hex[4:6], 16)
-    r = int(r + (255 - r) * facteur)
-    g = int(g + (255 - g) * facteur)
-    b = int(b + (255 - b) * facteur)
-    return f"#{r:02X}{g:02X}{b:02X}"
+def _eclaircir(couleur_hex):
+    """Facteur 0.45 propre à cet onglet (Analyse crues affl. en utilise un autre,
+    0.55) — voir ui.widgets_common.eclaircir_couleur pour l'implémentation partagée."""
+    return eclaircir_couleur(couleur_hex, facteur=0.45)
 
 
 
