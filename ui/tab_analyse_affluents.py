@@ -986,8 +986,19 @@ def build_tab_analyse_affluents(tab_frame, app):
                     "Barycentre pluie", xy=(x_bary, 1), xycoords=ax.get_xaxis_transform(),
                     xytext=(0, 17), textcoords="offset points", ha="center", va="bottom",
                     fontsize=6.5, color="#0B1F4B", clip_on=False)
+                # Temps de réponse (Tr) calculé ICI (avant l'annotation de l'horodatage,
+                # pas seulement dans le titre de la légende plus bas) pour l'accoler
+                # directement à l'horodatage du barycentre (demandé) — même calcul,
+                # réutilisé pour le titre de légende ci-dessous.
+                texte_tr = ""
+                if date_qmax_exutoire is not None:
+                    minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
+                    signe = "-" if minutes_tr < 0 else ""
+                    h_tr, m_tr = divmod(abs(minutes_tr), 60)
+                    texte_tr = f" -> Tr = {signe}{h_tr}h {m_tr:02d}min"
                 ax.annotate(
-                    f"{date_bary:%d/%m %H:%M}", xy=(x_bary, 1), xycoords=ax.get_xaxis_transform(),
+                    f"{date_bary:%d/%m %H:%M}{texte_tr}", xy=(x_bary, 1),
+                    xycoords=ax.get_xaxis_transform(),
                     xytext=(0, 8), textcoords="offset points", ha="center", va="bottom",
                     fontsize=6.5, color="#0B1F4B", clip_on=False)
 
@@ -1014,10 +1025,7 @@ def build_tab_analyse_affluents(tab_frame, app):
                 etat_icone_bary["cid"] = canvas.mpl_connect("pick_event", _clic_icone_bary)
 
                 if date_qmax_exutoire is not None and legende is not None:
-                    minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
-                    signe = "-" if minutes_tr < 0 else ""
-                    h, m = divmod(abs(minutes_tr), 60)
-                    legende.set_title(f"Temps de réponse (Tr) : {signe}{h} h {m:02d} min",
+                    legende.set_title(f"Temps de réponse (Tr) : {signe}{h_tr} h {m_tr:02d} min",
                                         prop={"size": 7.5, "weight": "bold"})
 
         # Position réelle du bas de la légende (mesurée sur le rendu effectif, pas
