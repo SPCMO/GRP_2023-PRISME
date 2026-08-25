@@ -7,6 +7,7 @@ saisis. Indépendant de tout calage GRP (contrairement à Dashboard > Détail pa
 qui compare Qobs à une combinaison de calage) : ici on ne regarde que les observations.
 """
 
+import math
 import os
 import tkinter as tk
 from datetime import datetime, timedelta
@@ -500,7 +501,7 @@ def build_tab_analyse_affluents(tab_frame, app):
     label_titre_vignettes = tk.Label(
         cadre_vignettes, text="Qmax observé par courbe :",
         font=("TkDefaultFont", 8, "italic"), fg="#555555")
-    label_titre_vignettes.pack(anchor="w", pady=(8, 4))
+    label_titre_vignettes.pack(anchor="w", pady=(2, 2))
 
     def _vider_vignettes():
         for w in cadre_vignettes.winfo_children()[1:]:  # [0] = le libellé ci-dessus, conservé
@@ -530,13 +531,13 @@ def build_tab_analyse_affluents(tab_frame, app):
         largeur bornée par celle du panneau (cadre_vignettes, 190 px)."""
         tk.Label(cadre_vignettes, text="Surface de BV suivie :",
                   font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(
-            anchor="w", pady=(10, 2))
+            anchor="w", pady=(4, 2))
         if surface_exutoire is None or surface_exutoire <= 0:
             tk.Label(cadre_vignettes, text="Surface exutoire inconnue (Configuration).",
                       font=("TkDefaultFont", 7), fg="#888888", wraplength=175,
                       justify=tk.LEFT).pack(anchor="w")
             return
-        diametre, marge = 150, 4
+        diametre, marge = 100, 4
         taille = diametre + marge * 2
         canvas = tk.Canvas(cadre_vignettes, width=taille, height=taille,
                             highlightthickness=0, bg=cadre_vignettes.cget("bg"))
@@ -550,12 +551,25 @@ def build_tab_analyse_affluents(tab_frame, app):
         reste = surface_exutoire - total_suivi
         if reste > 0.5:
             parts = parts + [("Écoulements locaux", _COULEUR_LOCAL, reste)]
+        cx = cy = taille / 2
+        rayon_texte = diametre / 2 * 0.6
         bbox = (marge, marge, marge + diametre, marge + diametre)
         angle = 90.0
         for _nom, couleur, surface in parts:
             extent = -360.0 * (surface / surface_exutoire)
-            canvas.create_arc(bbox, start=angle, extent=extent, fill=couleur,
+            # Couleur éclaircie ("semi-transparente", demandé — Tkinter n'a pas
+            # d'alpha natif sur un fond de canvas, même principe que _eclaircir()
+            # déjà utilisé pour les listes) — texte en noir en conséquence, plus
+            # lisible qu'en blanc sur un fond éclairci.
+            canvas.create_arc(bbox, start=angle, extent=extent, fill=_eclaircir(couleur),
                                 outline="white", width=1)
+            pct = surface / surface_exutoire * 100
+            if pct >= 5:
+                angle_median = math.radians(angle + extent / 2)
+                canvas.create_text(
+                    cx + rayon_texte * math.cos(angle_median),
+                    cy - rayon_texte * math.sin(angle_median),
+                    text=f"{pct:.0f}%", font=("TkDefaultFont", 6, "bold"), fill="black")
             angle += extent
         pct_suivi = total_suivi / surface_exutoire * 100
         tk.Label(cadre_vignettes,
