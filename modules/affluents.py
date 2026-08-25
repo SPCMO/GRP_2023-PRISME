@@ -81,11 +81,17 @@ def hhmm_vers_minutes(texte):
 
 
 def charger_serie_affluent(chemin, date_deb=None, date_fin=None):
-    """Lit un fichier de débits affluent (CSV ';', en-tête "date;res"). Retourne une
-    liste de (datetime, valeur) triée chronologiquement, filtrée sur [date_deb, date_fin]
-    si fournis (bornes incluses). Best-effort ligne par ligne : une ligne mal formée est
-    ignorée plutôt que de faire échouer tout le chargement (fichier réel très long,
-    potentiellement mis à jour en continu par un autre processus)."""
+    """Lit un fichier de débits affluent (CSV ';', en-tête "date;res"). Retourne
+    (serie, nb_lignes_mal_formees) — `serie` : liste de (datetime, valeur) triée
+    chronologiquement, filtrée sur [date_deb, date_fin] si fournis (bornes incluses).
+    Best-effort ligne par ligne : une ligne mal formée (mauvais nombre de champs, date
+    ou valeur illisible) est ignorée plutôt que de faire échouer tout le chargement
+    (fichier réel très long, potentiellement mis à jour en continu par un autre
+    processus) — mais comptée, pour que l'appelant puisse signaler à l'utilisateur un
+    fichier largement corrompu (séparateur, encodage, décalage de colonnes) au lieu
+    d'une courbe simplement vide/tronquée sans explication. Les lignes valides mais
+    hors de [date_deb, date_fin] ne sont PAS comptées ici : ce filtrage est normal et
+    attendu, pas un signe de corruption."""
     if not chemin or not os.path.isfile(chemin):
         raise FileNotFoundError(f"Fichier de débits affluent introuvable : {chemin}")
     with open(chemin, "rb") as fh:
@@ -96,17 +102,20 @@ def charger_serie_affluent(chemin, date_deb=None, date_fin=None):
         texte = data.decode("cp1252")
 
     serie = []
+    nb_lignes_mal_formees = 0
     for ligne in texte.splitlines()[1:]:  # ligne 1 = en-tête "date;res"
         ligne = ligne.strip()
         if not ligne:
             continue
         champs = ligne.split(";")
         if len(champs) != 2:
+            nb_lignes_mal_formees += 1
             continue
         try:
             date = datetime.strptime(champs[0], FORMAT_DATE)
             valeur = float(champs[1])
         except ValueError:
+            nb_lignes_mal_formees += 1
             continue
         if date_deb is not None and date < date_deb:
             continue
@@ -114,7 +123,7 @@ def charger_serie_affluent(chemin, date_deb=None, date_fin=None):
             continue
         serie.append((date, valeur))
     serie.sort(key=lambda p: p[0])
-    return serie
+    return serie, nb_lignes_mal_formees
 
 
 def valeur_au_plus_proche(serie, date_cible):

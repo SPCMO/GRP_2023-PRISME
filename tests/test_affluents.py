@@ -9,6 +9,7 @@ import pytest
 from modules.affluents import (
     Affluent,
     bornes_bande_propagation,
+    charger_serie_affluent,
     hhmm_vers_minutes,
     minutes_vers_hhmm,
     qmax_et_horodatage,
@@ -115,3 +116,44 @@ def test_bornes_bande_propagation_sans_p50_ni_date():
     assert bornes_bande_propagation(datetime(2024, 1, 1), affluent_sans_p50) == (None, None, None)
     affluent_avec_p50 = Affluent(nom="Test", p50_min=60)
     assert bornes_bande_propagation(None, affluent_avec_p50) == (None, None, None)
+
+
+# -- charger_serie_affluent (compte les lignes mal formées, voir la feuille de route de
+# l'audit du 25/08/2026, point ergonomie n°4) --------------------------------------------
+
+def test_charger_serie_affluent_compte_les_lignes_mal_formees(tmp_path):
+    chemin = tmp_path / "affluent.csv"
+    chemin.write_text(
+        "date;res\n"
+        "202401010000;10.5\n"
+        "ligne completement invalide sans point-virgule\n"  # mauvais nb de champs
+        "202401010015;pas-un-nombre\n"                        # valeur illisible
+        "date-invalide;5.0\n"                                 # date illisible
+        "202401010030;12.0\n",
+        encoding="utf-8",
+    )
+    serie, nb_mal_formees = charger_serie_affluent(str(chemin))
+    assert len(serie) == 2  # les 2 lignes valides
+    assert nb_mal_formees == 3  # les 3 lignes mal formées
+
+
+def test_charger_serie_affluent_filtre_par_date_sans_compter_comme_erreur(tmp_path):
+    chemin = tmp_path / "affluent.csv"
+    chemin.write_text(
+        "date;res\n"
+        "202401010000;10.0\n"   # hors fenêtre (avant date_deb)
+        "202401020000;20.0\n"   # dans la fenêtre
+        "202401030000;30.0\n",  # hors fenêtre (après date_fin)
+        encoding="utf-8",
+    )
+    serie, nb_mal_formees = charger_serie_affluent(
+        str(chemin), date_deb=datetime(2024, 1, 1, 12), date_fin=datetime(2024, 1, 2, 12))
+    assert len(serie) == 1
+    assert serie[0] == (datetime(2024, 1, 2, 0, 0), 20.0)
+    # Les 2 lignes hors fenêtre sont un filtrage NORMAL, pas des lignes "mal formées".
+    assert nb_mal_formees == 0
+
+
+def test_charger_serie_affluent_fichier_introuvable():
+    with pytest.raises(FileNotFoundError):
+        charger_serie_affluent("/chemin/qui/nexiste/pas.csv")

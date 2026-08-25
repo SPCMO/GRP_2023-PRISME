@@ -904,6 +904,11 @@
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-fix">Correctif</span> Configuration : le bouton "Enregistrer" réimplémentait son propre pattern au lieu d'utiliser le helper partagé (<code>ui.widgets_common.bouton_enregistrer</code>, déjà utilisé par Paramétrage/Crues/Campagne) — harmonisé, avec un nouveau paramètre <code>avant_enregistrer</code> sur le helper pour couvrir le besoin propre à cet onglet (recopier les champs chemins/nom de station dans la config juste avant la sauvegarde). Dashboard et Analyse crues affl. n'en ont volontairement pas : ils persistent déjà chaque interaction immédiatement, un bouton "Enregistrer" n'y confirmerait rien de nouveau.</p>
   </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Analyse crues affl. : un fichier de débits affluent largement mal formé (séparateur, encodage, décalage de colonnes) est désormais signalé dans le message de statut sous le graphique ("⚠ &lt;affluent&gt; : N ligne(s) mal formée(s) ignorée(s)", au-delà de 5 lignes) — auparavant, seule une courbe vide ou tronquée laissait deviner un problème, sans indice sur sa cause. Les lignes valides mais hors de la fenêtre de la crue affichée ne sont, elles, jamais comptées (filtrage normal).</p>
+  </div>
 </section>
 
 </main>

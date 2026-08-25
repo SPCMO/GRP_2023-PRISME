@@ -905,14 +905,23 @@ def build_tab_analyse_affluents(tab_frame, app):
         liste_affl = _liste_affluents(app)
         affluents_traces = []
         contributions_pie = []  # (nom, couleur, % du Qmax exutoire) — alimente le camembert
+        # Fichiers largement mal formés (séparateur, encodage, décalage de colonnes) —
+        # signalés dans le statut final plutôt que de laisser l'utilisateur deviner
+        # pourquoi une courbe reste vide/tronquée (demandé). Seuil de 5 lignes : une
+        # ligne isolée mal formée arrive sans que le fichier soit vraiment en cause.
+        avertissements_lignes_mal_formees = []
         for a in liste_affl:
             if not a.fichier:
                 continue
             try:
-                serie_a = affluents.charger_serie_affluent(a.fichier, evt.date_deb, evt.date_fin)
+                serie_a, nb_lignes_ignorees = affluents.charger_serie_affluent(
+                    a.fichier, evt.date_deb, evt.date_fin)
             except (FileNotFoundError, ValueError) as e:
                 var_statut.set(f"{a.nom} : {e}")
                 continue
+            if nb_lignes_ignorees > 5:
+                avertissements_lignes_mal_formees.append(
+                    f"{a.nom} : {nb_lignes_ignorees} ligne(s) mal formée(s) ignorée(s)")
             if not serie_a:
                 continue
             couleur = a.couleur or "#7D3C98"
@@ -1258,9 +1267,12 @@ def build_tab_analyse_affluents(tab_frame, app):
                 f"{pct_qmax:.1f} %" if pct_qmax is not None else "—",
             ), tags=(couleur,))
 
-        var_statut.set(
+        message_statut = (
             f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — {len(affluents_traces)} "
             f"affluent(s) tracé(s) sur {len(liste_affl)} configuré(s).")
+        if avertissements_lignes_mal_formees:
+            message_statut += "  ⚠ " + " ; ".join(avertissements_lignes_mal_formees)
+        var_statut.set(message_statut)
 
     def _on_pdt_change(*_evt):
         sauvegarder_dernier_pdt(app, _pas_de_temps_courant(), source=_pdt_change_externe)
