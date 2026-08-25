@@ -100,8 +100,8 @@
   <p class="muted">La case « Afficher les seuils de vigilance » a aussi été ajoutée à Dashboard &gt; Détail par crue pour cohérence. Le pas de temps sélectionné est partagé et synchronisé EN DIRECT entre les 5 onglets qui en proposent un (Paramétrage, Campagne, Dashboard &gt; Détail par crue, Crues, Analyse crues affl.) — le changer une fois n'importe où le change partout.</p>
 
   <h3>Onglet Campagne</h3>
-  <p>Bouton <b>Lancer la campagne</b> : boucle sur toutes les combinaisons horizon × seuil × méthode sélectionnées, et pour chacune, rejoue chaque crue cochée (mode opérationnel temps différé, comme la boucle magique d'origine mais avec le bug du <code>.bat</code> corrigé). La campagne tourne en arrière-plan, la fenêtre reste utilisable. La progression, un tableau des combinaisons avec leur statut, et un journal détaillé s'affichent en temps réel.</p>
-  <p>Si des combinaisons ou des crues ont échoué (erreur explicite dans le journal), le bouton <b>Relancer les échecs</b> ne refait que le nécessaire : si le calage d'une combinaison a déjà réussi, il n'est pas relancé — seules les crues manquantes ou en échec le sont.</p>
+  <p>Bouton <b>Lancement initial de la campagne</b> : boucle sur toutes les combinaisons horizon × seuil × méthode sélectionnées, et pour chacune, rejoue chaque crue cochée (mode opérationnel temps différé, comme la boucle magique d'origine mais avec le bug du <code>.bat</code> corrigé). La campagne tourne en arrière-plan, la fenêtre reste utilisable. La progression, un tableau des combinaisons avec leur statut, et un journal détaillé s'affichent en temps réel.</p>
+  <p>Si des combinaisons ou des crues ont échoué (erreur explicite dans le journal), le bouton <b>Compléter la campagne et relancer les échecs</b> ne refait que le nécessaire : si le calage d'une combinaison a déjà réussi, il n'est pas relancé — seules les crues manquantes ou en échec le sont.</p>
 
   <h3>Onglet Dashboard</h3>
   <p>Bandeau partagé en haut : choix de la <b>pondération du score composite</b> (poids égaux / profil métier / personnalisé, avec asymétrie dTP retard/avance réglable) et sélecteur <b>« Crues dans le score »</b> — restreint, si besoin, le calcul du score à un sous-ensemble de crues choisi à la main (fenêtre listant TypEvt, Vigilance max, Qmax, cumul de pluie de chaque crue). Ces deux réglages s'appliquent à toutes les vues à score ci-dessous, sauf « Variation selon le nb de crues » qui varie N automatiquement et reste volontairement indépendante de la sélection de crues.</p>
@@ -913,6 +913,16 @@
   <div class="changelog-entry">
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> L'état d'avancement du workflow est désormais signalé directement sur les libellés des onglets — "Configuration ✓" une fois les 4 dossiers de travail et le code site renseignés, "Campagne (N)" avec le nombre de combinaisons entièrement réussies déjà en base. Mis à jour à chaque changement de configuration et à la fin d'une campagne, sans attendre d'ouvrir l'onglet concerné pour le savoir.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue synthèse : libellé "Seuil de calage (m³/s)" ajouté sur l'axe Y de la heatmap (même libellé que Vue 3D, qui l'avait déjà).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Campagne : boutons renommés sur 2 lignes pour clarifier leur rôle — "Lancer la campagne" devient "Lancement initial / de la campagne", "Relancer les échecs" devient "Compléter la campagne / et relancer les échecs".</p>
   </div>
 </section>
 

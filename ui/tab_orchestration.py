@@ -53,9 +53,9 @@ def build_tab_orchestration(tab_frame, app):
     combo_pdt = ttk.Combobox(r, textvariable=var_pdt_libelle, state="readonly", width=18)
     combo_pdt.pack(side=tk.LEFT, padx=(2, 12))
 
-    btn_lancer = ttk.Button(r, text="Lancer la campagne")
+    btn_lancer = ttk.Button(r, text="Lancement initial\nde la campagne")
     btn_lancer.pack(side=tk.LEFT, padx=(0, 6))
-    btn_reprise = ttk.Button(r, text="Relancer les échecs")
+    btn_reprise = ttk.Button(r, text="Compléter la campagne\net relancer les échecs")
     btn_reprise.pack(side=tk.LEFT, padx=(0, 6))
     btn_annuler = ttk.Button(r, text="Annuler", state="disabled")
     btn_annuler.pack(side=tk.LEFT)

@@ -711,6 +711,7 @@ def _build_synthese(frame, app):
             ax_heatmap.set_xticklabels(horizons, rotation=45, ha="right", fontsize=7)
             ax_heatmap.set_yticks(range(len(seuils)))
             ax_heatmap.set_yticklabels([f"{v:.2f}" for v in seuils], fontsize=7)
+            ax_heatmap.set_ylabel("Seuil de calage (m³/s)", fontsize=8)
             ax_heatmap.set_title("Score composite (0=meilleur)", fontsize=9)
             etat_colorbar["cb"] = fig.colorbar(im, ax=ax_heatmap, fraction=0.046, pad=0.04)
             # Position recalculée depuis la vraie bbox de l'axe (pas de coordonnées
