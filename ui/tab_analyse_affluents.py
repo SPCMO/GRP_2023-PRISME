@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Onglet "Analyse crues affl." — pour chaque crue détectée à la station exutoire
-(Moussoulens), superpose le Qobs de l'exutoire aux débits des stations affluentes
+(configurée en Configuration, ex. Moussoulens), superpose le Qobs de l'exutoire aux débits des stations affluentes
 configurées par l'utilisateur (nom, surface de BV, temps de propagation P10/P50/P90,
 fichier de débits), avec bilan volume/Qmax et bandes de propagation déduites des temps
 saisis. Indépendant de tout calage GRP (contrairement à Dashboard > Détail par crue,
@@ -38,6 +38,14 @@ _PALETTE_AFFLUENTS = (
     "#2874A6", "#A93226", "#5D6D7E", "#943126",
 )
 
+
+
+def _nom_exutoire(app):
+    """Nom de la station exutoire à afficher — lu depuis la config (identifiée via
+    PHyC, onglet Configuration), repli générique si pas encore configuré. Évite de
+    coder le nom de station en dur (l'outil se veut générique, voir main.py)."""
+    nom = app.config_data.get("station", {}).get("nom_station", "").strip()
+    return nom or "Station exutoire"
 
 
 def _config_affluents(app):
@@ -293,7 +301,7 @@ def build_tab_analyse_affluents(tab_frame, app):
             if affluent_existant and affluent_existant.surface_bv_km2 is not None else "")
         ttk.Entry(f_surface, textvariable=var_surface, width=12).pack(side=tk.LEFT)
 
-        tk.Label(cadre, text="Temps de propagation jusqu'à l'exutoire (Moussoulens), "
+        tk.Label(cadre, text=f"Temps de propagation jusqu'à l'exutoire ({_nom_exutoire(app)}), "
                               "format hh:mm :", font=("TkDefaultFont", 9, "italic")).pack(
             anchor="w", pady=(10, 2))
 
@@ -680,8 +688,8 @@ def build_tab_analyse_affluents(tab_frame, app):
         "Q à Qmax exutoire — principe",
         "Ce n'est PAS le Qmax propre de chaque affluent, mais son débit RÉTROPROPAGÉ "
         "au pic de l'exutoire :\n\n"
-        "1. On part de l'horodatage du Qmax observé à la station exutoire "
-        "(Moussoulens).\n"
+        f"1. On part de l'horodatage du Qmax observé à la station exutoire "
+        f"({_nom_exutoire(app)}).\n"
         "2. Pour chaque affluent, on recule de la médiane (P50) de son temps de "
         "propagation jusqu'à l'exutoire.\n"
         "3. On lit le débit de l'affluent à cet instant reculé.\n\n"
@@ -837,12 +845,14 @@ def build_tab_analyse_affluents(tab_frame, app):
         lignes_bilan = []
         qmax_exutoire, volume_exutoire, date_qmax_exutoire = None, None, None
         y_max_visible = None
+        nom_exutoire = _nom_exutoire(app)
+        label_exutoire = f"Q observé — {nom_exutoire} (exutoire)"
         if serie_exutoire:
             points_exutoire = [(p[0], p[2]) for p in serie_exutoire]
             ax.plot([d for d, _v in points_exutoire], [v for _d, v in points_exutoire],
-                     color=_COULEUR_OBS, lw=1.8, label="Q observé — Moussoulens (exutoire)")
+                     color=_COULEUR_OBS, lw=1.8, label=label_exutoire)
             etat_courbes["liste"].append({
-                "label": "Q observé — Moussoulens (exutoire)", "couleur": _COULEUR_OBS,
+                "label": label_exutoire, "couleur": _COULEUR_OBS,
                 "x": [mdates.date2num(d) for d, _v in points_exutoire],
                 "y": [v for _d, v in points_exutoire],
             })
@@ -855,12 +865,12 @@ def build_tab_analyse_affluents(tab_frame, app):
                          color=_COULEUR_OBS, markeredgecolor="white", markeredgewidth=0.8,
                          zorder=10)
             _ajouter_vignette(
-                "Moussoulens (exutoire)", _COULEUR_OBS, qmax_exutoire, date_qmax_exutoire,
+                f"{nom_exutoire} (exutoire)", _COULEUR_OBS, qmax_exutoire, date_qmax_exutoire,
                 surface=app.config_data.get("station", {}).get("surface_bv_km2"))
             # Au moment de son propre Qmax, l'exutoire "contribue" à 100 % de son
             # propre débit — sert de référence aux % de contribution des affluents
             # ci-dessous (mêmes colonnes, même instant de référence).
-            lignes_bilan.append(("Moussoulens (exutoire)", volume_exutoire, None,
+            lignes_bilan.append((f"{nom_exutoire} (exutoire)", volume_exutoire, None,
                                    qmax_exutoire, 100.0 if qmax_exutoire is not None else None,
                                    _COULEUR_OBS))
 
