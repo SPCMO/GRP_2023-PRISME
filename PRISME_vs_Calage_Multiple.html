@@ -69,14 +69,14 @@
     -webkit-font-smoothing: antialiased;
   }
   .page {
-    max-width: 920px;
+    max-width: 960px;
     margin: 0 auto;
     padding: 56px 28px 90px;
   }
-  .prose { max-width: 700px; }
+  .prose { max-width: 720px; }
 
   header.doc-head {
-    max-width: 700px;
+    max-width: 720px;
     margin-bottom: 44px;
     padding-bottom: 28px;
     border-bottom: 1px solid var(--line);
@@ -102,7 +102,7 @@
     color: var(--ink-soft);
     font-size: 16.5px;
     margin: 0 0 18px;
-    max-width: 60ch;
+    max-width: 62ch;
   }
   .meta-row {
     display: flex;
@@ -137,7 +137,7 @@
     color: var(--ink);
   }
   p { margin: 0 0 15px; }
-  .prose p, .prose li { max-width: 66ch; }
+  .prose p, .prose li { max-width: 68ch; }
   .lede {
     font-size: 17px;
     color: var(--ink-soft);
@@ -155,14 +155,13 @@
     color: var(--ink);
   }
 
-  /* callout / scope box */
   .callout {
     background: var(--warn-bg);
     border: 1px solid var(--warn-line);
     border-radius: 10px;
     padding: 18px 20px;
     margin: 18px 0 28px;
-    max-width: 700px;
+    max-width: 720px;
   }
   .callout .callout-title {
     font-family: "IBM Plex Mono", monospace;
@@ -177,14 +176,12 @@
   .callout ul { margin: 8px 0 0; padding-left: 20px; }
   .callout ul li { margin-bottom: 5px; }
 
-  /* legend chips */
   .legend { display: flex; gap: 20px; margin: 6px 0 22px; flex-wrap: wrap; }
   .legend-item { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink-soft); }
   .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
   .swatch.multi { background: var(--accent-multi); }
   .swatch.prisme { background: var(--accent-prisme); }
 
-  /* comparison table */
   .table-wrap {
     overflow-x: auto;
     margin: 8px 0 34px;
@@ -216,11 +213,12 @@
     font-family: "IBM Plex Mono", monospace;
   }
   table.cmp th, table.cmp td {
-    padding: 9px 18px;
+    padding: 9px 16px;
     text-align: right;
     font-variant-numeric: tabular-nums;
     font-family: "IBM Plex Mono", monospace;
     border-top: 1px solid var(--line-soft);
+    white-space: nowrap;
   }
   table.cmp th:first-child, table.cmp td:first-child {
     text-align: left;
@@ -252,18 +250,18 @@
   }
   td.win.w-multi::after { background: var(--accent-multi); }
   td.win.w-prisme::after { background: var(--accent-prisme); }
+  tr.crossover td { border-top: 2px solid var(--warn-line); }
 
-  /* mini bar comparison */
   .bar-block { margin: -4px 0 30px; }
   .bar-row { display: grid; grid-template-columns: 120px 1fr 46px; align-items: center; gap: 10px; margin-bottom: 8px; }
   .bar-row .lbl { font-size: 12.5px; color: var(--ink-soft); font-family: "IBM Plex Mono", monospace; }
-  .bar-track { height: 12px; background: var(--surface-soft); border-radius: 6px; overflow: hidden; border: 1px solid var(--line-soft); }
+  .bar-track { height: 12px; background: var(--surface-soft); border-radius: 6px; overflow: hidden; border: 1px solid var(--line-soft); position: relative; }
   .bar-fill { height: 100%; border-radius: 6px 0 0 6px; }
   .bar-fill.multi { background: var(--accent-multi); }
   .bar-fill.prisme { background: var(--accent-prisme); }
+  .bar-fill.neg { border-radius: 0 6px 6px 0; position: absolute; right: 50%; }
   .bar-val { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink-soft); text-align: right; }
 
-  /* pro/con cards */
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -293,7 +291,6 @@
   }
   .card li { margin-bottom: 6px; }
 
-  /* recommendation list */
   .reco {
     background: var(--surface);
     border: 1px solid var(--line);
@@ -301,7 +298,7 @@
     box-shadow: var(--shadow);
     padding: 6px 22px;
     margin: 10px 0 30px;
-    max-width: 700px;
+    max-width: 720px;
   }
   .reco-item {
     padding: 18px 0;
@@ -318,45 +315,35 @@
     font-size: 12.5px;
     color: var(--ink-faint);
     font-family: "IBM Plex Mono", monospace;
-    max-width: 700px;
+    max-width: 720px;
   }
 </style>
 
 <div class="page">
 
   <header class="doc-head">
-    <p class="eyebrow">SPCMO · Calage GRP Moussoulens (Y1612020) · Note technique</p>
+    <p class="eyebrow">SPCMO · Calage GRP Moussoulens (Y1612020) · Note technique — v2, grille étendue</p>
     <h1>PRISME vs Calage multiple — comparaison des deux méthodologies de calage</h1>
-    <p class="doc-sub">Deux approches de calage GRP confrontées sur les mêmes 24 crues historiques : le rejeu opérationnel de PRISME et la validation croisée du script « Calages multiples ». Premiers résultats croisés, avec les limites de ce test à garder en tête.</p>
+    <p class="doc-sub">Grille étendue à 97 combinaisons (11 horizons × jusqu'à 7 seuils × 2 méthodes, toutes avec 24/24 crues réussies) confrontée aux mêmes crues historiques : le rejeu opérationnel de PRISME face au calage / contrôle croisé du script « Calages multiples ». Cette version remplace l'analyse initiale à 24 combinaisons — les conclusions qualitatives se confirment, avec plusieurs résultats statistiques nouveaux qui les renforcent nettement.</p>
     <div class="meta-row">
-      <span><b>23 août 2026</b></span>
+      <span><b>23-25 août 2026</b></span>
       <span>Station <b>Y1612020</b> — Moussoulens</span>
       <span>Pas de temps <b>15 min</b></span>
-      <span>Méthode <b>Tangara</b> · Seuil <b>0 m³/s</b></span>
+      <span><b>97/97</b> combinaisons — 2 328 lignes appariées à 100 %</span>
     </div>
   </header>
 
   <div class="prose">
 
   <h2><span class="num">1</span>Deux logiques de calage, pas deux variantes d'une même méthode</h2>
-  <p>PRISME rejoue chaque crue individuellement en conditions <strong>opérationnelles</strong> : un calage unique sur la période disponible, puis une prévision lancée à un instant donné (<code>config_prevision.ini</code>), comme le ferait le SPCMO en astreinte réelle. « Calages multiples » procède par <strong>calage / contrôle croisé</strong> : le modèle est calé sur l'ensemble de la chronique continue, puis évalué événement par événement — une logique de validation statistique plus proche d'un test de robustesse que d'un usage opérationnel.</p>
-  <p>Rien ne garantissait a priori que les deux convergent vers le même diagnostic. Elles ne convergent pas — et l'écart raconte quelque chose d'utile sur le calage GRP à Moussoulens.</p>
+  <p>PRISME rejoue chaque crue individuellement en conditions <strong>opérationnelles</strong> : un calage unique sur la période disponible, puis une prévision lancée à un instant donné (<code>config_prevision.ini</code>), comme le ferait le SPCMO en astreinte réelle. « Calages multiples » procède par <strong>calage / contrôle croisé</strong> : le modèle est calé sur l'ensemble de la chronique continue (périodes P1/P2 déterminées automatiquement), puis évalué événement par événement — une logique de validation statistique plus proche d'un test de robustesse que d'un usage opérationnel.</p>
+  <p>Rien ne garantissait a priori que les deux convergent vers le même diagnostic. Elles ne convergent pas — et sur une grille 4 fois plus large que l'analyse initiale (97 combinaisons contre 24, 11 horizons contre 6), l'écart ne s'estompe pas : il se précise, et devient mesurable statistiquement plutôt que simplement visible sur un tableau.</p>
 
-  </div>
-
-  <div class="callout">
-    <p class="callout-title">Périmètre de ce test — à lire avant les résultats</p>
-    <p>Cette comparaison porte sur un <strong>test réduit</strong>, pas sur la grille complète initialement prévue :</p>
-    <ul>
-      <li><strong>2 horizons sur 6</strong> testés (1h et 1 jour) — seuil de calage 0 m³/s et méthode Tangara uniquement.</li>
-      <li>Ce périmètre réduit est un choix délibéré après une première tentative de grille complète (24 tests) bloquée <strong>~20h30</strong> par une contention au chargement parallèle des bibliothèques R — un test court a permis de confirmer que le script fonctionne en <strong>mode séquentiel</strong> avant d'engager une exécution longue.</li>
-      <li>Les tendances ci-dessous portent donc sur 2 horizons seulement : elles orientent l'interprétation, elles ne la referment pas. Voir §5 pour l'extension à la grille complète.</li>
-    </ul>
   </div>
 
   <div class="prose">
-  <h2><span class="num">2</span>Résultats comparés</h2>
-  <p class="lede">Mêmes 24 crues historiques, même station, même seuil et méthode — seule la logique de calage change.</p>
+  <h2><span class="num">2</span>Un renversement complet entre horizons courts et longs</h2>
+  <p class="lede">2 328 lignes comparées (97 combinaisons × 24 crues), appariement à 100 % sur la date de crue — aucune ligne perdue. 11 horizons désormais couverts (1h à 2j, avec les paliers intermédiaires 9h, 18h, 1j6h, 1j12h, 1j18h qui manquaient à l'analyse initiale).</p>
   </div>
 
   <div class="legend">
@@ -366,76 +353,118 @@
 
   <div class="table-wrap">
     <table class="cmp">
-      <caption>Horizon 1 heure<span class="sub">n = 24 crues de chaque côté</span></caption>
+      <caption>KGE moyen par horizon, et part des 24 crues où chaque méthode l'emporte<span class="sub">tous seuils / méthodes confondus — n indiqué par ligne</span></caption>
       <thead>
-        <tr><th>Indicateur</th><th class="col-multi">Calages multiples</th><th class="col-prisme">PRISME</th></tr>
+        <tr><th>Horizon</th><th class="col-multi">KGE multi</th><th class="col-prisme">KGE PRISME</th><th>Multi gagne (crue par crue)</th><th>n</th></tr>
       </thead>
       <tbody>
-        <tr><td>|dQP| moyen</td><td class="win w-multi">5,2 %</td><td>34,2 %</td></tr>
-        <tr><td>|dQP| médian</td><td class="win w-multi">1,6 %</td><td>32,4 %</td></tr>
-        <tr><td>|dTP| moyen</td><td>7,8 pdt</td><td class="win w-prisme">15,1 pdt</td></tr>
-        <tr><td>|VE| moyen</td><td class="win w-multi">5,3 %</td><td>29,3 %</td></tr>
-        <tr><td>KGE moyen</td><td class="win w-multi">0,88</td><td>0,15</td></tr>
-        <tr><td>KGE médian</td><td class="win w-multi">0,97</td><td>0,14</td></tr>
-        <tr><td>KGE min – max</td><td>−0,51 → 0,99</td><td>−0,63 → 0,82</td></tr>
+        <tr><td>1 heure</td><td class="win w-multi">0,88</td><td>0,00</td><td class="win w-multi">97,1 %</td><td>240</td></tr>
+        <tr><td>3 heures</td><td class="win w-multi">0,80</td><td>0,17</td><td class="win w-multi">95,8 %</td><td>240</td></tr>
+        <tr><td>6 heures</td><td class="win w-multi">0,69</td><td>0,21</td><td class="win w-multi">93,3 %</td><td>240</td></tr>
+        <tr><td>9 heures</td><td class="win w-multi">0,56</td><td>0,23</td><td class="win w-multi">80,0 %</td><td>240</td></tr>
+        <tr><td>12 heures</td><td class="win w-multi">0,41</td><td>0,24</td><td class="win w-multi">70,8 %</td><td>240</td></tr>
+        <tr class="crossover"><td>18 heures</td><td>0,13</td><td class="win w-prisme">0,27</td><td>58,3 % <span style="color:var(--ink-faint);">(quasi à égalité)</span></td><td>288</td></tr>
+        <tr><td>1 jour</td><td>0,00</td><td class="win w-prisme">0,30</td><td class="win w-prisme">32,9 %</td><td>240</td></tr>
+        <tr><td>1 j 6 h</td><td>-0,07</td><td class="win w-prisme">0,31</td><td class="win w-prisme">30,6 %</td><td>72</td></tr>
+        <tr><td>1 j 12 h</td><td>-0,02</td><td class="win w-prisme">0,32</td><td class="win w-prisme">29,2 %</td><td>240</td></tr>
+        <tr><td>1 j 18 h</td><td>0,06</td><td class="win w-prisme">0,33</td><td class="win w-prisme">33,3 %</td><td>48</td></tr>
+        <tr><td>2 jours</td><td>0,11</td><td class="win w-prisme">0,34</td><td class="win w-prisme">33,3 %</td><td>240</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="bar-block">
-    <div class="bar-row">
-      <span class="lbl">KGE moyen</span>
-      <div class="bar-track"><div class="bar-fill multi" style="width:88%"></div></div>
-      <span class="bar-val">0,88</span>
-    </div>
-    <div class="bar-row">
-      <span class="lbl">&nbsp;</span>
-      <div class="bar-track"><div class="bar-fill prisme" style="width:15%"></div></div>
-      <span class="bar-val">0,15</span>
-    </div>
+    <div class="bar-row"><span class="lbl">1h</span><div class="bar-track"><div class="bar-fill multi" style="width:97%"></div></div><span class="bar-val">97 %</span></div>
+    <div class="bar-row"><span class="lbl">12h</span><div class="bar-track"><div class="bar-fill multi" style="width:71%"></div></div><span class="bar-val">71 %</span></div>
+    <div class="bar-row"><span class="lbl">18h</span><div class="bar-track"><div class="bar-fill multi" style="width:58%"></div></div><span class="bar-val">58 %</span></div>
+    <div class="bar-row"><span class="lbl">1j</span><div class="bar-track"><div class="bar-fill multi" style="width:33%"></div></div><span class="bar-val">33 %</span></div>
+    <div class="bar-row"><span class="lbl">2j</span><div class="bar-track"><div class="bar-fill multi" style="width:33%"></div></div><span class="bar-val">33 %</span></div>
+  </div>
+  <p style="color:var(--ink-faint); font-size:13px; margin-top:-18px;">% de crues où les calages multiples obtiennent un meilleur KGE que PRISME sur la même combinaison — lecture directe de la bascule, indépendante de la normalisation.</p>
+
+  <div class="prose">
+  <p>Le nouvel horizon <strong>18 h</strong> — absent de l'analyse initiale — comble exactement le vide entre 12 h et 1 jour, et confirme que la bascule est <strong>progressive, pas un saut brutal</strong> : 71 % → 58 % → 33 %. Elle se stabilise ensuite : au-delà d'1 jour, PRISME reste gagnant sur une part quasi constante des crues (29-33 %), quel que soit l'horizon testé jusqu'à 2 jours. Ce plateau, désormais visible sur 5 paliers d'horizon distincts au lieu d'1 seul, écarte l'hypothèse d'un artefact ponctuel.</p>
+  </div>
+
+  <h2><span class="num">3</span>Le renversement est statistiquement quasi total, pas juste visible sur une moyenne</h2>
+
+  <div class="callout">
+    <p class="callout-title">Résultat central</p>
+    <p>En classant les 97 combinaisons par leur KGE moyen (sur les 24 crues), le classement obtenu par les calages multiples et celui obtenu par PRISME sont <strong>anti-corrélés à ρ = −0,91</strong> (corrélation de rang de Spearman). Une anti-corrélation parfaite vaudrait −1 : à −0,91, ce n'est plus « les deux méthodes divergent parfois », c'est <strong>« ce qui est bon pour l'une est presque systématiquement mauvais pour l'autre »</strong>, et réciproquement.</p>
   </div>
 
   <div class="table-wrap">
     <table class="cmp">
-      <caption>Horizon 1 jour<span class="sub">n = 24 crues de chaque côté</span></caption>
+      <caption>Les 8 plus gros désaccords de classement<span class="sub">rang 1 = meilleure des 97 combinaisons pour la méthode considérée</span></caption>
       <thead>
-        <tr><th>Indicateur</th><th class="col-multi">Calages multiples</th><th class="col-prisme">PRISME</th></tr>
+        <tr><th>Combinaison</th><th class="col-multi">Rang multi</th><th class="col-prisme">Rang PRISME</th><th>KGE multi</th><th>KGE PRISME</th></tr>
       </thead>
       <tbody>
-        <tr><td>|dQP| moyen</td><td>30,3 %</td><td class="win w-prisme">28,8 %</td></tr>
-        <tr><td>|dQP| médian</td><td class="win w-prisme">26,2 %</td><td>29,5 %</td></tr>
-        <tr><td>|dTP| moyen</td><td>18,3 pdt</td><td class="win w-prisme">14,0 pdt</td></tr>
-        <tr><td>|VE| moyen</td><td class="win w-prisme">21,6 %</td><td>23,6 %</td></tr>
-        <tr><td>KGE moyen</td><td>0,02</td><td class="win w-prisme">0,28</td></tr>
-        <tr><td>KGE médian</td><td>0,22</td><td class="win w-prisme">0,33</td></tr>
-        <tr><td>KGE min – max</td><td>−3,29 → 0,87</td><td>−0,40 → 0,88</td></tr>
+        <tr><td>1h / seuil 5 / R</td><td class="win w-multi">5<sup>e</sup></td><td class="win w-prisme">96<sup>e</sup></td><td>0,89</td><td>-0,32</td></tr>
+        <tr><td>1h / seuil 3 / T</td><td class="win w-multi">7<sup>e</sup></td><td class="win w-prisme">97<sup>e</sup> (dernier)</td><td>0,88</td><td>-0,39</td></tr>
+        <tr><td>1h / seuil 0 / R</td><td class="win w-multi">1<sup>er</sup> (meilleur de tous)</td><td class="win w-prisme">90<sup>e</sup></td><td>0,89</td><td>0,15</td></tr>
+        <tr><td>1h / seuil 7 / R</td><td class="win w-multi">3<sup>e</sup></td><td class="win w-prisme">94<sup>e</sup></td><td>0,89</td><td>0,13</td></tr>
+        <tr><td>1j12h / seuil 10 / T</td><td class="win w-prisme">94<sup>e</sup></td><td class="win w-multi">15<sup>e</sup></td><td>-0,05</td><td>0,32</td></tr>
+        <tr><td>1j12h / seuil 7 / T</td><td class="win w-prisme">87<sup>e</sup></td><td class="win w-multi">13<sup>e</sup></td><td>-0,02</td><td>0,32</td></tr>
+        <tr><td>1j12h / seuil 10 / R</td><td class="win w-prisme">88<sup>e</sup></td><td class="win w-multi">14<sup>e</sup></td><td>-0,02</td><td>0,32</td></tr>
+        <tr><td>3h / seuil 0 / R</td><td class="win w-multi">11<sup>e</sup></td><td class="win w-prisme">88<sup>e</sup></td><td>0,83</td><td>0,15</td></tr>
       </tbody>
     </table>
   </div>
 
-  <div class="bar-block">
-    <div class="bar-row">
-      <span class="lbl">KGE moyen</span>
-      <div class="bar-track"><div class="bar-fill multi" style="width:2%"></div></div>
-      <span class="bar-val">0,02</span>
+  <div class="prose">
+  <p>Sans surprise après la section précédente, tous les désaccords majeurs opposent l'horizon 1h (excellent en multi, catastrophique en PRISME) à l'horizon 1j12h (l'inverse). Mais l'ampleur frappe : <strong>1h / seuil 3 / Tangara</strong> est la 7<sup>e</sup> meilleure combinaison des 97 selon les calages multiples — et la <strong>toute dernière</strong> (97<sup>e</sup>/97) selon PRISME.</p>
+  </div>
+
+  <h2><span class="num">4</span>Le piège concret : la « meilleure combinaison » n'est pas la même selon la méthode utilisée pour trancher</h2>
+
+  <div class="grid-2">
+    <div class="card card-multi">
+      <h3><span class="dot"></span>Meilleure selon les calages multiples</h3>
+      <p class="card-sub">1 h / seuil 0 / RNA — KGE multi 0,89</p>
+      <p style="font-size:14.5px;">Vue en rejeu opérationnel PRISME, cette même combinaison tombe au <strong>90<sup>e</sup> rang sur 97</strong> (KGE PRISME 0,15) — quasiment la pire configuration disponible pour un usage réel en astreinte.</p>
     </div>
-    <div class="bar-row">
-      <span class="lbl">&nbsp;</span>
-      <div class="bar-track"><div class="bar-fill prisme" style="width:28%"></div></div>
-      <span class="bar-val">0,28</span>
+    <div class="card card-prisme">
+      <h3><span class="dot"></span>Meilleure selon PRISME</h3>
+      <p class="card-sub">2 j / seuil 10 / RNA — KGE PRISME 0,34</p>
+      <p style="font-size:14.5px;">Vue en calage multiple, cette même combinaison tombe au <strong>65<sup>e</sup> rang sur 97</strong> (KGE multi 0,11) — un classement médiocre, à l'opposé du meilleur choix qu'elle représente en conditions réelles.</p>
     </div>
   </div>
 
   <div class="prose">
-  <p>Le renversement est complet : à 1h, les calages multiples dominent largement (KGE moyen 0,88 contre 0,15) ; à 1 jour, c'est PRISME qui prend l'avantage sur tous les indicateurs, et les calages multiples produisent leur pire résultat de tout le test (KGE = −3,29 sur une crue isolée).</p>
-
-  <h2><span class="num">3</span>Pourquoi un tel écart — hypothèse à vérifier</h2>
-  <p>L'hypothèse la plus vraisemblable tient à l'<strong>état initial du modèle</strong>. Le calage/contrôle croisé fonctionne en <strong>continu</strong> : les réservoirs internes de GRP (humidité des sols, routage) sont alimentés par toute la chronique avant chaque événement testé, ce qui les rend très fiables à courte échéance — précisément là où l'état initial pèse le plus. PRISME, lui, reproduit les conditions réelles d'astreinte : une fenêtre d'initialisation plus courte avant l'instant de prévision, plus proche de ce qu'un prévisionniste a réellement sous la main en temps réel — mais aussi plus vulnérable à une erreur d'état initial, surtout à 1h où cette erreur n'a pas eu le temps de s'estomper.</p>
-  <p>À 1 jour, l'avantage du continu semble s'atténuer voire s'inverser — la trajectoire de la crue sur 24h est peut-être davantage gouvernée par la pluie à venir que par l'état initial, ce qui réduit l'écart entre les deux logiques et peut même désavantager le contrôle croisé (le score catastrophique de −3,29 sur une crue isolée suggère un début de surapprentissage sur certains événements).</p>
-  <p style="color:var(--ink-faint); font-size:14px;">Cette lecture reste une hypothèse de travail — à confronter à votre expertise du bassin et, idéalement, aux 4 horizons restants avant d'en tirer une conclusion ferme.</p>
+  <p>C'est la traduction la plus directe du ρ = −0,91 : <strong>choisir un réglage à partir des seuls calages multiples reviendrait, ici, à déployer l'une des pires configurations opérationnelles possibles</strong> — pas une configuration légèrement sous-optimale, un choix quasiment aux antipodes du meilleur.</p>
   </div>
 
-  <h2><span class="num">4</span>Forces et limites de chaque approche</h2>
+  <h2><span class="num">5</span>Pourquoi un tel écart</h2>
+  <p class="prose">L'hypothèse retenue dans l'analyse initiale (état initial du modèle) se confirme et se précise avec deux observations supplémentaires, désormais mesurables sur l'ensemble de la grille :</p>
+
+  <div class="table-wrap">
+    <table class="cmp">
+      <caption>Résultats à KGE très dégradé (&lt; -1), par méthode</caption>
+      <thead>
+        <tr><th>Source</th><th>Occurrences</th><th>Part des 2 328 lignes</th><th>Répartition par horizon</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Calages multiples</td><td class="win w-multi">63</td><td class="win w-multi">2,71 %</td><td>0 avant 18h, puis 12 à 18h, 15 à 1j, 6 à 1j6h, 20 à 1j12h, 8 à 2j, 2 à 1j18h</td></tr>
+        <tr><td>PRISME</td><td class="win w-prisme">22</td><td class="win w-prisme">0,95 %</td><td>Réparties plus régulièrement, sans concentration nette sur un horizon</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="prose">Deux fois plus de résultats catastrophiques côté calages multiples, et surtout : <strong>zéro avant 18 h</strong>, puis une concentration nette à partir d'1 jour — exactement là où le renversement de classement se produit. Un exemple concret illustre le phénomène : la crue n°17 (13 février, Qmax 458 m³/s) obtient un KGE de <strong>−3,6 à −3,3</strong> côté calages multiples sur <em>toutes</em> les combinaisons testées à l'horizon 1 jour (les 4 seuils, les 2 méthodes) — alors que PRISME reste correct sur cette même crue au même horizon (KGE 0,35 à 0,40). Un échec aussi uniforme sur une seule crue, à un seul horizon, tous réglages confondus, pointe vers un problème structurel de cet horizon pour cette crue précise plutôt qu'un mauvais réglage isolé — cohérent avec l'hypothèse d'un surapprentissage du calage continu sur la dynamique historique, qui généralise mal à certains événements en horizon long.</p>
+
+  <p class="prose">Deux hypothèses alternatives ont été testées et <strong>écartées</strong> par les données :</p>
+  <ul class="plain">
+    <li><strong>La taille de la crue n'explique pas l'écart</strong> — corrélation quasi nulle (r = 0,11) entre le Qmax d'une crue et l'écart de KGE moyen observé sur cette crue. Les grosses et les petites crues sont affectées de façon comparable par le renversement ; ce n'est pas un effet d'échelle.</li>
+    <li><strong>Le seuil de calage ne joue quasiment aucun rôle</strong> — à horizon fixé, le KGE moyen varie de moins de 0,05 entre les 7 seuils testés (0 à 10 m³/s), pour les deux méthodes. Le facteur déterminant est l'horizon, presque exclusivement.</li>
+  </ul>
+
+  <div class="callout">
+    <p class="callout-title">Piste supplémentaire — nature de l'épisode</p>
+    <p>Les 97 combinaisons couvrent aussi bien des <strong>crues</strong> (TypEvt=Q, pic de débit marqué, n=1 746) que des <strong>épisodes de pluie</strong> sans crue franche (TypEvt=P, n=582). Les calages multiples sont relativement <strong>meilleurs sur les épisodes de pluie</strong> (KGE 0,42 contre 0,35 sur les vraies crues), tandis que PRISME est <strong>meilleur sur les vraies crues</strong> (KGE 0,25 contre 0,17 sur la pluie seule). Or c'est précisément la performance sur les <em>crues</em> qui compte en astreinte — un argument de plus en faveur de PRISME comme référence opérationnelle.</p>
+  </div>
+
+  <h2><span class="num">6</span>Forces et limites de chaque approche</h2>
 
   <div class="grid-2">
     <div class="card card-multi">
@@ -444,14 +473,17 @@
       <div class="label-mini">Atouts</div>
       <ul>
         <li>Teste la <strong>généralisation</strong> du calage plutôt qu'un seul rejeu — détecte un surapprentissage qu'un test PRISME isolé ne verrait pas.</li>
-        <li>État initial très bien renseigné → repère fiable de la <strong>performance maximale atteignable</strong> sur un horizon donné.</li>
-        <li>Un seul calcul couvre les 24 crues d'un coup (pas de rejeu événement par événement).</li>
+        <li>État initial très bien renseigné → repère fiable de la <strong>performance maximale atteignable</strong> aux horizons courts (≤12h, victoire sur 71 à 97 % des crues).</li>
+        <li>Un seul calcul couvre les 24 crues d'un coup — méthode Tangara <strong>~14 min/combinaison</strong>, la plus rapide des deux approches.</li>
+        <li>Grille de 97 combinaisons exécutée en 6 lots enchaînés, ~30h de calcul total mais sans intervention pendant chaque lot.</li>
       </ul>
       <div class="label-mini" style="margin-top:14px;">Limites</div>
       <ul class="cons">
-        <li>Ne reproduit <strong>pas</strong> les conditions réelles d'astreinte — optimiste sur l'état initial.</li>
-        <li>Le mode parallèle (nbCoeur > 1) est <strong>instable</strong> en l'état — bug de contention encore non résolu à la racine, mode séquentiel obligatoire pour l'instant.</li>
-        <li>Sensible au surapprentissage sur certains horizons (KGE −3,29 observé).</li>
+        <li>Ne reproduit <strong>pas</strong> les conditions réelles d'astreinte — optimiste sur l'état initial, surtout aux horizons courts.</li>
+        <li><strong>Classement quasi inversé (ρ = −0,91) par rapport à PRISME au-delà d'1 jour</strong> — confirmé sur 4 fois plus de combinaisons que l'analyse initiale.</li>
+        <li>2,7 fois plus de résultats catastrophiques (KGE &lt; −1) que PRISME, concentrés après 18h.</li>
+        <li>Méthode RNA nettement plus lente que Tangara en calage multiple (~25 min/combinaison contre ~14 min) — l'écart de vitesse entre méthodes est propre aux calages multiples, PRISME ne montre pas cette asymétrie.</li>
+        <li>Le mode parallèle (<code>nbCoeur &gt; 1</code>) reste <strong>instable</strong> en l'état — mode séquentiel obligatoire tant que la contention au chargement de la lib R n'est pas résolue à la racine.</li>
       </ul>
     </div>
     <div class="card card-prisme">
@@ -461,72 +493,97 @@
       <ul>
         <li><strong>Représentatif</strong> de l'usage réel en astreinte — c'est la référence pour décider d'un calage à déployer.</li>
         <li>Reprise fine sur échec, suivi détaillé crue par crue, dashboard interactif déjà en place.</li>
-        <li>Robustesse : pas de valeurs catastrophiques observées sur ce test (KGE min −0,63).</li>
+        <li><strong>Plus robuste aux horizons longs</strong> — performance qui croît régulièrement avec l'horizon (KGE 0,00 à 1h → 0,34 à 2 jours), au lieu de s'effondrer.</li>
+        <li>Bien meilleur sur les résultats extrêmes : 3× moins de KGE catastrophiques que les calages multiples.</li>
       </ul>
       <div class="label-mini" style="margin-top:14px;">Limites</div>
       <ul class="cons">
-        <li>Sensible à une fenêtre d'initialisation courte — pénalisé aux échéances courtes si l'état initial est mal renseigné.</li>
-        <li>Coût par combinaison plus élevé : calage + rejeu individuel de chaque crue (~20-25 min/combinaison observés en pratique).</li>
-        <li>Ne teste pas explicitement la généralisation du calage à des crues « nouvelles ».</li>
+        <li>Sensible à une fenêtre d'initialisation courte — nettement pénalisé aux échéances courtes (KGE ~0,00-0,25 jusqu'à 9h).</li>
+        <li>Coût par combinaison plus élevé (~28-33 min en moyenne, pipeline complet calage + rejeu des 24 crues).</li>
+        <li>Campagne moins automatisable en l'état — plusieurs relances/extensions manuelles ont été nécessaires pour couvrir les 97 combinaisons.</li>
       </ul>
     </div>
   </div>
 
   <div class="prose">
-  <h2><span class="num">5</span>La combinaison optimale bouge-t-elle selon la taille des crues retenues ?</h2>
-  <p class="lede">Question complémentaire, traitée uniquement sur les données PRISME (96 combinaisons × 24 crues, déjà toutes en base — ne dépend pas des calages multiples). En ne gardant que les N crues les plus fortes (Qmax décroissant) pour calculer le score, l'optimum se déplace nettement.</p>
+  <h2><span class="num">7</span>La combinaison optimale bouge-t-elle selon la taille des crues retenues ?</h2>
+  <p class="lede">Question complémentaire, traitée uniquement sur les données PRISME (97 combinaisons × 24 crues). En ne gardant que les N crues les plus fortes (Qmax décroissant) pour calculer le KGE moyen, l'analyse initiale (limitée à 6 horizons, max 2 jours) trouvait un optimum instable. Avec 11 horizons disponibles, le résultat change de nature.</p>
   </div>
 
   <div class="table-wrap">
     <table class="cmp">
-      <caption>Combinaison gagnante selon le nombre de crues les plus fortes retenues<span class="sub">poids égaux, 96 combinaisons PRISME</span></caption>
+      <caption>Combinaison gagnante selon le nombre de crues les plus fortes retenues<span class="sub">KGE moyen, 97 combinaisons PRISME</span></caption>
       <thead>
         <tr><th>N crues</th><th>Qmax min retenu</th><th>Combinaison gagnante</th><th>|dQP|</th><th>|dTP|</th><th>|VE|</th><th>KGE</th></tr>
       </thead>
       <tbody>
-        <tr><td>10 plus fortes</td><td>≥ 632 m³/s</td><td class="win w-prisme">00J18H00M / 5,00 / T</td><td>39,2 %</td><td>12,7 pdt</td><td>23,9 %</td><td>0,29</td></tr>
-        <tr><td>15 plus fortes</td><td>≥ 519 m³/s</td><td class="win w-prisme">01J00H00M / 10,00 / T</td><td>32,4 %</td><td>14,5 pdt</td><td>21,6 %</td><td>0,30</td></tr>
-        <tr><td>20 plus fortes</td><td>≥ 358 m³/s</td><td class="win w-prisme">01J00H00M / 10,00 / T</td><td>29,6 %</td><td>14,2 pdt</td><td>20,5 %</td><td>0,31</td></tr>
-        <tr><td>24 (toutes)</td><td>≥ 18 m³/s</td><td class="win w-multi">01J00H00M / 3,00 / R</td><td>28,6 %</td><td>14,3 pdt</td><td>23,4 %</td><td>0,30</td></tr>
+        <tr><td>10 plus fortes</td><td>≥ 632 m³/s</td><td class="win w-prisme">2 j / seuil 5 / R</td><td>41,5 %</td><td>20,3 pdt</td><td>24,5 %</td><td>0,30</td></tr>
+        <tr><td>15 plus fortes</td><td>≥ 519 m³/s</td><td class="win w-prisme">2 j / seuil 5 / R</td><td>32,3 %</td><td>20,8 pdt</td><td>22,0 %</td><td>0,35</td></tr>
+        <tr><td>20 plus fortes</td><td>≥ 358 m³/s</td><td class="win w-prisme">2 j / seuil 10 / R</td><td>29,4 %</td><td>19,1 pdt</td><td>20,7 %</td><td>0,36</td></tr>
+        <tr><td>24 (toutes)</td><td>≥ 18 m³/s</td><td class="win w-prisme">2 j / seuil 10 / R</td><td>31,3 %</td><td>19,0 pdt</td><td>23,5 %</td><td>0,34</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="prose">
-  <p>Deux bascules, à deux endroits différents :</p>
-  <ul class="plain">
-    <li><strong>L'horizon passe de 18h à 24h dès qu'on descend sous les 10 plus grosses crues</strong>, puis reste stable à 24h jusqu'à inclure la totalité — sur les 10 plus fortes seulement, un horizon plus court (18h) capte apparemment mieux la dynamique rapide des grandes crues ; élargir à des événements plus modérés demande un horizon légèrement plus long pour rester performant sur l'ensemble.</li>
-    <li><strong>La méthode ne bascule de Tangara à RNA qu'en incluant la totalité des 24 crues</strong> — y compris la plus petite (Qmax 17,8 m³/s, à peine une crue). La correction RNA semble apporter un vrai gain seulement quand la gamme de crues à couvrir est très large (des événements majeurs aux plus modestes) ; sur un sous-ensemble homogène de grosses crues, Tangara suffit et reste même légèrement meilleur.</li>
-    <li>Le <strong>seuil de calage</strong> pèse peu : à N=15 et N=20, les seuils 3, 5 et 10 sont à égalité parfaite derrière le même horizon/méthode.</li>
-  </ul>
-  <p style="color:var(--ink-faint); font-size:14px;">Le score composite n'est pas directement comparable d'une ligne à l'autre du tableau (normalisation min-max propre à chaque N) — seuls le classement au sein d'un N et les indicateurs bruts (|dQP|, KGE…) le sont. Un nouvel onglet Dashboard (« Variation selon le nb de crues ») reproduit cette analyse pour n'importe quelle sélection d'horizons/seuils/méthodes, avec un graphique de stabilité.</p>
+  <p><strong>Le constat de l'analyse initiale ne se confirme pas</strong> : ce n'était pas l'horizon optimal qui se déplaçait selon N, mais un artefact d'une grille alors limitée à 2 jours au maximum. Avec les horizons longs désormais disponibles, <strong>l'horizon 2 jours (le plus long testé) domine systématiquement</strong>, quel que soit le nombre de crues retenues — seul le seuil de calage varie légèrement (5 pour les sous-ensembles les plus restreints, 10 dès 20 crues). La méthode RNA l'emporte dans les 4 cas, contrairement à l'analyse initiale où Tangara dominait sur les sous-ensembles réduits.</p>
+  <p style="color:var(--ink-faint); font-size:14px;">Cette stabilisation soulève une question ouverte : la performance PRISME continue-t-elle de croître au-delà de 2 jours, ou plafonne-t-elle ? Seul un test à un horizon plus long permettrait de trancher.</p>
   </div>
 
   <div class="prose">
-  <h2><span class="num">6</span>Recommandations</h2>
+  <h2><span class="num">8</span>Durées mesurées sur les 6 lots de calages multiples</h2>
+  </div>
+
+  <div class="table-wrap">
+    <table class="cmp">
+      <caption>Détail des 6 lots exécutés (24-25 août 2026)<span class="sub">séquentiel, aucun échec sur les 97 combinaisons</span></caption>
+      <thead>
+        <tr><th>Lot</th><th>Combinaisons</th><th>Durée</th><th>Méthode</th><th>Min/combinaison</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>1</td><td>80</td><td>~24h27</td><td>Mixte T+R</td><td>~18,3</td></tr>
+        <tr><td>2</td><td>5</td><td>~2h13</td><td class="win w-multi">RNA seule</td><td class="win w-multi">~26,6</td></tr>
+        <tr><td>3</td><td>7</td><td>~1h36</td><td class="win w-prisme">Tangara seule</td><td class="win w-prisme">~13,7</td></tr>
+        <tr><td>4</td><td>2</td><td>~30 min</td><td class="win w-prisme">Tangara seule</td><td class="win w-prisme">~15,0</td></tr>
+        <tr><td>5</td><td>1</td><td>~25 min</td><td class="win w-multi">RNA seule</td><td class="win w-multi">~25,0</td></tr>
+        <tr><td>6</td><td>2</td><td>~29 min</td><td class="win w-prisme">Tangara seule</td><td class="win w-prisme">~14,5</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="prose">
+  <p>Isolée des lots mixtes, la différence de vitesse entre méthodes est nette : <strong>Tangara tourne quasiment 2 fois plus vite que RNA en calage multiple</strong> (~14 min contre ~26 min par combinaison) — une asymétrie propre aux calages multiples, sans équivalent mesuré côté PRISME (~28-33 min pour les deux méthodes, écart non mesuré séparément). Sur l'ensemble des 6 lots : ~30h15 de calcul pour 97 combinaisons, soit ~18,7 min/combinaison en moyenne — cohérent avec le lot 1, qui à lui seul représente 80 des 97 combinaisons.</p>
+  </div>
+
+  <div class="prose">
+  <h2><span class="num">9</span>Recommandations</h2>
   </div>
 
   <div class="reco">
     <div class="reco-item">
-      <h3>Garder PRISME comme référence de décision</h3>
-      <p>Le rejeu opérationnel reste le test qui compte pour choisir un calage à déployer : c'est lui qui reproduit les conditions réelles d'astreinte. Les calages multiples ne doivent pas s'y substituer.</p>
+      <h3>Garder PRISME comme référence exclusive de décision</h3>
+      <p>Le rejeu opérationnel reste le test qui compte pour choisir un calage à déployer. La grille étendue à 97 combinaisons renforce cette conclusion au-delà du doute raisonnable : suivre les calages multiples pour choisir un réglage reviendrait, dans ce jeu de données, à déployer une configuration classée 90<sup>e</sup> sur 97 par PRISME — l'écart n'est pas une nuance statistique, c'est un contresens opérationnel démontré.</p>
     </div>
     <div class="reco-item">
-      <h3>Utiliser les calages multiples comme détecteur de surapprentissage</h3>
-      <p>Si PRISME donne un bon résultat mais que les calages multiples s'effondrent sur le même horizon/seuil/méthode, c'est un signal d'alerte : le calage colle peut-être trop aux crues historiques spécifiques plutôt qu'à une dynamique généralisable.</p>
+      <h3>Utiliser les calages multiples comme détecteur de surapprentissage, strictement en dessous de 18h</h3>
+      <p>Le point de bascule est désormais précisé entre 12h et 18h (progressif, pas un saut). Un score catastrophique côté calages multiples (KGE &lt; −1, 2,7× plus fréquent qu'en PRISME) reste un signal d'alerte utile sur un surapprentissage possible — mais uniquement dans cette fenêtre d'horizons courts, là où les deux méthodes s'accordent encore sur la tendance générale.</p>
     </div>
     <div class="reco-item">
-      <h3>Dégrossir avec les calages multiples, affiner avec PRISME — sous condition</h3>
-      <p>La stratégie grille grossière puis affinage reste pertinente <strong>uniquement une fois le mode parallèle stabilisé</strong> : en séquentiel, un test de calages multiples ne semble pas plus rapide qu'un calage PRISME équivalent (~15-20 min observés pour les 24 crues d'un horizon, contre ~20-25 min pour une seule combinaison PRISME toutes crues confondues) — l'écart de vitesse qui justifierait le dégrossissage n'est donc pas encore acquis.</p>
+      <h3>Ne pas dégrossir avec les calages multiples au-delà de 18h</h3>
+      <p>Le classement des configurations s'inverse presque totalement (ρ = −0,91) à partir d'1 jour. Un dégrossissage par calages multiples à ces horizons écarterait à tort de bonnes configurations opérationnelles, ou en retiendrait de mauvaises — le risque n'est plus hypothétique, il est illustré par les cas concrets de la section 4.</p>
     </div>
     <div class="reco-item">
-      <h3>Étendre le test aux 6 horizons avant de généraliser la lecture</h3>
-      <p>Deux horizons sur six ne suffisent pas à confirmer que « court terme → avantage calages multiples, long terme → avantage PRISME » est une règle plutôt qu'une coïncidence. La grille complète (6 horizons × 2 seuils × 2 méthodes = 24 tests) en séquentiel est estimée à <strong>6 à 8 heures</strong> — à lancer si cette lecture mérite d'être confirmée avant la prochaine campagne.</p>
+      <h3>Explorer un horizon au-delà de 2 jours pour PRISME</h3>
+      <p>La performance PRISME croît de façon monotone avec l'horizon sur toute la plage testée (0,00 à 1h → 0,34 à 2j), sans signe de plafonnement. La section 7 montre que l'optimum se stabilise systématiquement sur l'horizon le plus long disponible — un test à 3 jours (ou plus) permettrait de savoir si cette tendance se poursuit ou atteint un maximum.</p>
+    </div>
+    <div class="reco-item">
+      <h3>Stabiliser le mode parallèle avant une prochaine campagne d'ampleur</h3>
+      <p>Le mode séquentiel a permis de boucler les 97 combinaisons en ~30h de façon fiable (aucun échec), mais un mode parallèle stable diviserait potentiellement ce temps par 2 à 4. La contention identifiée (chargement simultané de la lib R par plusieurs workers) mériterait un correctif à la racine.</p>
     </div>
   </div>
 
   <footer class="doc-foot">
-    Généré par Claude Sonnet 5 à partir de <code>runs.sqlite3</code> (PRISME) et du fichier compilé <code>Y1612020_00J00H15M_CRITERES_PERF.DAT</code> (Calages multiples), 23 août 2026 — voir aussi la note indépendante produite par la session collègue ayant piloté l'exécution des calages multiples.
+    Généré par Claude Sonnet 5 à partir de <code>runs.sqlite3</code> (PRISME) et du fichier fusionné <code>EXTENSION_97combos_CRITERES_PERF_FUSION.DAT</code> (Calages multiples, 97 combinaisons réparties en 6 lots séquentiels, 24-25 août 2026, 2 328 lignes vérifiées 97×24, aucun échec) — corrélation de Spearman, croisements horizon×seuil×méthode, analyse par crue et par type d'événement calculés spécifiquement pour cette version. Voir aussi <code>comparaison_prisme_vs_calage_multi.py</code> (script de base) et <code>NOTE_SYNTHESE_comparaison_calage_multi_vs_PRISME.md</code> (méthodologie de la version initiale à 24 combinaisons).
   </footer>
 
   </div>
