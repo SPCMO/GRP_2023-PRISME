@@ -859,6 +859,12 @@ def build_tab_analyse_affluents(tab_frame, app):
             })
             qmax_exutoire, date_qmax_exutoire = affluents.qmax_et_horodatage(points_exutoire)
             volume_exutoire = affluents.volume_m3(points_exutoire)
+            if qmax_exutoire is not None:
+                # Point coloré sur le pic de chaque courbe (demandé), couleur propre
+                # à la série — même principe pour les affluents plus bas.
+                ax.plot([date_qmax_exutoire], [qmax_exutoire], marker="o", markersize=7,
+                         color=_COULEUR_OBS, markeredgecolor="white", markeredgewidth=0.8,
+                         zorder=10)
             _ajouter_vignette(
                 "Moussoulens (exutoire)", _COULEUR_OBS, qmax_exutoire, date_qmax_exutoire,
                 surface=app.config_data.get("station", {}).get("surface_bv_km2"))
@@ -927,6 +933,9 @@ def build_tab_analyse_affluents(tab_frame, app):
             affluents_traces.append(a)
             qmax_a, date_qmax_a = affluents.qmax_et_horodatage(serie_a)
             volume_a = affluents.volume_m3(serie_a)
+            if qmax_a is not None:
+                ax.plot([date_qmax_a], [qmax_a], marker="o", markersize=7, color=couleur,
+                         markeredgecolor="white", markeredgewidth=0.8, zorder=10)
             _ajouter_vignette(a.nom, couleur, qmax_a, date_qmax_a, surface=a.surface_bv_km2)
             pct_volume = (volume_a / volume_exutoire * 100
                           if volume_a is not None and volume_exutoire else None)
