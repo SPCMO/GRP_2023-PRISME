@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
-from modules.grp_paths import GrpPaths
+from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
     bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
     make_label, make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
@@ -46,27 +46,6 @@ def _eclaircir(couleur_hex, facteur=0.45):
     b = int(b + (255 - b) * facteur)
     return f"#{r:02X}{g:02X}{b:02X}"
 
-
-def _construire_grp_paths(app):
-    """Construit un GrpPaths depuis la config actuelle — retourne None (avec message
-    explicite) si la configuration n'est pas encore complète, plutôt que de lever une
-    exception qui casserait l'onglet."""
-    chemins = app.config_data.get("chemins", {})
-    station = app.config_data.get("station", {})
-    manquants = []
-    if not chemins.get("dossier_resultats"):
-        manquants.append("dossier 00_Resultats_<station> (onglet Configuration)")
-    if not station.get("code_site"):
-        manquants.append("code site (identifiez la station via PHyC, onglet Configuration)")
-    if manquants:
-        return None, manquants
-    return GrpPaths(
-        dossier_grp=chemins.get("dossier_grp", ""),
-        dossier_donnees=chemins.get("dossier_donnees", ""),
-        dossier_bddtr=chemins.get("dossier_bddtr", ""),
-        dossier_resultats=chemins["dossier_resultats"],
-        code_site=station["code_site"],
-    ), []
 
 
 def build_tab_crues(tab_frame, app):
@@ -173,7 +152,7 @@ def build_tab_crues(tab_frame, app):
         vignette_vars.clear()
         var_statut.set("")
 
-        paths, manquants = _construire_grp_paths(app)
+        paths, manquants = construire_grp_paths(app)
         if paths is None:
             var_statut.set("Configuration incomplète : " + " ; ".join(manquants))
             return

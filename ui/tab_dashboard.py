@@ -26,7 +26,7 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour proje
 
 from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
-from modules.grp_paths import GrpPaths
+from modules.grp_paths import construire_grp_paths
 from modules.score import (
     PROFILS_PONDERATION, calculer_scores, config_ponderation_par_defaut,
     explication_score, filtrer_par_crues, resoudre_ponderation,
@@ -115,18 +115,6 @@ def _libelle_horizon_court(horizon):
     if minutes % 60 == 0:
         return f"{minutes // 60}H"
     return f"{minutes}min"
-
-
-def _construire_grp_paths(app):
-    chemins = app.config_data.get("chemins", {})
-    station = app.config_data.get("station", {})
-    if not chemins.get("dossier_resultats") or not station.get("code_site"):
-        return None
-    return GrpPaths(
-        dossier_grp=chemins.get("dossier_grp", ""), dossier_donnees=chemins.get("dossier_donnees", ""),
-        dossier_bddtr=chemins.get("dossier_bddtr", ""), dossier_resultats=chemins["dossier_resultats"],
-        code_site=station["code_site"],
-    )
 
 
 _LIBELLES_PROFIL = {
@@ -364,7 +352,7 @@ def _lister_crues_pour_score(app):
 
     entrees = []
     restants = set(dates_disponibles)
-    paths = _construire_grp_paths(app)
+    paths, _manquants = construire_grp_paths(app)
     if paths is not None:
         for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
             if not restants:
@@ -422,7 +410,7 @@ def _lister_crues_details_pour_score(app):
 
     entrees = []
     restants = set(dates_disponibles)
-    paths = _construire_grp_paths(app)
+    paths, _manquants = construire_grp_paths(app)
     if paths is not None:
         for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
             if not restants:
@@ -1087,7 +1075,7 @@ def _build_detail(frame, app):
         # toute crue en base mais absente de ce fichier (pas de temps différent au
         # moment du rejeu, etc.) reste affichée, juste sans numéro ("? - date"), plutôt
         # que d'être masquée silencieusement.
-        paths = _construire_grp_paths(app)
+        paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
         entrees = []
         if paths is not None and code_pdt:
@@ -1186,7 +1174,7 @@ def _build_detail(frame, app):
         )
         _vider_tableau_max()
         var_indicateurs.set("")
-        paths = _construire_grp_paths(app)
+        paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
         crue_iso = _crue_iso_courante()
         if paths is None or not code_pdt or not crue_iso:

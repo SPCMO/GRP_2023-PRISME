@@ -28,7 +28,7 @@ from openpyxl.utils import get_column_letter
 
 from modules import results_store
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
-from modules.grp_paths import GrpPaths
+from modules.grp_paths import construire_grp_paths
 from modules.score import (
     calculer_scores, config_ponderation_par_defaut, explication_score, filtrer_par_crues,
     resoudre_ponderation,
@@ -73,18 +73,6 @@ def _horizon_en_minutes(horizon):
         return 0
     j, h, mn = (int(g) for g in m.groups())
     return j * 1440 + h * 60 + mn
-
-
-def _construire_grp_paths(app):
-    chemins = app.config_data.get("chemins", {})
-    station = app.config_data.get("station", {})
-    if not chemins.get("dossier_resultats") or not station.get("code_site"):
-        return None
-    return GrpPaths(
-        dossier_grp=chemins.get("dossier_grp", ""), dossier_donnees=chemins.get("dossier_donnees", ""),
-        dossier_bddtr=chemins.get("dossier_bddtr", ""), dossier_resultats=chemins["dossier_resultats"],
-        code_site=station["code_site"],
-    )
 
 
 def _intervalle_minutes(serie):
@@ -740,7 +728,7 @@ def exporter(chemin_xlsx, app, db_path=None):
                     meilleur_combinaison_id = l["combinaison_id"]
                     break
 
-        paths = _construire_grp_paths(app)
+        paths, _manquants = construire_grp_paths(app)
         dates_iso = sorted({l["crue_date"] for l in lignes})
         infos_crues = _construire_infos_crues(paths, app, dates_iso)
 

@@ -20,7 +20,7 @@ from matplotlib.figure import Figure
 
 from modules import affluents
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
-from modules.grp_paths import GrpPaths
+from modules.grp_paths import construire_grp_paths
 from modules.phyc_client import PhycAuthError, PhycClient
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.tab_config import LIBELLES_SEUILS_Q
@@ -38,17 +38,6 @@ _PALETTE_AFFLUENTS = (
     "#2874A6", "#A93226", "#5D6D7E", "#943126",
 )
 
-
-def _construire_grp_paths(app):
-    chemins = app.config_data.get("chemins", {})
-    station = app.config_data.get("station", {})
-    if not chemins.get("dossier_resultats") or not station.get("code_site"):
-        return None
-    return GrpPaths(
-        dossier_grp=chemins.get("dossier_grp", ""), dossier_donnees=chemins.get("dossier_donnees", ""),
-        dossier_bddtr=chemins.get("dossier_bddtr", ""), dossier_resultats=chemins["dossier_resultats"],
-        code_site=station["code_site"],
-    )
 
 
 def _config_affluents(app):
@@ -749,7 +738,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         return trs
 
     def _rafraichir_crues(*_evt):
-        paths = _construire_grp_paths(app)
+        paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
         entrees = []
         if paths is not None and code_pdt:
@@ -816,7 +805,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         tableau_bilan.delete(*tableau_bilan.get_children())
         etat_legende["mapping"] = {}
 
-        paths = _construire_grp_paths(app)
+        paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
         crue_iso = _crue_iso_courante()
         if paths is None or not code_pdt or not crue_iso:

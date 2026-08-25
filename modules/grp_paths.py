@@ -111,3 +111,45 @@ class GrpPaths:
                     f"{libelle} introuvable : {chemin}\n"
                     "Vérifiez les chemins renseignés dans l'onglet Configuration."
                 )
+
+
+def construire_grp_paths(app, exiger_dossier_grp=False, exiger_dossier_bddtr=False):
+    """Construit un GrpPaths depuis la config actuelle de l'application (onglet
+    Configuration) — fonction canonique, unique source de vérité pour ce calcul
+    (auparavant dupliquée indépendamment dans 5 fichiers : modules/export_excel.py,
+    ui/tab_analyse_affluents.py, ui/tab_crues.py, ui/tab_dashboard.py,
+    ui/tab_orchestration.py — avec 2 comportements différents en cas de configuration
+    incomplète selon le fichier, corrigé ici).
+
+    Seuls `dossier_resultats` et `code_site` sont exigés par défaut : c'est tout ce
+    dont a besoin la simple LECTURE de résultats déjà générés (Crues, Analyse crues
+    affl., Dashboard, export Excel). `dossier_grp`/`dossier_bddtr` ne sont nécessaires
+    que pour LANCER un calage GRP complet (onglet Campagne) — exiger ces 2 chemins
+    partout aurait bloqué inutilement les onglets de simple consultation pour un
+    utilisateur n'ayant configuré que dossier_resultats + code_site (régression par
+    rapport au comportement historique de 3 des 5 versions dupliquées).
+
+    Retourne (GrpPaths, []) si la configuration requise est complète, ou
+    (None, manquants) — `manquants` étant la liste des libellés des champs absents,
+    explicites sur quoi corriger et où — plutôt que de lever une exception qui
+    casserait l'onglet appelant."""
+    chemins = app.config_data.get("chemins", {})
+    station = app.config_data.get("station", {})
+    manquants = []
+    if not chemins.get("dossier_resultats"):
+        manquants.append("dossier 00_Resultats_<station> (onglet Configuration)")
+    if exiger_dossier_grp and not chemins.get("dossier_grp"):
+        manquants.append("dossier 00_GRP_v2023 (onglet Configuration)")
+    if exiger_dossier_bddtr and not chemins.get("dossier_bddtr"):
+        manquants.append("dossier 00_BDDTR_<station> (onglet Configuration)")
+    if not station.get("code_site"):
+        manquants.append("code site (identifiez la station via PHyC, onglet Configuration)")
+    if manquants:
+        return None, manquants
+    return GrpPaths(
+        dossier_grp=chemins.get("dossier_grp", ""),
+        dossier_donnees=chemins.get("dossier_donnees", ""),
+        dossier_bddtr=chemins.get("dossier_bddtr", ""),
+        dossier_resultats=chemins["dossier_resultats"],
+        code_site=station["code_site"],
+    ), []

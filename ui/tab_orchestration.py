@@ -20,7 +20,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 import config as app_config
 from modules import results_store, run_orchestrator, score
-from modules.grp_paths import GrpPaths
+from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
     bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
     make_label, make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
@@ -37,27 +37,6 @@ def _minutes_vers_duree_grp(minutes):
     jours, reste = divmod(total_minutes, 24 * 60)
     heures, minutes_restantes = divmod(reste, 60)
     return f"{jours:02d}J{heures:02d}H{minutes_restantes:02d}M"
-
-
-def _construire_grp_paths(app):
-    chemins = app.config_data.get("chemins", {})
-    station = app.config_data.get("station", {})
-    manquants = []
-    for cle, libelle in (("dossier_grp", "00_GRP_v2023"), ("dossier_bddtr", "00_BDDTR_<station>"),
-                         ("dossier_resultats", "00_Resultats_<station>")):
-        if not chemins.get(cle):
-            manquants.append(libelle)
-    if not station.get("code_site"):
-        manquants.append("code site (identification PHyC)")
-    if manquants:
-        return None, manquants
-    return GrpPaths(
-        dossier_grp=chemins.get("dossier_grp", ""),
-        dossier_donnees=chemins.get("dossier_donnees", ""),
-        dossier_bddtr=chemins["dossier_bddtr"],
-        dossier_resultats=chemins["dossier_resultats"],
-        code_site=station["code_site"],
-    ), []
 
 
 def build_tab_orchestration(tab_frame, app):
@@ -202,7 +181,8 @@ def build_tab_orchestration(tab_frame, app):
             messagebox.showwarning("Campagne", "Une campagne est déjà en cours.")
             return
 
-        paths, manquants = _construire_grp_paths(app)
+        paths, manquants = construire_grp_paths(
+            app, exiger_dossier_grp=True, exiger_dossier_bddtr=True)
         if paths is None:
             messagebox.showerror("Campagne", "Configuration incomplète : " + " ; ".join(manquants))
             return
