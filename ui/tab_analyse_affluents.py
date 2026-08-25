@@ -10,7 +10,7 @@ qui compare Qobs à une combinaison de calage) : ici on ne regarde que les obser
 import os
 import tkinter as tk
 from datetime import datetime, timedelta
-from tkinter import colorchooser, filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, simpledialog, ttk
 
 from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -19,6 +19,8 @@ from matplotlib.figure import Figure
 from modules import affluents
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
+from modules.phyc_client import PhycAuthError, PhycClient
+from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
     libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
@@ -212,6 +214,82 @@ def build_tab_analyse_affluents(tab_frame, app):
         var_nom = tk.StringVar(value=affluent_existant.nom if affluent_existant else "")
         ttk.Entry(f_nom, textvariable=var_nom, width=30).pack(side=tk.LEFT)
 
+        f_code_station = _ligne("Code station (ex. Y161202001) :")
+        var_code_station = tk.StringVar(
+            value=affluent_existant.code_station if affluent_existant
+            and affluent_existant.code_station else "")
+        ttk.Entry(f_code_station, textvariable=var_code_station, width=16).pack(
+            side=tk.LEFT, padx=(0, 4))
+
+        var_erreur_phyc = tk.StringVar(value="")
+
+        def _recuperer_infos_phyc():
+            try:
+                code_site = code_site_depuis_station(var_code_station.get())
+            except CodeStationError as e:
+                var_erreur_phyc.set(str(e))
+                return
+            code_station = var_code_station.get().strip().upper()
+
+            phyc_cfg = app.config_data.get("phyc", {})
+            idcontact = phyc_cfg.get("idcontact", "").strip()
+            motdepasse = phyc_cfg.get("motdepasse", "").strip()
+            if not idcontact or not motdepasse:
+                idcontact = simpledialog.askstring(
+                    "Identifiants PHyC", "Identifiant PHyC (idcontact) :",
+                    initialvalue=idcontact, parent=fen)
+                if idcontact is None:
+                    return
+                motdepasse = simpledialog.askstring(
+                    "Identifiants PHyC", "Mot de passe PHyC :", show="*", parent=fen)
+                if motdepasse is None:
+                    return
+                app.config_data.setdefault("phyc", {})["idcontact"] = idcontact.strip()
+                app.config_data["phyc"]["motdepasse"] = motdepasse.strip()
+                app.persist_config()
+
+            var_erreur_phyc.set("Connexion à PHyC en cours…")
+            btn_phyc.config(state="disabled")
+            fen.update_idletasks()
+
+            client = PhycClient(wsdl_url=phyc_cfg.get(
+                "url", "http://services.schapi.e2.rie.gouv.fr/phycop/bdtrv21.wsdl"))
+            try:
+                client.login(idcontact, motdepasse)
+                infos_site = client.get_infos_site(code_site)
+            except PhycAuthError as e:
+                var_erreur_phyc.set(f"Échec d'authentification PHyC : {e}")
+                return
+            except Exception as e:
+                var_erreur_phyc.set(
+                    f"Échec de la récupération des informations pour le code site "
+                    f"{code_site!r} (dérivé du code station {code_station!r}) : {e}")
+                return
+            finally:
+                client.logout()
+                btn_phyc.config(state="normal")
+
+            if infos_site.libelle_usuel_site is None and infos_site.surface_bv_km2 is None:
+                var_erreur_phyc.set(
+                    f"PHyC n'a retourné ni nom ni surface de BV pour le code site "
+                    f"{code_site!r} — vérifiez que le code station est correct.")
+                return
+
+            var_code_station.set(code_station)
+            if infos_site.libelle_usuel_site:
+                var_nom.set(infos_site.libelle_usuel_site)
+            if infos_site.surface_bv_km2 is not None:
+                var_surface.set(f"{infos_site.surface_bv_km2:g}")
+            var_erreur_phyc.set("Infos PHyC récupérées (nom et surface restent modifiables).")
+
+        btn_phyc = ttk.Button(f_code_station, text="Récupérer infos PHyC",
+                               command=_recuperer_infos_phyc)
+        btn_phyc.pack(side=tk.LEFT)
+
+        tk.Label(cadre, textvariable=var_erreur_phyc, fg="#6b7280", wraplength=420,
+                 justify=tk.LEFT, font=("TkDefaultFont", 8, "italic")).pack(
+            anchor="w", pady=(0, 4))
+
         f_surface = _ligne("Surface de BV (km²) :")
         var_surface = tk.StringVar(
             value=f"{affluent_existant.surface_bv_km2:g}"
@@ -308,14 +386,16 @@ def build_tab_analyse_affluents(tab_frame, app):
 
             fichier = var_fichier.get().strip() or None
             couleur = var_couleur.get()
+            code_station = var_code_station.get().strip().upper() or None
             if affluent_existant is None:
                 liste_actuelle.append(affluents.Affluent(
-                    nom=nom, surface_bv_km2=surface, p10_min=p10, p50_min=p50, p90_min=p90,
+                    nom=nom, code_station=code_station, surface_bv_km2=surface,
+                    p10_min=p10, p50_min=p50, p90_min=p90,
                     fichier=fichier, couleur=couleur))
             else:
                 for a in liste_actuelle:
                     if a.nom == affluent_existant.nom:
-                        a.nom, a.surface_bv_km2 = nom, surface
+                        a.nom, a.code_station, a.surface_bv_km2 = nom, code_station, surface
                         a.p10_min, a.p50_min, a.p90_min = p10, p50, p90
                         a.fichier, a.couleur = fichier, couleur
                         break

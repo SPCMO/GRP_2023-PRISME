@@ -790,6 +790,11 @@
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-fix">Correctif</span> Le pas de temps sélectionné dans les onglets Dashboard &gt; Détail par crue, Crues et Analyse crues affl. retombait systématiquement sur le premier de la liste à chaque ouverture de l'outil, plutôt que de mémoriser le dernier choix — gênant depuis l'ajout des nouveaux pas de temps (réordonner la liste changeait le pas de temps par défaut, l'onglet Crues perdant sa numérotation faute de <code>CRITERES_PERF.DAT</code> pour un pas de temps jamais calé). Le dernier pas de temps sélectionné est désormais mémorisé et partagé entre les 3 onglets.</p>
   </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">25 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Configuration : l'identification PHyC (bouton "Identifier via PHyC") récupère désormais aussi la <b>surface du bassin versant</b> du site hydro (champ <code>BassinVersantSiteHydro</code>, à ne pas confondre avec <code>SurfBNBV</code> — la surface de la BNBV elle-même, une valeur voisine mais différente) — affichée à côté du nom, du code site et du code BNBV. Pour Moussoulens (Y1612020) : 4838 km².</p>
+  </div>
 </section>
 
 </main>

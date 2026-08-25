@@ -28,6 +28,7 @@ class AffluentError(Exception):
 @dataclass
 class Affluent:
     nom: str = ""
+    code_station: Optional[str] = None   # ex. Y161202001 — pour la récup. d'infos PHyC
     surface_bv_km2: Optional[float] = None
     p10_min: Optional[int] = None   # temps de propagation, en minutes
     p50_min: Optional[int] = None   # obligatoire pour tracer une bande de propagation
@@ -42,14 +43,16 @@ def config_affluents_par_defaut():
 
 def affluent_depuis_dict(d):
     return Affluent(
-        nom=d.get("nom", ""), surface_bv_km2=d.get("surface_bv_km2"),
+        nom=d.get("nom", ""), code_station=d.get("code_station"),
+        surface_bv_km2=d.get("surface_bv_km2"),
         p10_min=d.get("p10_min"), p50_min=d.get("p50_min"), p90_min=d.get("p90_min"),
         fichier=d.get("fichier"), couleur=d.get("couleur"),
     )
 
 
 def affluent_vers_dict(a):
-    return {"nom": a.nom, "surface_bv_km2": a.surface_bv_km2, "p10_min": a.p10_min,
+    return {"nom": a.nom, "code_station": a.code_station,
+            "surface_bv_km2": a.surface_bv_km2, "p10_min": a.p10_min,
             "p50_min": a.p50_min, "p90_min": a.p90_min, "fichier": a.fichier,
             "couleur": a.couleur}
 

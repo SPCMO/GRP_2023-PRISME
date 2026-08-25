@@ -17,7 +17,9 @@ Syntaxe zeep pour accéder à un port nommé :
 """
 
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
 import requests as _requests
 from lxml import etree as lxml_etree
@@ -68,6 +70,17 @@ class _RieTransport(Transport):
 
 class PhycAuthError(Exception):
     pass
+
+
+@dataclass
+class InfosSite:
+    """Informations d'un site hydro renvoyées par PHyC (voir
+    PhycClient.get_infos_site()) — tous les champs sont optionnels (None si absents
+    de la réponse, jamais bloquant)."""
+    libelle: Optional[str] = None               # LbUsuelStationHydro > LbStationHydro > LbUsuelSiteHydro > LbSiteHydro (1er trouvé)
+    libelle_usuel_site: Optional[str] = None     # LbUsuelSiteHydro seul, sans repli
+    code_bnbv: Optional[str] = None
+    surface_bv_km2: Optional[float] = None       # BassinVersantSiteHydro
 
 
 class PhycClient:
@@ -144,8 +157,31 @@ class PhycClient:
         self._service_name = None
 
     # ------------------------------------------------------------------
-    # Libellé station via SiteHydroPublicationPort
+    # Libellé station / code BNBV / surface de BV via SiteHydroPublicationPort
     # ------------------------------------------------------------------
+
+    def _publier_site_hydro(self, code_site):
+        """Appel SOAP brut publierSiteHydroListe — factorisé entre
+        get_libelle_et_bnbv() et get_infos_site() (même appel réseau, champs
+        différents extraits ensuite). Retourne la racine XML (xml.etree) de la
+        réponse, ou None si vide/absente."""
+        if self._client is None or self._idsession is None:
+            raise PhycAuthError("Client PHyC non connecté. Appelez login() d'abord.")
+
+        port = self._port('SiteHydroPublicationPort')
+        arr_el = lxml_etree.Element('ArrayOfStrings')
+        lxml_etree.SubElement(arr_el, 'string').text = code_site
+        result = port.publierSiteHydroListe(
+            idsession=self._idsession,
+            listecdsitehydro=arr_el,
+            dtmaj=datetime(2000, 1, 1),
+            stations=True,
+            capteurs=False,
+            roles=False,
+        )
+        if result and result.xmlprevcrues:
+            return ET.fromstring(result.xmlprevcrues)
+        return None
 
     def get_libelle_station(self, code_site):
         """Tente de récupérer le libellé du site hydro via PHyC.
@@ -162,23 +198,9 @@ class PhycClient:
         Retourne:
             (libelle, code_bnbv) — l'un ou l'autre peut être None si absent.
         """
-        if self._client is None or self._idsession is None:
-            raise PhycAuthError("Client PHyC non connecté. Appelez login() d'abord.")
-
         try:
-            port = self._port('SiteHydroPublicationPort')
-            arr_el = lxml_etree.Element('ArrayOfStrings')
-            lxml_etree.SubElement(arr_el, 'string').text = code_site
-            result = port.publierSiteHydroListe(
-                idsession=self._idsession,
-                listecdsitehydro=arr_el,
-                dtmaj=datetime(2000, 1, 1),
-                stations=True,
-                capteurs=False,
-                roles=False,
-            )
-            if result and result.xmlprevcrues:
-                racine = ET.fromstring(result.xmlprevcrues)
+            racine = self._publier_site_hydro(code_site)
+            if racine is not None:
                 libelle = None
                 for tag in ("LbUsuelStationHydro", "LbStationHydro",
                             "LbUsuelSiteHydro", "LbSiteHydro"):
@@ -194,6 +216,50 @@ class PhycClient:
             pass
 
         return None, None
+
+    def get_infos_site(self, code_site):
+        """Récupère libellé(s), code BNBV et surface du bassin versant (km²) du
+        site hydro via PHyC v2.1 — même appel réseau que get_libelle_et_bnbv(),
+        champs supplémentaires extraits pour l'onglet Configuration (surface_bv_km2)
+        et le formulaire d'ajout d'affluent (libelle_usuel_site, demandé
+        explicitement pour préremplir le nom d'un affluent avec LbUsuelSiteHydro
+        spécifiquement, pas le libellé "le plus probable" toutes sources
+        confondues utilisé pour la station exutoire).
+
+        Champ BassinVersantSiteHydro confirmé (Test_PHyC.py / inspection directe
+        d'une réponse réelle pour Y1612020, Moussoulens) : 4838 km², cohérent avec
+        la valeur métier connue — à distinguer de SurfBNBV (~4828 km², surface du
+        référentiel BNBV, périmètre légèrement différent, PAS la bonne valeur ici).
+
+        Retourne un InfosSite — tous les champs à None si l'appel échoue ou si le
+        site n'est pas trouvé (jamais d'exception pour un champ manquant, cohérent
+        avec get_libelle_et_bnbv())."""
+        infos = InfosSite()
+        try:
+            racine = self._publier_site_hydro(code_site)
+            if racine is None:
+                return infos
+            for tag in ("LbUsuelStationHydro", "LbStationHydro",
+                        "LbUsuelSiteHydro", "LbSiteHydro"):
+                val = racine.findtext(f".//{tag}")
+                if val and val.strip():
+                    infos.libelle = val.strip()
+                    break
+            val_usuel = racine.findtext(".//LbUsuelSiteHydro")
+            if val_usuel and val_usuel.strip():
+                infos.libelle_usuel_site = val_usuel.strip()
+            code_bnbv = racine.findtext(".//CdBNBV")
+            if code_bnbv and code_bnbv.strip():
+                infos.code_bnbv = code_bnbv.strip()
+            surface_str = racine.findtext(".//BassinVersantSiteHydro")
+            if surface_str and surface_str.strip():
+                try:
+                    infos.surface_bv_km2 = float(surface_str.strip())
+                except ValueError:
+                    pass
+        except Exception:
+            pass
+        return infos
 
     # ------------------------------------------------------------------
     # Extraction des débits Q

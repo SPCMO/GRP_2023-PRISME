@@ -137,9 +137,12 @@ def build_tab_config(tab_frame, app):
         nom = app.config_data.get("station", {}).get("nom_station")
         bnbv = app.config_data.get("station", {}).get("code_bnbv")
         code_site = app.config_data.get("station", {}).get("code_site")
+        surface = app.config_data.get("station", {}).get("surface_bv_km2")
+        surface_txt = f"{surface:.1f} km²" if surface is not None else "?"
         if nom or bnbv:
             var_resultat_station.set(
-                f"{nom or '?'}  (code site : {code_site or '?'} — BNBV : {bnbv or '?'})")
+                f"{nom or '?'}  (code site : {code_site or '?'} — BNBV : {bnbv or '?'} — "
+                f"surface BV : {surface_txt})")
 
     def _identifier():
         try:
@@ -173,7 +176,8 @@ def build_tab_config(tab_frame, app):
             "url", "http://services.schapi.e2.rie.gouv.fr/phycop/bdtrv21.wsdl"))
         try:
             client.login(idcontact, motdepasse)
-            nom, code_bnbv = client.get_libelle_et_bnbv(code_site)
+            infos_site = client.get_infos_site(code_site)
+            nom, code_bnbv = infos_site.libelle, infos_site.code_bnbv
             seuils = client.get_seuils_vigilance(code_site)
         except PhycAuthError as e:
             messagebox.showerror("Identification PHyC — échec d'authentification", str(e))
@@ -212,6 +216,7 @@ def build_tab_config(tab_frame, app):
         app.config_data["station"]["code_site"] = code_site
         app.config_data["station"]["nom_station"] = nom or app.config_data["station"].get("nom_station", "")
         app.config_data["station"]["code_bnbv"] = code_bnbv
+        app.config_data["station"]["surface_bv_km2"] = infos_site.surface_bv_km2
         app.config_data["seuils_q"] = {cle: seuils_q.get(cle) for cle, _, _ in LIBELLES_SEUILS_Q}
         app.persist_config()
         app.on_config_changed()
