@@ -20,7 +20,10 @@ from modules import affluents
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
 from ui.tab_config import LIBELLES_SEUILS_Q
-from ui.widgets_common import make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import (
+    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
+    sauvegarder_dernier_pdt,
+)
 
 _COULEUR_OBS = "#1B4F72"
 # Même palette que ui.tab_dashboard._PALETTE_COURBES, dupliquée ici pour la même
@@ -914,13 +917,18 @@ def build_tab_analyse_affluents(tab_frame, app):
             f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — {len(affluents_traces)} "
             f"affluent(s) tracé(s) sur {len(liste_affl)} configuré(s).")
 
-    combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())
+    def _on_pdt_change(*_evt):
+        sauvegarder_dernier_pdt(app, _pas_de_temps_courant())
+        _rafraichir_crues()
+
+    combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
     combo_crue.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_graphique())
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]
-    if pdt_list:
-        var_pdt.set(pdt_list[0]["libelle"])
+    libelle_init = libelle_dernier_pdt(app, pdt_list)
+    if libelle_init:
+        var_pdt.set(libelle_init)
 
     _rafraichir_liste_affl()
     _rafraichir_crues()

@@ -22,6 +22,39 @@ COLORS = {
 }
 
 
+def libelle_dernier_pdt(app, pdt_list):
+    """Retourne le libellé du pas de temps à présélectionner dans un combo "Pas de
+    temps" : le dernier choisi par l'utilisateur — mémorisé une seule fois, PARTAGÉ
+    entre les 3 onglets qui en proposent un (Dashboard > Détail par crue, Crues,
+    Analyse crues affl.), persisté dans config.json — s'il existe encore dans
+    `pdt_list`, sinon le premier de la liste (comportement d'origine). None si
+    `pdt_list` est vide.
+
+    Sans cette mémoire, chaque onglet retombait systématiquement sur le premier pas
+    de temps de la liste à chaque ouverture de l'outil — gênant dès que la liste est
+    réordonnée (constaté : ajout de nouveaux pas de temps réordonnés avant "15 min",
+    l'onglet Crues perdait alors la numérotation des crues faute de
+    CRITERES_PERF.DAT existant pour le nouveau premier de liste)."""
+    if not pdt_list:
+        return None
+    dernier_code = app.config_data.get("parametrage", {}).get("dernier_pdt_selectionne")
+    if dernier_code:
+        for p in pdt_list:
+            if p["code"] == dernier_code:
+                return p["libelle"]
+    return pdt_list[0]["libelle"]
+
+
+def sauvegarder_dernier_pdt(app, code_pdt):
+    """Mémorise `code_pdt` comme dernier pas de temps sélectionné — voir
+    libelle_dernier_pdt(). Persisté immédiatement (pas d'état "non sauvegardé" qui
+    pourrait se perdre à la fermeture) ; no-op si `code_pdt` est vide/None."""
+    if not code_pdt:
+        return
+    app.config_data.setdefault("parametrage", {})["dernier_pdt_selectionne"] = code_pdt
+    app.persist_config()
+
+
 def init_styles(root):
     """Configure les styles ttk colorés une seule fois au démarrage de l'application."""
     try:

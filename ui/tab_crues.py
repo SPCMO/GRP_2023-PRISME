@@ -12,7 +12,10 @@ from tkinter import messagebox, ttk
 
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import GrpPaths
-from ui.widgets_common import bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section
+from ui.widgets_common import (
+    bouton_enregistrer, bouton_info, libelle_dernier_pdt, make_label, make_row,
+    make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
+)
 
 TEXTE_INFO_TYPEVT_P = (
     "GRP détecte deux types d'épisodes dans CRITERES_PERF.DAT :\n\n"
@@ -293,10 +296,16 @@ def build_tab_crues(tab_frame, app):
         pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
         combo_pdt["values"] = [p["libelle"] for p in pdt_list]
         if pdt_list and var_pdt_libelle.get() not in combo_pdt["values"]:
-            var_pdt_libelle.set(pdt_list[0]["libelle"])
+            libelle_init = libelle_dernier_pdt(app, pdt_list)
+            if libelle_init:
+                var_pdt_libelle.set(libelle_init)
         _rafraichir()
 
-    combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir())
+    def _on_pdt_change(*_evt):
+        sauvegarder_dernier_pdt(app, _code_pdt_courant())
+        _rafraichir()
+
+    combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
     _rafraichir_combo_pdt()
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────

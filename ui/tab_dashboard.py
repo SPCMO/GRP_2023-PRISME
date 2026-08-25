@@ -32,7 +32,10 @@ from modules.score import (
     explication_score, filtrer_par_crues, resoudre_ponderation,
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
-from ui.widgets_common import bouton_info, make_label, make_row, make_section
+from ui.widgets_common import (
+    bouton_info, libelle_dernier_pdt, make_label, make_row, make_section,
+    sauvegarder_dernier_pdt,
+)
 
 # Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
 # de _PALETTE_COURBES ci-dessous pour ne jamais être confondu avec une courbe simulée.
@@ -1403,13 +1406,18 @@ def _build_detail(frame, app):
             texte += "  —  Aucune combinaison sélectionnée dans la liste (Q observé seul affiché)."
         var_indicateurs.set(texte)
 
-    combo_pdt.bind("<<ComboboxSelected>>", lambda *_: _rafraichir_crues())
+    def _on_pdt_change(*_evt):
+        sauvegarder_dernier_pdt(app, _pas_de_temps_courant())
+        _rafraichir_crues()
+
+    combo_pdt.bind("<<ComboboxSelected>>", _on_pdt_change)
     combo_crue.bind("<<ComboboxSelected>>", lambda *_: (_rafraichir_combis(), _tracer()))
 
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
     combo_pdt["values"] = [p["libelle"] for p in pdt_list]
-    if pdt_list:
-        var_pdt.set(pdt_list[0]["libelle"])
+    libelle_init = libelle_dernier_pdt(app, pdt_list)
+    if libelle_init:
+        var_pdt.set(libelle_init)
     _rafraichir_crues()
 
 
