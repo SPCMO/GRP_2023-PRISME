@@ -1081,29 +1081,70 @@ def build_tab_analyse_affluents(tab_frame, app):
                             s = "-" if minutes < 0 else ""
                             hh, mm = divmod(round(abs(minutes)), 60)
                             return f"{s}{hh}h {mm:02d}min"
+
+                        def _poser_percentiles():
+                            """(Ré)affiche P10/P50/P90, centrés sous le titre du Tr. Isolé
+                            en fonction pour pouvoir être rappelé après un éventuel
+                            élargissement du cadre de la légende (voir plus bas)."""
+                            fig.canvas.draw()
+                            renderer = fig.canvas.get_renderer()
+                            bbox_titre = legende.get_title().get_window_extent(
+                                renderer=renderer).transformed(fig.transFigure.inverted())
+                            # La 2e ligne (vide, réservée ci-dessus) occupe le quart
+                            # inférieur de la bbox du titre 2 lignes (même interligne).
+                            y_ligne2 = bbox_titre.y0 + (bbox_titre.y1 - bbox_titre.y0) * 0.22
+                            x_centre = (bbox_titre.x0 + bbox_titre.x1) / 2
+                            txt_p50 = fig.text(
+                                x_centre, y_ligne2, f"P50 = {_fmt_tr(p50_tr)}",
+                                ha="center", va="center", fontsize=6.5, fontweight="bold",
+                                color="#0B1F4B")
+                            fig.canvas.draw()
+                            bbox_p50 = txt_p50.get_window_extent(
+                                renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
+                            # Séparateur " / " inclus dans le texte (plutôt qu'un grand
+                            # espace vide entre les segments) pour resserrer l'ensemble.
+                            txt_p10 = fig.text(
+                                bbox_p50.x0, y_ligne2, f"P10 = {_fmt_tr(p10_tr)} / ",
+                                ha="right", va="center", fontsize=5.5, color="#0B1F4B")
+                            txt_p90 = fig.text(
+                                bbox_p50.x1, y_ligne2, f" / P90 = {_fmt_tr(p90_tr)}",
+                                ha="left", va="center", fontsize=5.5, color="#0B1F4B")
+                            return txt_p50, txt_p10, txt_p90
+
                         p10_tr, p50_tr, p90_tr = np.percentile(trs_selection, [10, 50, 90])
+                        artistes = _poser_percentiles()
                         fig.canvas.draw()
-                        bbox_titre_legende = legende.get_title().get_window_extent(
-                            renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
-                        # La 2e ligne (vide, réservée ci-dessus) occupe le quart inférieur
-                        # de la bbox du titre 2 lignes (même interligne que la ligne 1).
-                        y_ligne2 = (bbox_titre_legende.y0
-                                    + (bbox_titre_legende.y1 - bbox_titre_legende.y0) * 0.22)
-                        x_centre_legende = (bbox_titre_legende.x0 + bbox_titre_legende.x1) / 2
-                        txt_p50 = fig.text(
-                            x_centre_legende, y_ligne2, f"P50 = {_fmt_tr(p50_tr)}",
-                            ha="center", va="center", fontsize=7, fontweight="bold",
-                            color="#0B1F4B")
-                        fig.canvas.draw()
-                        bbox_p50 = txt_p50.get_window_extent(
-                            renderer=fig.canvas.get_renderer()).transformed(fig.transFigure.inverted())
-                        txt_p10 = fig.text(
-                            bbox_p50.x0 - 0.006, y_ligne2, f"P10 = {_fmt_tr(p10_tr)}",
-                            ha="right", va="center", fontsize=5.5, color="#0B1F4B")
-                        txt_p90 = fig.text(
-                            bbox_p50.x1 + 0.006, y_ligne2, f"P90 = {_fmt_tr(p90_tr)}",
-                            ha="left", va="center", fontsize=5.5, color="#0B1F4B")
-                        etat_percentiles_tr["artists"] = [txt_p50, txt_p10, txt_p90]
+                        renderer = fig.canvas.get_renderer()
+                        bbox_cadre_legende = legende.get_window_extent(
+                            renderer=renderer).transformed(fig.transFigure.inverted())
+                        bbox_p90 = artistes[2].get_window_extent(
+                            renderer=renderer).transformed(fig.transFigure.inverted())
+                        # P10/P50/P90 débordent parfois du cadre de la légende (plus
+                        # large que le titre du Tr seul, largeur déterminée par ses
+                        # entrées + titre — pas par ces textes posés par-dessus, en
+                        # dehors de son système de mise en page). Élargit le cadre en
+                        # ajoutant des espaces au titre (seul levier disponible pour une
+                        # Legend matplotlib) et repositionne — demandé, "au besoin".
+                        if bbox_p90.x1 > bbox_cadre_legende.x1:
+                            for w in artistes:
+                                w.remove()
+                            manque_px = (bbox_p90.x1 - bbox_cadre_legende.x1) * fig.bbox.width
+                            txt_espace = fig.text(0, 0, "  ", fontsize=7.5, fontweight="bold")
+                            fig.canvas.draw()
+                            largeur_espace_px = txt_espace.get_window_extent(
+                                renderer=fig.canvas.get_renderer()).width / 2
+                            txt_espace.remove()
+                            nb_espaces = int(manque_px / max(largeur_espace_px, 1e-6)) + 3
+                            # Espaces répartis de part et d'autre (pas tous à la fin) pour
+                            # garder le texte "Temps de réponse..." centré dans le cadre
+                            # élargi, plutôt que de le faire glisser visuellement à gauche.
+                            demi = nb_espaces // 2
+                            texte_elargi = (
+                                f"{' ' * demi}Temps de réponse (Tr) : {signe}{h_tr} h "
+                                f"{m_tr:02d} min{' ' * (nb_espaces - demi)}\n ")
+                            legende.set_title(texte_elargi, prop={"size": 7.5, "weight": "bold"})
+                            artistes = _poser_percentiles()
+                        etat_percentiles_tr["artists"] = list(artistes)
 
         # Position réelle du bas de la légende (mesurée sur le rendu effectif, pas
         # devinée) — sert au camembert de contribution ci-dessous. Le panneau
