@@ -529,20 +529,29 @@ def build_tab_analyse_affluents(tab_frame, app):
         si le total dépasse 100 %, part grise _COULEUR_LOCAL pour le reste non suivi),
         mais en surface plutôt qu'en débit. Placé sous les vignettes Qmax (demandé),
         largeur bornée par celle du panneau (cadre_vignettes, 190 px)."""
-        tk.Label(cadre_vignettes, text="Surface de BV suivie :",
-                  font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(
-            anchor="w", pady=(4, 2))
         if surface_exutoire is None or surface_exutoire <= 0:
+            tk.Label(cadre_vignettes, text="Surface de BV suivie :",
+                      font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(
+                anchor="w", pady=(4, 2))
             tk.Label(cadre_vignettes, text="Surface exutoire inconnue (Configuration).",
                       font=("TkDefaultFont", 7), fg="#888888", wraplength=175,
                       justify=tk.LEFT).pack(anchor="w")
             return
+        # Total (donc le %age de titre) calculé AVANT écrêtage éventuel des parts —
+        # le titre reflète ainsi la vraie somme des % de BV affluents renseignés
+        # (demandé), même dans le cas rare où elle dépasse 100 % (surfaces qui se
+        # chevauchent, écrêtées ensuite pour le dessin du camembert lui-même).
+        parts_brutes = [(n, c, s) for n, c, s in items if s]
+        pct_titre = sum(s for _n, _c, s in parts_brutes) / surface_exutoire * 100
+        tk.Label(cadre_vignettes, text=f"Surface de BV suivie : {pct_titre:.0f} %",
+                  font=("TkDefaultFont", 8, "italic"), fg="#555555").pack(
+            anchor="w", pady=(4, 2))
         diametre, marge = 100, 4
         taille = diametre + marge * 2
         canvas = tk.Canvas(cadre_vignettes, width=taille, height=taille,
                             highlightthickness=0, bg=cadre_vignettes.cget("bg"))
         canvas.pack(pady=(2, 2))
-        parts = [(n, c, s) for n, c, s in items if s]
+        parts = list(parts_brutes)
         total_suivi = sum(s for _n, _c, s in parts)
         if total_suivi > surface_exutoire:
             facteur = surface_exutoire / total_suivi
@@ -1054,7 +1063,7 @@ def build_tab_analyse_affluents(tab_frame, app):
             ax_pie.pie([p for _n, _c, p in parts], colors=[_c for _n, _c, p in parts],
                         autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
                         textprops={"fontsize": 6}, wedgeprops={"edgecolor": "white", "linewidth": 0.6})
-            ax_pie.set_title("Contribution au pic exutoire", fontsize=7)
+            ax_pie.set_title(f"Contribution au pic exutoire : {total_pct:.0f} %", fontsize=7)
             # ax.pie() applique un aspect 1:1 (adjustable="box") : matplotlib RÉDUIT et
             # RECENTRE verticalement la boîte donnée pour garder un cercle parfait, le
             # bord bas ne tombe donc PAS sur y0_pie tel quel. On mesure la taille
