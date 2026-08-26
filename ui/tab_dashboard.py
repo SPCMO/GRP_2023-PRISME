@@ -587,6 +587,20 @@ def _build_synthese(frame, app):
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT, padx=4)
     ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter()).pack(side=tk.RIGHT)
 
+    # Filtre méthode(s) pour le graphique composite (heatmap + dispersion + tableau) —
+    # les 2 cases cochées par défaut reproduisent le comportement d'origine (les 2
+    # méthodes confondues) ; décocher l'une des deux exclut ses lignes du score avant
+    # même son calcul, pas seulement de l'affichage.
+    barre_methodes = tk.Frame(frame)
+    barre_methodes.pack(fill=tk.X, padx=8, pady=(0, 4))
+    tk.Label(barre_methodes, text="Méthode(s) affichée(s) :").pack(side=tk.LEFT)
+    var_methode_t = tk.BooleanVar(value=True)
+    var_methode_r = tk.BooleanVar(value=True)
+    ttk.Checkbutton(barre_methodes, text="Tangara", variable=var_methode_t,
+                     command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(6, 0))
+    ttk.Checkbutton(barre_methodes, text="RNA", variable=var_methode_r,
+                     command=lambda: _rafraichir()).pack(side=tk.LEFT, padx=(10, 0))
+
     corps = tk.Frame(frame)
     corps.pack(fill=tk.BOTH, expand=True, padx=8, pady=4)
 
@@ -668,7 +682,19 @@ def _build_synthese(frame, app):
         if erreur:
             var_statut.set(erreur)
             return
-        lignes_ok = _filtrer_lignes_score(app, [l for l in lignes if l["statut_crue"] == "success"])
+        lignes_toutes_methodes = _filtrer_lignes_score(app, [l for l in lignes if l["statut_crue"] == "success"])
+        methodes_cochees = {m for m, v in (("T", var_methode_t), ("R", var_methode_r)) if v.get()}
+        if not methodes_cochees:
+            var_statut.set("Cochez au moins une méthode (Tangara ou RNA) pour afficher le graphique.")
+            if etat_colorbar["cb"] is not None:
+                etat_colorbar["cb"].remove()
+                etat_colorbar["cb"] = None
+            ax_heatmap.clear()
+            ax_dispersion.clear()
+            canvas.draw_idle()
+            tableau.delete(*tableau.get_children())
+            return
+        lignes_ok = [l for l in lignes_toutes_methodes if l["methode"] in methodes_cochees]
         if not lignes_ok:
             var_statut.set("Aucun résultat réussi en base pour l'instant (ou aucune crue "
                             "incluse dans le score, voir \"Crues dans le score\" en haut) — "
@@ -687,6 +713,15 @@ def _build_synthese(frame, app):
         var_statut.set(f"{len(lignes_ok)} résultat(s) réussi(s), {len(scores)} combinaison(s) "
                         f"— pondération : {libelle_profil}.")
 
+        # Échelles X/Y calculées sur les 2 méthodes confondues (indépendamment des
+        # cases cochées) — pour que basculer Tangara/RNA ne fasse jamais bouger les
+        # axes de la heatmap ni de la dispersion, et permette de comparer les 2
+        # méthodes sur une échelle strictement identique (demandé).
+        horizons_echelle = sorted({l["horizon"] for l in lignes_toutes_methodes}, key=_horizon_en_minutes)
+        seuils_echelle = sorted({l["seuil_c1"] for l in lignes_toutes_methodes})
+        dqp_max_echelle = max((abs(l["dqp"]) for l in lignes_toutes_methodes if l["dqp"] is not None),
+                              default=None)
+
         # -- Heatmap horizon x seuil (score moyen, toutes méthodes confondues) --------
         # La colorbar doit être retirée AVANT ax_heatmap.clear() : Colorbar.remove()
         # s'appuie sur l'axes "parent" (ax_heatmap) pour restaurer sa place dans la
@@ -696,8 +731,8 @@ def _build_synthese(frame, app):
             etat_colorbar["cb"].remove()
             etat_colorbar["cb"] = None
         ax_heatmap.clear()
-        horizons = sorted({s.horizon for s in scores}, key=_horizon_en_minutes)
-        seuils = sorted({s.seuil_c1 for s in scores})
+        horizons = horizons_echelle
+        seuils = seuils_echelle
         if horizons and seuils:
             grille = np.full((len(seuils), len(horizons)), np.nan)
             for s in scores:
@@ -788,6 +823,14 @@ def _build_synthese(frame, app):
         ax_dispersion.set_ylabel("|dQP| (%)", fontsize=8)
         ax_dispersion.set_title("Dispersion |dQP| par horizon", fontsize=9)
         ax_dispersion.grid(True, alpha=0.3)
+        # Échelles fixes (voir horizons_echelle/dqp_max_echelle ci-dessus) : la marge
+        # en X reprend le même calcul que largeur_boite pour rester cohérente avec
+        # l'espacement réel des horizons.
+        if positions:
+            marge_x = max(min(ecarts) * 0.6, 1) if ecarts else max(positions[-1] * 0.05, 1)
+            ax_dispersion.set_xlim(positions[0] - marge_x, positions[-1] + marge_x)
+        if dqp_max_echelle is not None:
+            ax_dispersion.set_ylim(0, dqp_max_echelle * 1.05)
 
         canvas.draw_idle()
 

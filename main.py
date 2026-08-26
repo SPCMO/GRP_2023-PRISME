@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config as app_config
 from modules import config_manager, results_store
 from modules.grp_paths import construire_grp_paths
+from modules.journalisation import configurer_logging, journaliser_exception_tkinter
 from ui.tab_analyse_affluents import build_tab_analyse_affluents
 from ui.tab_config import build_tab_config
 from ui.tab_crues import build_tab_crues
@@ -48,6 +49,11 @@ class App(tk.Tk):
 
         os.makedirs(app_config.DATA_DIR, exist_ok=True)
         os.makedirs(app_config.LOGS_DIR, exist_ok=True)
+
+        # Toute exception levée dans un callback Tkinter (bouton, .after()...) est en
+        # plus journalisée (horodatage + fichier) — voir modules/journalisation.py,
+        # ajouté suite à des crashs silencieux en campagne sans trace exploitable.
+        self.report_callback_exception = journaliser_exception_tkinter
 
         try:
             self.config_data = config_manager.load_config()
@@ -170,5 +176,6 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
+    configurer_logging(app_config.LOGS_DIR)
     app = App()
     app.mainloop()

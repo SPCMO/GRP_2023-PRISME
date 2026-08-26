@@ -105,7 +105,7 @@
 
   <h3>Onglet Dashboard</h3>
   <p>Bandeau partagé en haut : choix de la <b>pondération du score composite</b> (poids égaux / profil métier / personnalisé, avec asymétrie dTP retard/avance réglable) et sélecteur <b>« Crues dans le score »</b> — restreint, si besoin, le calcul du score à un sous-ensemble de crues choisi à la main (fenêtre listant TypEvt, Vigilance max, Qmax, cumul de pluie de chaque crue). Ces deux réglages s'appliquent à toutes les vues à score ci-dessous, sauf « Variation selon le nb de crues » qui varie N automatiquement et reste volontairement indépendante de la sélection de crues.</p>
-  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Bouton d'export Excel : une fenêtre de vérification (pondération, station, crues incluses, seuils, méthodes) s'affiche avant de choisir le fichier de destination. Classeur à 5 feuilles : Paramétrage, Vue synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.</p>
+  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Deux cases à cocher <b>Tangara</b>/<b>RNA</b> au-dessus du graphique permettent de restreindre l'affichage à une seule méthode ou de garder les deux (défaut) — les échelles des axes (horizons, seuils, |dQP| max) restent toujours calculées sur les 2 méthodes confondues, pour rester identiques quel que soit le filtre et permettre une comparaison visuelle directe entre Tangara et RNA. Bouton d'export Excel : une fenêtre de vérification (pondération, station, crues incluses, seuils, méthodes) s'affiche avant de choisir le fichier de destination. Classeur à 5 feuilles : Paramétrage, Vue synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.</p>
   <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec une ou plusieurs courbes <b>simulées</b> superposées (sélection multiple des combinaisons, une couleur/légende par combinaison), les 6 seuils de vigilance PHyC (jaune/orange/rouge + zones de transition — case à cocher pour les masquer), et un tableau du maximum + horodatage de chaque courbe tracée. Flèches ◀▶ à côté du menu "Crue" pour naviguer épisode par épisode (retrace automatiquement avec la même sélection de combinaisons). Survol à la souris pour lire une valeur exacte sur une courbe. Si aucune courbe simulée n'apparaît pour une combinaison, c'est qu'elle n'a pas encore été rejouée pour cette crue précise.</p>
   <p><b>Sensibilité au seuil</b> : évolution du score composite en fonction du seuil de calage, pour un ou plusieurs horizons superposés (sélection multiple, une couleur par horizon) à méthode fixée.</p>
   <p><b>Vue 3D</b> : nuage de points horizon × seuil × score composite — couleur du point = score (vert = meilleur), forme du marqueur = méthode (rond T, triangle R), meilleure combinaison mise en évidence par une étoile dorée avec le détail de ses indicateurs. Vue orientable à la souris (clic-glisser) ; bouton <b>Réinitialiser la vue 3D</b> sous la légende pour revenir à l'angle initial en un clic.</p>
@@ -249,6 +249,7 @@
 │   ├── liste_bassins.py        # parseur/écrivain LISTE_BASSINS.DAT (colonnes nommées)
 │   ├── config_prevision.py     # édition ciblée de config_prevision.ini
 │   ├── grp_runner.py           # lancement exe04/.bat — bug historique corrigé ici
+│   ├── journalisation.py       # config logging (console + fichier), capture des crashs, anti-gel console
 │   ├── criteres_perf.py        # détection des crues (CRITERES_PERF.DAT, lecture seule)
 │   ├── fiche_controle_pdf.py   # extraction dQP/dTP/VE/KGE (source des résultats de campagne)
 │   ├── grp_series.py           # séries observée/simulée (GRP_Obs.txt / GRP_Prev_*.txt)
@@ -267,7 +268,7 @@
 │   └── widgets_common.py       # helpers UI partagés (sections colorées, listes réordonnables)
 ├── tests/                      # pytest — fonctions pures de modules/, voir "Tests automatisés" ci-dessous
 ├── data/runs.sqlite3           # gitignored
-└── logs/                       # gitignored
+└── logs/session_AAAAMMJJ_HHMMSS.log  # gitignored, 1 fichier par lancement de l'outil
 </pre>
 
   <h3>Tests automatisés</h3>
@@ -280,6 +281,10 @@
 
   <h3>Archivage des séries observée/simulée</h3>
   <p><code>&lt;BDDTR&gt;/Temps_Reel/Sorties/GRP*Obs.txt</code> et <code>GRP*Prev_*.txt</code> (voir <code>modules/grp_series.py</code>) n'exposent que le <b>dernier</b> rejeu effectué — insuffisant pour retracer après coup la courbe simulée d'une combinaison/crue précise une fois la campagne terminée. <code>run_orchestrator.py</code> les archive donc immédiatement après chaque rejeu réussi (table <code>series_archivees</code>, liée à la combinaison et à la crue), et c'est cette copie archivée que le Dashboard relit — jamais le fichier « live » de <code>Sorties/</code>, qui pourrait correspondre à un tout autre run au moment de la consultation. Cet archivage est best-effort : un échec (fichier absent ou format inattendu) ne fait pas échouer la crue, qui garde son résultat dQP/dTP/VE/KGE (source primaire) — seule la courbe simulée manque alors dans le Dashboard, avec un message explicite.</p>
+
+  <h3>Journalisation et diagnostic des crashs</h3>
+  <p><code>modules/journalisation.py</code> configure la journalisation dès le démarrage (avant même la fenêtre principale) : tous les niveaux à partir d'INFO s'affichent à la fois sur la console (le cmd resté ouvert en fond) <b>et</b> dans un fichier <code>logs/session_AAAAMMJJ_HHMMSS.log</code> — un fichier par lancement, jamais écrasé. Chaque calage/rejeu GRP est journalisé juste avant son lancement (chemin, dossier, timeout) puis à sa fin (durée, code retour) : en cas d'arrêt sans message d'erreur exploitable, la dernière ligne du journal situe précisément l'exécutable qui était en cours. Les exceptions qui échapperaient aux <code>try/except</code> déjà en place (thread principal, thread de campagne, callbacks Tkinter) sont en plus capturées et journalisées avec leur trace complète.</p>
+  <p>Le mode <b>QuickEdit</b> de la console (Windows) est désactivé au démarrage : un simple clic ou une sélection de texte dans cette fenêtre gèlerait sinon tout le processus attaché — y compris les threads qui écrivent des logs — jusqu'à ce que la sélection soit relâchée, ce qui peut ressembler à une campagne plantée sans la moindre erreur. Conséquence : on ne peut plus sélectionner/copier du texte directement depuis cette console ; pour retrouver ce qui s'y est affiché, ouvrir plutôt le fichier <code>logs/session_*.log</code> correspondant dans un éditeur de texte (contenu identique, sans risque d'interrompre l'outil).</p>
 
   <h3>Réutiliser pour un autre bassin</h3>
   <p>Rien n'est codé en dur : renseigner les 4 dossiers et le code station d'un autre bassin dans l'onglet Configuration suffit. Le seul réglage global figé par défaut est l'absence de module neige CemaNeige (<code>avec_neige=False</code> dans <code>modules.liste_bassins.set_calage_params</code>), validé pour Moussoulens — à passer à <code>True</code> dans le code pour un bassin de montagne qui en aurait besoin.</p>
@@ -923,6 +928,21 @@
   <div class="changelog-entry">
     <div class="changelog-date">25 août 2026</div>
     <p><span class="tag tag-feat">Nouveauté</span> Campagne : boutons renommés sur 2 lignes pour clarifier leur rôle — "Lancer la campagne" devient "Lancement initial / de la campagne", "Relancer les échecs" devient "Compléter la campagne / et relancer les échecs".</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Dashboard &gt; Vue synthèse : 2 cases à cocher "Tangara"/"RNA" au-dessus du graphique composite (heatmap + dispersion + classement), cochées par défaut. Les échelles des axes (horizons, seuils, |dQP| max) sont calculées sur les 2 méthodes confondues et restent donc identiques quel que soit le filtre choisi — permet de comparer visuellement Tangara et RNA sur une échelle strictement commune.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Ajout d'une vraie journalisation (<code>modules/journalisation.py</code>) suite à des crashs en campagne sans trace exploitable : tous les logs (déjà présents dans <code>run_orchestrator.py</code> mais jamais affichés faute de configuration) apparaissent désormais sur la console ET dans un fichier <code>logs/session_*.log</code> persistant, chaque calage/rejeu GRP est journalisé avant son lancement et à sa fin (durée, code retour), et les exceptions échappant aux <code>try/except</code> existants (thread principal, thread de campagne, callbacks Tkinter) sont désormais capturées. Voir Architecture &gt; "Journalisation et diagnostic des crashs".</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-fix">Correctif</span> Le mode QuickEdit de la console Windows (activé par défaut) pouvait geler tout le processus dès qu'on cliquait ou sélectionnait du texte dans la fenêtre cmd restée ouverte en fond — y compris les threads qui écrivent des logs — donnant l'apparence d'une campagne plantée sans la moindre erreur, jusqu'à ce qu'un Ctrl+C réflexe (souvent en tentant de copier du texte) tue le processus. Désactivé au démarrage. Pour copier ce qui s'affiche dans la console, ouvrir le fichier <code>logs/session_*.log</code> correspondant à la place (contenu identique).</p>
   </div>
 </section>
 

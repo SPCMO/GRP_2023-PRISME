@@ -14,12 +14,15 @@ apercevoir. Ce module ferme cette faille par deux garde-fous indépendants :
      returncode 0 seul ne suffit pas à prouver que GRP a réellement tourné.
 """
 
+import logging
 import os
 import shutil
 import subprocess
 import time
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger("grp_2023.grp_runner")
 
 ENCODING_CONSOLE_GRP = "cp1252"  # exécutables GRP : sorties console en cp1252 (Windows FR)
 
@@ -49,6 +52,13 @@ def run_calage(exe04_path, timeout=1800):
     if not exe04_path.is_file():
         raise GrpRunError(f"Exécutable de calage introuvable : {exe04_path}")
 
+    # Le log AVANT lancement est le plus utile en cas de crash silencieux : si c'est la
+    # DERNIÈRE ligne du journal (pas de "terminé" qui suit), le blocage/crash a eu lieu
+    # pendant l'exécution de cet exécutable précis — même si le timeout n'expire jamais
+    # (process tué de l'extérieur, écran de confirmation Windows resté ouvert...).
+    t0 = time.monotonic()
+    logger.info("Lancement du calage : %s (cwd=%s, timeout=%ss)",
+                exe04_path, exe04_path.parent, timeout)
     try:
         result = subprocess.run(
             [str(exe04_path)],
@@ -61,16 +71,23 @@ def run_calage(exe04_path, timeout=1800):
             cwd=exe04_path.parent,
         )
     except subprocess.TimeoutExpired as e:
+        logger.error("Calage %s : timeout dépassé après %.0fs (limite %ss) — l'exécutable "
+                     "est probablement bloqué (écran de confirmation Windows resté ouvert ?)",
+                     exe04_path.name, time.monotonic() - t0, timeout)
         raise GrpRunError(
             f"L'exécutable de calage {exe04_path.name} n'a pas terminé en {timeout}s."
         ) from e
 
+    duree = time.monotonic() - t0
     if result.returncode != 0:
+        logger.error("Calage %s terminé en %.0fs avec le code retour %s",
+                     exe04_path.name, duree, result.returncode)
         raise GrpRunError(
             f"L'exécutable de calage {exe04_path.name} a retourné le code "
             f"{result.returncode}.\n--- stdout ---\n{result.stdout}\n"
             f"--- stderr ---\n{result.stderr}"
         )
+    logger.info("Calage %s terminé en %.0fs (code retour 0)", exe04_path.name, duree)
     return result
 
 
@@ -127,7 +144,10 @@ def run_prevision_bat(bat_path, fiches_controle_dir, timeout=600):
 
     _nettoyer_dossier_pdf(fiches_controle_dir)
     t0 = datetime.now()
+    t0_monotone = time.monotonic()
 
+    logger.info("Lancement du rejeu : %s (cwd=%s, timeout=%ss)",
+                bat_path, bat_path.parent, timeout)
     try:
         result = subprocess.run(
             [str(bat_path)],
@@ -139,13 +159,20 @@ def run_prevision_bat(bat_path, fiches_controle_dir, timeout=600):
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as e:
+        logger.error("Rejeu %s : timeout dépassé après %.0fs (limite %ss) — l'exécutable "
+                     "est probablement bloqué (écran de confirmation Windows resté ouvert ?)",
+                     bat_path.name, time.monotonic() - t0_monotone, timeout)
         raise GrpRunError(f"{bat_path.name} n'a pas terminé en {timeout}s.") from e
 
+    duree = time.monotonic() - t0_monotone
     if result.returncode != 0:
+        logger.error("Rejeu %s terminé en %.0fs avec le code retour %s",
+                     bat_path.name, duree, result.returncode)
         raise GrpRunError(
             f"{bat_path.name} a retourné le code {result.returncode}.\n"
             f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
         )
+    logger.info("Rejeu %s terminé en %.0fs (code retour 0)", bat_path.name, duree)
 
     if not os.path.isdir(fiches_controle_dir):
         raise GrpRunError(
@@ -193,6 +220,8 @@ def nettoyer_bddtr(dossier_bddtr, max_tentatives=5, delai=3):
             return
         except OSError as e:
             derniere_erreur = e
+            logger.warning("Nettoyage de %s, tentative %s/%s échouée (fichier verrouillé ?) : %s",
+                           dossier_bddtr, tentative, max_tentatives, e)
             if tentative < max_tentatives:
                 time.sleep(delai)
     raise GrpRunError(

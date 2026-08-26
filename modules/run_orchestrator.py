@@ -141,6 +141,10 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
         combinaisons_a_faire = _combinaisons_a_traiter(conn, combinaisons, crues_dates,
                                                         seulement_echecs)
 
+    logger.info("=== Début de campagne : %s combinaison(s) à traiter sur %s au total, "
+                "%s crue(s), reprise_echecs=%s ===",
+                len(combinaisons_a_faire), len(combinaisons), len(crues_dates), seulement_echecs)
+
     for horizon, seuil_c1, methode in combinaisons_a_faire:
         if _annule():
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "campagne",
@@ -259,4 +263,5 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu",
                                         "success", message))
 
+    logger.info("=== Fin de campagne : %s combinaison(s) traitée(s) ===", len(combinaisons_a_faire))
     _nettoyer_bddtr_final()
