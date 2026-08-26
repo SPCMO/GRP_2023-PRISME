@@ -6,6 +6,7 @@ via PHyC). Construit dans un Frame déjà ajouté au Notebook par main.py.
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+from modules import results_store
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.widgets_common import (
@@ -215,6 +216,13 @@ def build_tab_config(tab_frame, app):
                 f"Aucun seuil de vigilance en débit actif trouvé pour le code site {code_site!r}.",
             )
 
+        # Capturé AVANT l'écrasement ci-dessous : seul point du code où code_station est
+        # réellement modifié en config (le champ de saisie seul, sans ce bouton, n'a
+        # aucun effet — voir Aide.html > Architecture > "Réutiliser pour un autre
+        # bassin"). C'est donc le moment le plus juste pour signaler explicitement si la
+        # campagne va démarrer sur une base vierge ou reprendre une base existante.
+        ancien_code_station = (app.config_data.get("station", {}).get("code_station") or "").strip()
+
         app.config_data.setdefault("station", {})
         app.config_data["station"]["code_station"] = code_station
         app.config_data["station"]["code_site"] = code_site
@@ -226,6 +234,28 @@ def build_tab_config(tab_frame, app):
         app.persist_config()
         app.on_config_changed()
         _afficher_seuils_existants()
+
+        if code_station != ancien_code_station:
+            try:
+                results_store.init_db()
+                with results_store.db_session() as conn:
+                    nb_combinaisons = results_store.compter_combinaisons(conn)
+            except Exception:
+                nb_combinaisons = None  # signal secondaire seulement — ne pas gêner l'identification qui a réussi
+            if nb_combinaisons == 0:
+                messagebox.showinfo(
+                    "Nouvelle station",
+                    f"Code station {code_station!r} : aucun résultat de campagne existant "
+                    "pour cette station — une base de résultats vierge sera utilisée à "
+                    "partir de maintenant.",
+                )
+            elif nb_combinaisons:
+                messagebox.showinfo(
+                    "Station déjà connue",
+                    f"Code station {code_station!r} : {nb_combinaisons} combinaison(s) déjà "
+                    "enregistrée(s) pour cette station — la campagne reprendra cette base "
+                    "existante (voir onglet Campagne).",
+                )
 
     btn_identifier.config(command=_identifier)
     _afficher_seuils_existants()

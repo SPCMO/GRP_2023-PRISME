@@ -385,6 +385,14 @@ def max_debit_simule(conn):
     return row["m"] if row and row["m"] is not None else None
 
 
+def compter_combinaisons(conn):
+    """Nombre total de combinaisons enregistrées (tous statuts confondus) dans la base
+    actuellement résolue — utilisé pour signaler à l'utilisateur, au moment où il
+    identifie une station (voir ui/tab_config.py), si la campagne va démarrer sur une
+    base vierge ou reprendre une base existante pour cette station."""
+    return conn.execute("SELECT COUNT(*) AS n FROM combinaisons").fetchone()["n"]
+
+
 def resume_couverture(conn):
     """Résumé de couverture des combinaisons déjà tentées, agrégé indépendamment par
     valeur de chaque dimension (horizon, seuil_c1, méthode) — ex. pour l'horizon

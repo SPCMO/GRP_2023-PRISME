@@ -79,9 +79,25 @@ class App(tk.Tk):
 
     def _maj_titre(self):
         """Le titre de la fenêtre reflète la station actuellement configurée (l'outil
-        n'est pas figé sur Moussoulens) — mis à jour à chaque changement de config."""
+        n'est pas figé sur Moussoulens) — mis à jour à chaque changement de config.
+
+        Le nombre de combinaisons en base (data/runs_<code_station>.sqlite3 de la
+        station active) est ajouté en plus du nom de station : un rappel permanent,
+        visible sans avoir à ouvrir un onglet, de la base sur laquelle on travaille
+        réellement — utile en particulier juste après avoir changé de station, où un
+        "0 combinaison" confirme qu'on démarre bien sur une base vierge plutôt que de
+        laisser planer un doute. Best-effort : une base illisible ne doit jamais
+        empêcher d'afficher au moins le nom de la station."""
         nom_station = self.config_data.get("station", {}).get("nom_station", "").strip()
-        self.title(f"{TITRE_BASE} ({nom_station})" if nom_station else TITRE_BASE)
+        titre = f"{TITRE_BASE} ({nom_station})" if nom_station else TITRE_BASE
+        try:
+            results_store.init_db()
+            with results_store.db_session() as conn:
+                nb_combinaisons = results_store.compter_combinaisons(conn)
+            titre += f" — {nb_combinaisons} combinaison(s) en base"
+        except Exception:
+            pass
+        self.title(titre)
 
     def on_config_changed(self):
         """Notifie les onglets dépendants (Paramétrage, Crues) qu'un chemin ou la station
