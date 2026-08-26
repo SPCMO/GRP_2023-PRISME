@@ -78,6 +78,35 @@ def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs):
     return a_traiter
 
 
+def _calage_deja_charge(paths, horizon, seuil_c1, methode):
+    """Vérifie que LISTE_BASSINS.DAT reflète PHYSIQUEMENT la combinaison demandée —
+    condition supplémentaire à la présence de config_prevision.ini (voir docstring de
+    calage_deja_ok ci-dessous), indispensable pour corriger un bug réel constaté sur
+    plusieurs campagnes "Compléter la campagne" : le dossier BDTR est UNIQUE et PARTAGÉ
+    par toutes les combinaisons d'une campagne, traitées l'une après l'autre. Sauter le
+    calage d'une combinaison au seul motif qu'elle a réussi PAR LE PASSÉ (statut
+    "success" en base) ne garantit en rien que le calage ACTUELLEMENT chargé en BDTR
+    est bien le sien : il peut très bien s'agir de celui d'une AUTRE combinaison déjà
+    traitée juste avant, dans cette même reprise, qui n'a jamais eu besoin d'être
+    recalée non plus. Plusieurs combinaisons horizon/seuil différentes se sont ainsi
+    retrouvées à rejouer EXACTEMENT le même hydrogramme simulé (mêmes dQP/dTP/VE/KGE) —
+    on vérifie donc en plus que la ligne LISTE_BASSINS.DAT du site correspond bien, en
+    l'état, à l'horizon/seuil/méthode qu'on s'apprête à traiter."""
+    try:
+        _lignes_brutes, bassins = parse_liste_bassins(paths.liste_bassins_dat)
+    except (ListeBassinsFormatError, FileNotFoundError):
+        return False
+    ligne = bassins.get(paths.code_site)
+    if ligne is None:
+        return False
+    try:
+        seuil_charge = float(ligne.seuil_c1)
+    except ValueError:
+        return False
+    return (ligne.hor1 == horizon and seuil_charge == float(seuil_c1)
+            and ligne.methode_active == methode)
+
+
 def _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs):
     if not seulement_echecs:
         return crues_dates
@@ -171,9 +200,17 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
         # calage entretemps, config_prevision.ini n'existe plus et TOUS les rejeux de la
         # combinaison échouent immédiatement ("fichier introuvable"). On vérifie donc en
         # plus la présence physique du fichier — le statut en base seul ne suffit pas.
+        #
+        # ⚠️ Deuxième garde-fou, ajouté suite à un bug réel (plusieurs horizons/seuils
+        # produisant EXACTEMENT le même hydrogramme simulé après un "Compléter la
+        # campagne") : même config_prevision.ini présent, encore faut-il que
+        # LISTE_BASSINS.DAT charge bien CETTE combinaison précise, et pas celle d'une
+        # autre combinaison traitée juste avant dans la même reprise — voir
+        # _calage_deja_charge.
         calage_deja_ok = (
             seulement_echecs and row_existant is not None and row_existant["statut"] == "success"
             and os.path.isfile(paths.config_prevision_ini)
+            and _calage_deja_charge(paths, horizon, seuil_c1, methode)
         )
 
         if calage_deja_ok:

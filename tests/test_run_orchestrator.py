@@ -10,7 +10,9 @@ from datetime import datetime
 import pytest
 
 from modules.results_store import SCHEMA
-from modules.run_orchestrator import _combinaisons_a_traiter, _crues_a_traiter, generer_combinaisons
+from modules.run_orchestrator import (
+    _calage_deja_charge, _combinaisons_a_traiter, _crues_a_traiter, generer_combinaisons,
+)
 
 
 # -- generer_combinaisons (pure) ---------------------------------------------------------
@@ -117,3 +119,62 @@ def test_crues_a_traiter_reprise_ne_garde_que_les_non_reussies(conn):
     resultat = _crues_a_traiter(
         conn, id_combi, [crue_ok, crue_echec], seulement_echecs=True)
     assert resultat == [crue_echec]
+
+
+# -- _calage_deja_charge (lit un vrai LISTE_BASSINS.DAT, pas de connexion sqlite) --------
+# Garde-fou contre un bug réel constaté sur des campagnes "Compléter la campagne" :
+# plusieurs combinaisons horizon/seuil différentes rejouaient EXACTEMENT le même
+# hydrogramme simulé, faute de vérifier que LISTE_BASSINS.DAT chargeait bien LEUR
+# combinaison plutôt que celle d'une autre combinaison traitée juste avant dans la
+# même reprise (voir le commentaire de calage_deja_ok dans run_orchestrator.py).
+
+_LIGNE_LISTE_BASSINS_EXEMPLE = (
+    "!Y1612020!00J00H15M!Moussoulens...!  4838.00!TU!01/07/2006 00:00!11/03/2026 06:00!##!"
+    "1!0!0!0!00J06H00M!00J00H00M!    5.00!     -99!##!  400.00!  500.00!  800.00! 4!00J00H00M! 0!   10!1!\r\n"
+)
+
+
+class _PathsFactice:
+    """Substitut minimal de GrpPaths — _calage_deja_charge n'utilise que ces 2 attributs."""
+
+    def __init__(self, liste_bassins_dat, code_site="Y1612020"):
+        self.liste_bassins_dat = liste_bassins_dat
+        self.code_site = code_site
+
+
+def _ecrire_liste_bassins(tmp_path, contenu=_LIGNE_LISTE_BASSINS_EXEMPLE):
+    chemin = tmp_path / "LISTE_BASSINS.DAT"
+    chemin.write_text(contenu, encoding="cp1252", newline="")
+    return str(chemin)
+
+
+def test_calage_deja_charge_combinaison_identique(tmp_path):
+    paths = _PathsFactice(_ecrire_liste_bassins(tmp_path))
+    assert _calage_deja_charge(paths, "00J06H00M", 5.0, "T") is True
+
+
+def test_calage_deja_charge_horizon_different(tmp_path):
+    # Le fichier charge 00J06H00M : une combinaison à 12h ne doit jamais être
+    # considérée comme "déjà chargée", même si elle a réussi par le passé.
+    paths = _PathsFactice(_ecrire_liste_bassins(tmp_path))
+    assert _calage_deja_charge(paths, "00J12H00M", 5.0, "T") is False
+
+
+def test_calage_deja_charge_seuil_different(tmp_path):
+    paths = _PathsFactice(_ecrire_liste_bassins(tmp_path))
+    assert _calage_deja_charge(paths, "00J06H00M", 10.0, "T") is False
+
+
+def test_calage_deja_charge_methode_differente(tmp_path):
+    paths = _PathsFactice(_ecrire_liste_bassins(tmp_path))
+    assert _calage_deja_charge(paths, "00J06H00M", 5.0, "R") is False
+
+
+def test_calage_deja_charge_fichier_introuvable(tmp_path):
+    paths = _PathsFactice(str(tmp_path / "absent.DAT"))
+    assert _calage_deja_charge(paths, "00J06H00M", 5.0, "T") is False
+
+
+def test_calage_deja_charge_code_site_absent_du_fichier(tmp_path):
+    paths = _PathsFactice(_ecrire_liste_bassins(tmp_path), code_site="Z9999999")
+    assert _calage_deja_charge(paths, "00J06H00M", 5.0, "T") is False

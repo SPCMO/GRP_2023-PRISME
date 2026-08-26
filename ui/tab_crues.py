@@ -18,6 +18,20 @@ from ui.widgets_common import (
     sauvegarder_dernier_pdt,
 )
 
+TEXTE_INFO_INDICATEURS_REFERENCE = (
+    "Les indicateurs dQP/dTP/VE/KGE affichés sur chaque vignette ne correspondent à "
+    "AUCUNE combinaison horizon/seuil/méthode d'une campagne PRISME : ils viennent "
+    "directement de CRITERES_PERF.DAT, calculés par GRP lui-même au moment de la "
+    "détection des crues (exe 01+03), avec le calage ACTUELLEMENT installé dans GRP "
+    "(\"calage en place\" ci-dessus — typiquement celui utilisé en production/astreinte "
+    "réelle, indépendant de tout test PRISME).\n\n"
+    "C'est aussi un calage COMPLET (toute la chronique connue d'avance), pas un rejeu "
+    "en conditions de prévision à un instant donné comme le fait une campagne — voir "
+    "Aide.html > Architecture > \"Pourquoi deux sources de performance différentes\". "
+    "Ces valeurs ne servent que de repère de comparaison, jamais de résultat de "
+    "campagne."
+)
+
 TEXTE_INFO_TYPEVT_P = (
     "GRP détecte deux types d'épisodes dans CRITERES_PERF.DAT :\n\n"
     "• les crues (TypEvt=Q) : pic de débit significatif ;\n"
@@ -54,6 +68,8 @@ def build_tab_crues(tab_frame, app):
     var_pdt_libelle = tk.StringVar()
     combo_pdt = ttk.Combobox(r, textvariable=var_pdt_libelle, state="readonly", width=18)
     combo_pdt.pack(side=tk.LEFT, padx=(2, 8))
+    bouton_info(r, "dQP/dTP/VE/KGE affichés sur chaque vignette",
+                TEXTE_INFO_INDICATEURS_REFERENCE, bg=bg).pack(side=tk.LEFT, padx=(0, 8))
     # Persisté dans config.json (pas seulement en mémoire) — sans ça, le réglage
     # repartait à "décoché" à chaque relance de l'outil (constaté par l'utilisateur).
     var_inclure_pluie = tk.BooleanVar(value=app.config_data.get("crues_inclure_pluie", False))

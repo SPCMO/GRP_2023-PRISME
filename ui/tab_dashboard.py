@@ -34,12 +34,30 @@ from modules.score import (
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
     PALETTE_COURBES, bouton_info, enregistrer_observateur_pdt, icone_info_axe,
-    libelle_dernier_pdt, make_label, make_row, make_section, sauvegarder_dernier_pdt,
+    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
+    sauvegarder_dernier_pdt,
 )
 
 # Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
 # de PALETTE_COURBES pour ne jamais être confondu avec une courbe simulée.
 _COULEUR_OBS = "#1B4F72"
+
+# Question posée indépendamment par 2 utilisateurs sur la même ligne ("Crue #N (...) —
+# configuration en place : dQP ... KGE ...") : ce n'est PAS l'une des combinaisons
+# testées par la campagne, mais la performance du calage ACTUELLEMENT installé dans
+# GRP — voir aussi ui/tab_crues.py::TEXTE_INFO_INDICATEURS_REFERENCE (même source de
+# données, CRITERES_PERF.DAT, affichée sous une autre forme dans l'onglet Crues).
+_TEXTE_INFO_CONFIGURATION_EN_PLACE = (
+    "Ces indicateurs (dQP/dTP/VE/KGE) ne correspondent à AUCUNE des combinaisons "
+    "horizon/seuil/méthode sélectionnées ci-dessus : ils viennent de "
+    "CRITERES_PERF.DAT, calculés par GRP lui-même au moment de la détection des crues "
+    "(exe 01+03), avec le calage ACTUELLEMENT installé dans GRP (typiquement celui "
+    "utilisé en production/astreinte réelle, indépendant de tout test PRISME) et un "
+    "calage COMPLET (toute la chronique connue d'avance) — pas un rejeu en conditions "
+    "de prévision comme le fait une campagne. Voir Aide.html > Architecture > "
+    "\"Pourquoi deux sources de performance différentes\". Une simple référence pour "
+    "comparer, jamais un résultat de campagne."
+)
 
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
@@ -129,11 +147,18 @@ def build_tab_dashboard(tab_frame, app):
     sous_notebook.add(onglet_3d, text="Vue 3D")
     sous_notebook.add(onglet_variation_crues, text="Variation selon le nb de crues")
 
-    _rafraichir_synthese = _build_synthese(onglet_synthese, app)
-    _build_detail(onglet_detail, app)
-    _rafraichir_sensibilite = _build_sensibilite(onglet_sensibilite, app)
-    _rafraichir_vue3d = _build_vue3d(onglet_3d, app)
-    _rafraichir_variation_crues = _build_variation_crues(onglet_variation_crues, app)
+    # Chaque sous-onglet est enveloppé dans un Canvas+Scrollbar (make_scrollable_tab,
+    # déjà utilisé par tous les autres onglets principaux de l'outil — Configuration,
+    # Paramétrage, Crues, Campagne, Analyse crues affl. — mais jusqu'ici oublié sur
+    # Dashboard) : sur un écran/une fenêtre trop petite pour tout afficher d'un coup
+    # (ex. "Détail par crue" sur un PC portable, où le tableau "Maximum de chaque
+    # courbe tracée" sous le graphique restait invisible, hors de portée), le contenu
+    # devient défilant au lieu d'être simplement coupé sans aucun moyen d'y accéder.
+    _rafraichir_synthese = _build_synthese(make_scrollable_tab(onglet_synthese), app)
+    _build_detail(make_scrollable_tab(onglet_detail), app)
+    _rafraichir_sensibilite = _build_sensibilite(make_scrollable_tab(onglet_sensibilite), app)
+    _rafraichir_vue3d = _build_vue3d(make_scrollable_tab(onglet_3d), app)
+    _rafraichir_variation_crues = _build_variation_crues(make_scrollable_tab(onglet_variation_crues), app)
 
     def _rafraichir_toutes_les_vues_du_score():
         # Détail par crue n'affiche pas de score composite (dQP/dTP/VE/KGE de
@@ -144,6 +169,25 @@ def build_tab_dashboard(tab_frame, app):
         _rafraichir_sensibilite()
         _rafraichir_vue3d()
         _rafraichir_variation_crues()
+
+    # Rafraîchit automatiquement la vue du sous-onglet vers lequel on navigue — avant
+    # cela, seule "Vue synthèse" (bouton "Rafraîchir") et un changement de pondération
+    # redessinaient quoi que ce soit : après une nouvelle campagne, "Sensibilité au
+    # seuil" en particulier restait bloquée sur ses listes Horizon(s)/Méthode(s) vides
+    # du tout premier lancement jusqu'à fermer/rouvrir l'outil (signalé explicitement).
+    _RAFRAICHIR_PAR_ONGLET = {
+        str(onglet_synthese): _rafraichir_synthese,
+        str(onglet_sensibilite): _rafraichir_sensibilite,
+        str(onglet_3d): _rafraichir_vue3d,
+        str(onglet_variation_crues): _rafraichir_variation_crues,
+    }
+
+    def _au_changement_sous_onglet(_evt=None):
+        fn = _RAFRAICHIR_PAR_ONGLET.get(sous_notebook.select())
+        if fn:
+            fn()
+
+    sous_notebook.bind("<<NotebookTabChanged>>", _au_changement_sous_onglet)
 
     def _appliquer_profil(*_evt):
         cfg = _config_score(app)
@@ -882,9 +926,13 @@ def _build_detail(frame, app):
     ttk.Checkbutton(r2, text="Afficher les seuils de vigilance", variable=var_vigilance,
                      command=lambda: _tracer()).pack(side=tk.LEFT, padx=(12, 0), anchor="n")
 
+    ligne_indicateurs = tk.Frame(frame)
+    ligne_indicateurs.pack(fill=tk.X, padx=10, pady=(4, 0))
     var_indicateurs = tk.StringVar(value="")
-    tk.Label(frame, textvariable=var_indicateurs, font=("TkDefaultFont", 9, "bold"),
-             wraplength=900, justify=tk.LEFT).pack(anchor="w", padx=10, pady=(4, 0))
+    tk.Label(ligne_indicateurs, textvariable=var_indicateurs, font=("TkDefaultFont", 9, "bold"),
+             wraplength=850, justify=tk.LEFT).pack(side=tk.LEFT, anchor="n")
+    bouton_info(ligne_indicateurs, "Configuration en place",
+                _TEXTE_INFO_CONFIGURATION_EN_PLACE).pack(side=tk.LEFT, padx=(4, 0), anchor="n")
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
@@ -1451,7 +1499,7 @@ def _build_sensibilite(frame, app):
     # déclenche aussi automatiquement à chaque changement de sélection (horizon ou
     # méthode) — ce bouton reste utile pour forcer un nouveau tracé sans changer la
     # sélection (ex. après une nouvelle campagne).
-    ttk.Button(r, text="Tracer", command=lambda: _tracer()).pack(side=tk.LEFT, padx=(20, 0))
+    ttk.Button(r, text="Tracer", command=lambda: _rafraichir_et_tracer()).pack(side=tk.LEFT, padx=(20, 0))
 
     fig = Figure(figsize=(9, 4), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
@@ -1462,19 +1510,36 @@ def _build_sensibilite(frame, app):
     _LIGNE_PAR_METHODE = {"T": "-", "R": "--"}  # trait plein = Tangara, pointillé = RNA
 
     def _rafraichir_listes():
+        """Recharge les horizons/méthodes disponibles depuis la base — appelée à chaque
+        clic sur "Tracer" (et depuis _au_changement_sous_onglet, voir build_tab_dashboard),
+        pas seulement à la construction de l'onglet : jusqu'ici, les listes restaient
+        vides après les tout premiers lancements d'une campagne tant que l'outil n'était
+        pas fermé/rouvert (signalé explicitement). Conserve la sélection courante quand
+        les valeurs existent encore ; ne retombe sur la sélection par défaut (1er
+        horizon, les 2 méthodes) que si rien n'était encore sélectionnable (listes vides)
+        ou que la sélection précédente a disparu."""
         lignes, _ = _charger_resultats(app)
         horizons = sorted({l["horizon"] for l in lignes}, key=_horizon_en_minutes)
         methodes = sorted({l["methode"] for l in lignes})
+
+        horizons_avant = {liste_horizons.get(i) for i in liste_horizons.curselection()}
+        methodes_avant = {liste_methodes.get(i) for i in liste_methodes.curselection()}
+
         liste_horizons.delete(0, tk.END)
         for h in horizons:
             liste_horizons.insert(tk.END, h)
-        if horizons:
-            liste_horizons.selection_set(0)  # un seul horizon par défaut, pour rester lisible
+        horizons_a_garder = horizons_avant & set(horizons)
+        for i, h in enumerate(horizons):
+            if h in horizons_a_garder or (not horizons_a_garder and i == 0):
+                liste_horizons.selection_set(i)  # 1 seul horizon par défaut, pour rester lisible
+
         liste_methodes.delete(0, tk.END)
         for m in methodes:
             liste_methodes.insert(tk.END, m)
-        if methodes:
-            liste_methodes.selection_set(0, tk.END)  # les 2 méthodes par défaut : montre d'emblée la comparaison T/R
+        methodes_a_garder = methodes_avant & set(methodes)
+        for i, m in enumerate(methodes):
+            if m in methodes_a_garder or not methodes_a_garder:
+                liste_methodes.selection_set(i)  # les 2 méthodes par défaut : comparaison T/R d'emblée
 
     def _selectionner_tous(valeur):
         if valeur:
@@ -1546,13 +1611,19 @@ def _build_sensibilite(frame, app):
 
     # Retrace automatiquement dès que la sélection change (horizon ou méthode) — plus
     # besoin de recliquer sur Tracer, "<<ListboxSelect>>" se déclenche aussi bien pour
-    # un clic simple que pour une sélection multiple au glisser/Ctrl-clic.
+    # un clic simple que pour une sélection multiple au glisser/Ctrl-clic. Un changement
+    # de sélection ne recharge PAS les listes elles-mêmes (_tracer seul) : recharger à
+    # chaque clic dans une liste réinitialiserait la sélection qu'on est justement en
+    # train de faire.
     liste_horizons.bind("<<ListboxSelect>>", lambda *_: _tracer())
     liste_methodes.bind("<<ListboxSelect>>", lambda *_: _tracer())
 
-    _rafraichir_listes()
-    _tracer()
-    return _tracer  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
+    def _rafraichir_et_tracer():
+        _rafraichir_listes()
+        _tracer()
+
+    _rafraichir_et_tracer()
+    return _rafraichir_et_tracer  # exposé pour build_tab_dashboard (pondération ET changement de sous-onglet)
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
