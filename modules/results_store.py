@@ -18,6 +18,7 @@ cette combinaison ; si le calage réussit mais qu'une seule crue échoue (ex. .b
 plante), on peut relancer uniquement cette crue sans refaire le calage.
 """
 
+import logging
 import os
 import sqlite3
 from contextlib import contextmanager
@@ -25,6 +26,9 @@ from datetime import datetime
 from statistics import median
 
 import config as app_config
+from modules import config_manager
+
+logger = logging.getLogger("grp_2023.results_store")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS combinaisons (
@@ -66,8 +70,56 @@ CREATE INDEX IF NOT EXISTS idx_series_archivees
 """
 
 
+def _chemin_db_par_defaut():
+    """Un fichier `data/runs_<code_station>.sqlite3` distinct par station configurée,
+    plutôt qu'un unique `data/runs.sqlite3` partagé par toutes les stations.
+
+    Avant cette fonction, la table `combinaisons` n'a aucune colonne station — elle est
+    identifiée uniquement par (horizon, seuil_c1, méthode), avec une contrainte UNIQUE
+    sur ce triplet. Reconfigurer l'outil sur une autre station (ex. Trébès après
+    Moussoulens) puis lancer une campagne avec un horizon/seuil/méthode déjà testé
+    aurait réutilisé silencieusement la ligne existante de l'ancienne station
+    (`ON CONFLICT ... DO UPDATE`, voir upsert_combinaison) — mélangeant les crues des 2
+    stations sous le même identifiant de combinaison, sans erreur ni avertissement.
+
+    Le `code_station` (identifiant hydrologique stable, 1 lettre + 9 chiffres saisi une
+    fois dans l'onglet Configuration) est utilisé plutôt que le nom libre de la
+    station : deux orthographes du même nom ("Trebes"/"Trèbes"/"Trebe") ne doivent
+    jamais produire 2 bases différentes pour une seule et même station, ni l'inverse.
+
+    Si la configuration est illisible ou que la station n'est pas encore renseignée, on
+    retombe sur l'ancien nom générique `runs.sqlite3` — comportement historique,
+    jamais bloquant."""
+    try:
+        config_data = config_manager.load_config()
+    except (FileNotFoundError, ValueError):
+        return app_config.DB_PATH
+    code_station = (config_data.get("station", {}).get("code_station") or "").strip()
+    if not code_station:
+        return app_config.DB_PATH
+    chemin_station = os.path.join(app_config.DATA_DIR, f"runs_{code_station}.sqlite3")
+    _migrer_ancienne_base_partagee_si_necessaire(chemin_station)
+    return chemin_station
+
+
+def _migrer_ancienne_base_partagee_si_necessaire(chemin_station):
+    """Migration ponctuelle, exécutée au plus une seule fois en tout et pour tout :
+    tant que l'ancien fichier partagé `runs.sqlite3` existe encore ET qu'aucune base
+    dédiée n'a déjà été créée pour la station actuellement configurée, on le renomme
+    vers cette base dédiée plutôt que de laisser croire à une perte de données. Une
+    fois ce renommage effectué, `runs.sqlite3` n'existe plus : aucune autre station
+    configurée ultérieurement ne pourra plus jamais hériter par erreur de cet
+    historique — la migration ne peut donc profiter qu'à la toute première station
+    active après la mise à jour de l'outil (typiquement celle déjà en cours d'usage)."""
+    if os.path.exists(app_config.DB_PATH) and not os.path.exists(chemin_station):
+        os.makedirs(os.path.dirname(chemin_station), exist_ok=True)
+        os.replace(app_config.DB_PATH, chemin_station)
+        logger.info("Migration de l'ancienne base partagée %s vers %s (1 fois, station "
+                    "active au moment de la migration)", app_config.DB_PATH, chemin_station)
+
+
 def init_db(db_path=None):
-    db_path = db_path or app_config.DB_PATH
+    db_path = db_path or _chemin_db_par_defaut()
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
     try:
@@ -81,7 +133,7 @@ def init_db(db_path=None):
 @contextmanager
 def db_session(db_path=None):
     """Context manager : commit automatique en sortie normale, rollback si exception."""
-    db_path = db_path or app_config.DB_PATH
+    db_path = db_path or _chemin_db_par_defaut()
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

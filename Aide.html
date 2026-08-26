@@ -105,7 +105,7 @@
 
   <h3>Onglet Dashboard</h3>
   <p>Bandeau partagé en haut : choix de la <b>pondération du score composite</b> (poids égaux / profil métier / personnalisé, avec asymétrie dTP retard/avance réglable) et sélecteur <b>« Crues dans le score »</b> — restreint, si besoin, le calcul du score à un sous-ensemble de crues choisi à la main (fenêtre listant TypEvt, Vigilance max, Qmax, cumul de pluie de chaque crue). Ces deux réglages s'appliquent à toutes les vues à score ci-dessous, sauf « Variation selon le nb de crues » qui varie N automatiquement et reste volontairement indépendante de la sélection de crues.</p>
-  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Deux cases à cocher <b>Tangara</b>/<b>RNA</b> au-dessus du graphique permettent de restreindre l'affichage à une seule méthode ou de garder les deux (défaut) — les échelles des axes (horizons, seuils, |dQP| max) restent toujours calculées sur les 2 méthodes confondues, pour rester identiques quel que soit le filtre et permettre une comparaison visuelle directe entre Tangara et RNA. Bouton d'export Excel : une fenêtre de vérification (pondération, station, crues incluses, seuils, méthodes) s'affiche avant de choisir le fichier de destination. Classeur à 5 feuilles : Paramétrage, Vue synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.</p>
+  <p><b>Vue synthèse</b> : heatmap horizon × seuil (score composite, 0 = meilleur), classement des meilleures combinaisons, dispersion de |dQP| par horizon. Deux cases à cocher <b>Tangara</b>/<b>RNA</b> au-dessus du graphique permettent de restreindre l'affichage à une seule méthode ou de garder les deux (défaut) — les échelles des axes (horizons, seuils, |dQP| max) restent toujours calculées sur les 2 méthodes confondues, pour rester identiques quel que soit le filtre et permettre une comparaison visuelle directe entre Tangara et RNA. Bouton d'export Excel : une fenêtre de vérification (pondération, station, crues incluses, seuils, méthodes) s'affiche avant de choisir le fichier de destination. Classeur à 6 feuilles : Paramétrage, Vue synthèse, Détail par crue, Sensibilité au seuil, Vue 3D, Variation selon le nb de crues — un onglet Excel par sous-onglet du Dashboard, plus le contexte de campagne.</p>
   <p><b>Détail par crue</b> : courbe du débit observé (large fenêtre, depuis <code>CRITERES_PERF.DAT</code>) avec une ou plusieurs courbes <b>simulées</b> superposées (sélection multiple des combinaisons, une couleur/légende par combinaison), les 6 seuils de vigilance PHyC (jaune/orange/rouge + zones de transition — case à cocher pour les masquer), et un tableau du maximum + horodatage de chaque courbe tracée. Flèches ◀▶ à côté du menu "Crue" pour naviguer épisode par épisode (retrace automatiquement avec la même sélection de combinaisons). Survol à la souris pour lire une valeur exacte sur une courbe. Si aucune courbe simulée n'apparaît pour une combinaison, c'est qu'elle n'a pas encore été rejouée pour cette crue précise.</p>
   <p><b>Sensibilité au seuil</b> : évolution du score composite en fonction du seuil de calage, pour un ou plusieurs horizons superposés (sélection multiple, une couleur par horizon) à méthode fixée.</p>
   <p><b>Vue 3D</b> : nuage de points horizon × seuil × score composite — couleur du point = score (vert = meilleur), forme du marqueur = méthode (rond T, triangle R), meilleure combinaison mise en évidence par une étoile dorée avec le détail de ses indicateurs. Vue orientable à la souris (clic-glisser) ; bouton <b>Réinitialiser la vue 3D</b> sous la légende pour revenir à l'angle initial en un clic.</p>
@@ -138,7 +138,7 @@
     <div class="schema-couche">
       <div class="schema-titre-couche">Poste de l'utilisateur — un seul programme (aucun serveur à lancer)</div>
       <div class="schema-ligne">
-        <div class="schema-boite b-py">Interface Tkinter<span class="note">main.py + ui/tab_*.py — 6 onglets (Configuration, Paramétrage, Crues, Analyse crues affl., Campagne, Dashboard)</span></div>
+        <div class="schema-boite b-py">Interface Tkinter<span class="note">main.py + ui/tab_*.py — 6 onglets (Configuration, Paramétrage, Crues, Campagne, Dashboard, Analyse crues affl.)</span></div>
       </div>
     </div>
 
@@ -178,7 +178,7 @@
       <div class="schema-titre-couche">Données locales</div>
       <div class="schema-ligne">
         <div class="schema-boite b-data">config/config.json<span class="note">chemins, identifiants PHyC, paramétrage — jamais versionné</span></div>
-        <div class="schema-boite b-data">data/runs.sqlite3<span class="note">résultats de campagne + séries archivées</span></div>
+        <div class="schema-boite b-data">data/runs_&lt;code_station&gt;.sqlite3<span class="note">résultats de campagne + séries archivées — 1 fichier distinct par station</span></div>
         <div class="schema-boite b-data">Fichiers GRP<span class="note">LISTE_BASSINS.DAT, PDF, .DAT/.txt — dans les 4 dossiers de travail choisis en Configuration</span></div>
       </div>
     </div>
@@ -213,14 +213,14 @@
     <div class="schema-couche">
       <div class="schema-titre-couche">3. Lecture des résultats</div>
       <div class="schema-ligne">
-        <div class="schema-boite b-py">Extraction dQP/dTP/VE/KGE du PDF + archivage des séries observée/simulée<span class="note">écrit dans data/runs.sqlite3</span></div>
+        <div class="schema-boite b-py">Extraction dQP/dTP/VE/KGE du PDF + archivage des séries observée/simulée<span class="note">écrit dans data/runs_&lt;code_station&gt;.sqlite3</span></div>
       </div>
     </div>
     <div class="schema-fleche">↓</div>
     <div class="schema-couche">
       <div class="schema-titre-couche">4. Analyse (onglet Dashboard)</div>
       <div class="schema-ligne">
-        <div class="schema-boite b-py">Relit data/runs.sqlite3<span class="note">heatmap, classement, courbes, export Excel</span></div>
+        <div class="schema-boite b-py">Relit data/runs_&lt;code_station&gt;.sqlite3<span class="note">heatmap, classement, courbes, export Excel</span></div>
       </div>
     </div>
   </div>
@@ -254,9 +254,9 @@
 │   ├── fiche_controle_pdf.py   # extraction dQP/dTP/VE/KGE (source des résultats de campagne)
 │   ├── grp_series.py           # séries observée/simulée (GRP_Obs.txt / GRP_Prev_*.txt)
 │   ├── run_orchestrator.py     # boucle horizon×seuil×méthode×crue, reprise sur échec
-│   ├── results_store.py        # persistance SQLite (data/runs.sqlite3) + séries archivées
+│   ├── results_store.py        # persistance SQLite (data/runs_&lt;code_station&gt;.sqlite3, 1 par station) + séries archivées
 │   ├── score.py                # score composite de performance
-│   ├── export_excel.py         # export à la demande (5 feuilles)
+│   ├── export_excel.py         # export à la demande (6 feuilles)
 │   └── affluents.py            # stations affluentes : modèle, lecture des débits, Qmax/volume, propagation
 ├── ui/
 │   ├── tab_config.py           # onglet Configuration
@@ -267,7 +267,7 @@
 │   ├── tab_dashboard.py        # onglet Dashboard (4 sous-onglets)
 │   └── widgets_common.py       # helpers UI partagés (sections colorées, listes réordonnables)
 ├── tests/                      # pytest — fonctions pures de modules/, voir "Tests automatisés" ci-dessous
-├── data/runs.sqlite3           # gitignored
+├── data/runs_&lt;code_station&gt;.sqlite3  # gitignored, 1 fichier distinct par station
 └── logs/session_AAAAMMJJ_HHMMSS.log  # gitignored, 1 fichier par lancement de l'outil
 </pre>
 
@@ -288,6 +288,7 @@
 
   <h3>Réutiliser pour un autre bassin</h3>
   <p>Rien n'est codé en dur : renseigner les 4 dossiers et le code station d'un autre bassin dans l'onglet Configuration suffit. Le seul réglage global figé par défaut est l'absence de module neige CemaNeige (<code>avec_neige=False</code> dans <code>modules.liste_bassins.set_calage_params</code>), validé pour Moussoulens — à passer à <code>True</code> dans le code pour un bassin de montagne qui en aurait besoin.</p>
+  <p>Les résultats de campagne sont automatiquement isolés par station : <code>modules/results_store.py</code> résout un fichier <code>data/runs_&lt;code_station&gt;.sqlite3</code> distinct selon le <code>code_station</code> actuellement renseigné en Configuration (identifiant hydrologique stable, jamais le nom libre de la station — 2 orthographes différentes du même nom ne doivent jamais produire 2 bases pour une seule station, ni l'inverse). Basculer l'outil sur une autre station puis lancer une campagne ne peut donc plus mélanger ses résultats avec ceux d'une station déjà étudiée, même en cas d'horizon/seuil/méthode identiques entre les 2 — auparavant, un seul <code>data/runs.sqlite3</code> partagé (sans aucune colonne station) aurait silencieusement réutilisé les lignes d'une autre station dans ce cas de figure. Migration automatique et unique au premier lancement après cette mise à jour : l'ancien fichier partagé, s'il existe encore, est renommé vers le fichier dédié de la station <b>active à ce moment précis</b> — à faire tourner une fois pendant que la station en cours d'étude est encore celle configurée, avant de basculer sur une nouvelle station.</p>
 </section>
 
 <section id="parametrage">
@@ -943,6 +944,21 @@
   <div class="changelog-entry">
     <div class="changelog-date">26 août 2026</div>
     <p><span class="tag tag-fix">Correctif</span> Le mode QuickEdit de la console Windows (activé par défaut) pouvait geler tout le processus dès qu'on cliquait ou sélectionnait du texte dans la fenêtre cmd restée ouverte en fond — y compris les threads qui écrivent des logs — donnant l'apparence d'une campagne plantée sans la moindre erreur, jusqu'à ce qu'un Ctrl+C réflexe (souvent en tentant de copier du texte) tue le processus. Désactivé au démarrage. Pour copier ce qui s'affiche dans la console, ouvrir le fichier <code>logs/session_*.log</code> correspondant à la place (contenu identique).</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Les résultats de campagne sont désormais isolés par station : <code>data/runs_&lt;code_station&gt;.sqlite3</code> distinct (identifiant hydrologique stable) plutôt qu'un unique <code>data/runs.sqlite3</code> partagé par toutes les stations. Basculer l'outil sur une nouvelle station (ex. après Moussoulens) ne peut plus mélanger silencieusement ses résultats avec ceux d'une autre station sous un horizon/seuil/méthode identique — la table <code>combinaisons</code> n'a jamais eu de colonne station, une reconfiguration aurait auparavant réutilisé les lignes existantes (<code>ON CONFLICT ... DO UPDATE</code>). Migration automatique et unique de l'ancien fichier partagé vers la base dédiée de la station active au moment de la mise à jour — voir Architecture &gt; "Réutiliser pour un autre bassin".</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Export Excel : 6ᵉ feuille "Sensibilité au seuil" ajoutée (score composite en fonction du seuil de calage, toutes méthodes et tous horizons superposés) — seul sous-onglet du Dashboard qui manquait encore à l'export depuis son introduction.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">26 août 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Onglet "Analyse crues affl." déplacé en dernière position (après Dashboard) dans la barre d'onglets principale, au lieu de juste après "Crues" — suit mieux l'ordre d'usage du workflow (calage d'abord, analyse complémentaire des affluents ensuite).</p>
   </div>
 </section>
 

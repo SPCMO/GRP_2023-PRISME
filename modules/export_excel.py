@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Export Excel des résultats de campagne — généré à la demande depuis results_store
 (pas pendant le run), en plus du dashboard interactif (décision validée avec
-l'utilisateur). 5 onglets, demandés explicitement pour retrouver hors de l'outil tout
+l'utilisateur). 6 onglets, demandés explicitement pour retrouver hors de l'outil tout
 ce qui est visible dans le Dashboard : Paramétrage (contexte de la campagne), Vue
-synthèse, Détail par crue, Vue 3D, Variation selon le nb de crues.
+synthèse, Détail par crue, Sensibilité au seuil, Vue 3D, Variation selon le nb de crues
+— soit les 5 sous-onglets du Dashboard, un par un, plus le contexte de campagne.
 
 Les graphiques matplotlib sont RE-rendus ici (backend Agg, non interactif) plutôt que
 réutilisés depuis ui/tab_dashboard.py : ce module (modules/) ne doit pas dépendre de
@@ -53,6 +54,7 @@ ENTETES_DETAIL = ("Crue", "Date/heure crue", "Horizon", "Seuil C1", "Méthode", 
                    "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect")
 ENTETES_SYNTHESE = ("Horizon", "Seuil C1", "Méthode", "Score composite", "Nb crues",
                      "Moyenne |dQP| (%)", "Moyenne |dTP|", "Moyenne |VE| (%)", "Moyenne (1-KGE)")
+ENTETES_SENSIBILITE = ("Horizon", "Seuil C1", "Méthode", "Score composite")
 ENTETES_VUE3D = ("Horizon", "Seuil C1", "Méthode", "Score composite",
                   "Écart au meilleur (Δ)", "Moyenne |dQP| (%)", "Moyenne |dTP|",
                   "Moyenne |VE| (%)", "Moyenne (1-KGE)")
@@ -509,7 +511,54 @@ def _figure_detail_crue(libelle_crue, serie, serie_sim, meilleur, seuils_q):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
-# Onglet 4 — Vue 3D
+# Onglet 4 — Sensibilité au seuil
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def _feuille_sensibilite_seuil(ws, scores_valides):
+    """Reproduction statique de Dashboard > Sensibilité au seuil : contrairement à la
+    version interactive (sélection d'un sous-ensemble d'horizons/méthodes), l'export
+    montre TOUJOURS tous les horizons et les 2 méthodes ensemble — même principe que
+    Vue synthèse/Vue 3D, qui n'exposent pas non plus l'état d'un filtre interactif."""
+    _entete(ws, ENTETES_SENSIBILITE, [16, 12, 12, 18])
+    for s in sorted(scores_valides, key=lambda s: (_horizon_en_minutes(s.horizon), s.seuil_c1, s.methode)):
+        ws.append((s.horizon, s.seuil_c1, s.methode, round(s.score, 4)))
+
+    if not scores_valides:
+        return
+    ligne_libre = ws.max_row + 2
+    fig = _figure_sensibilite_seuil(scores_valides)
+    img = _fig_to_image(fig)
+    ws.add_image(img, f"A{ligne_libre}")
+
+
+def _figure_sensibilite_seuil(scores_valides):
+    fig = Figure(figsize=(10, 4.5), dpi=110)
+    ax = fig.add_subplot(1, 1, 1)
+    lignes_par_methode = {"T": "-", "R": "--"}
+    horizons = sorted({s.horizon for s in scores_valides}, key=_horizon_en_minutes)
+    for i, horizon in enumerate(horizons):
+        couleur = _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+        for methode, style in lignes_par_methode.items():
+            scores_hm = sorted((s for s in scores_valides if s.horizon == horizon and s.methode == methode),
+                                key=lambda s: s.seuil_c1)
+            if not scores_hm:
+                continue
+            ax.plot([s.seuil_c1 for s in scores_hm], [s.score for s in scores_hm],
+                    marker="o", markersize=3.5, lw=1.3, color=couleur, ls=style,
+                    label=f"{horizon} ({methode})")
+    ax.set_xlabel("Seuil de calage SeuilC1 (m³/s)", fontsize=8)
+    ax.set_ylabel("Score composite (0=meilleur)", fontsize=8)
+    ax.set_title("Sensibilité du score composite au seuil de calage — tous horizons/méthodes",
+                 fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(labelsize=7)
+    ax.legend(loc="best", fontsize=6, ncol=3 if len(horizons) > 4 else 2)
+    fig.subplots_adjust(bottom=0.15, right=0.98)
+    return fig
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
+# Onglet 5 — Vue 3D
 # ══════════════════════════════════════════════════════════════════════════════════
 
 def _feuille_vue_3d(ws, scores_valides, meilleur):
@@ -588,7 +637,7 @@ def _figure_vue_3d(scores_tries, meilleur):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
-# Onglet 5 — Variation selon le nombre de crues
+# Onglet 6 — Variation selon le nombre de crues
 # ══════════════════════════════════════════════════════════════════════════════════
 
 def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp):
@@ -697,7 +746,7 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
 # ══════════════════════════════════════════════════════════════════════════════════
 
 def exporter(chemin_xlsx, app, db_path=None):
-    """Génère un classeur à 4 feuilles depuis les résultats actuellement en base et la
+    """Génère un classeur à 6 feuilles depuis les résultats actuellement en base et la
     configuration actuelle de l'outil (station, seuils, pondération). Lève une
     exception explicite si aucun résultat n'existe encore."""
     with results_store.db_session(db_path) as conn:
@@ -742,6 +791,8 @@ def exporter(chemin_xlsx, app, db_path=None):
 
         _feuille_detail_par_crue(wb.create_sheet("Détail par crue"), lignes, infos_crues,
                                    meilleur, meilleur_combinaison_id, paths, app, conn)
+
+        _feuille_sensibilite_seuil(wb.create_sheet("Sensibilité au seuil"), scores_valides)
 
         _feuille_vue_3d(wb.create_sheet("Vue 3D"), scores_valides, meilleur)
 

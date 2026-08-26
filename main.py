@@ -146,9 +146,9 @@ class App(tk.Tk):
         notebook.add(self.tab_config, text="  Configuration  ")
         notebook.add(self.tab_parametrage, text="  Paramétrage  ")
         notebook.add(self.tab_crues, text="  Crues  ")
-        notebook.add(self.tab_analyse_affluents, text="  Analyse crues affl.  ")
         notebook.add(self.tab_orchestration, text="  Campagne  ")
         notebook.add(self.tab_dashboard, text="  Dashboard  ")
+        notebook.add(self.tab_analyse_affluents, text="  Analyse crues affl.  ")
 
         # Bouton Aide superposé sur la bande d'onglets elle-même, coin haut-droit — un
         # ttk.Notebook ne permet pas d'insérer un widget DANS sa bande d'onglets
