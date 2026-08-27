@@ -20,6 +20,7 @@ from tkinter import messagebox, scrolledtext, ttk
 
 import config as app_config
 from modules import results_store, run_orchestrator, score
+from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
     bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
@@ -75,7 +76,7 @@ def build_tab_orchestration(tab_frame, app):
     ttk.Button(r_estimation, text="⏱ Estimer le temps restant",
                command=lambda: _estimer_temps()).pack(side=tk.LEFT)
     var_estimation = tk.StringVar(value="")
-    tk.Label(r_estimation, textvariable=var_estimation, bg=bg,
+    tk.Label(r_estimation, textvariable=var_estimation, bg=bg, justify=tk.LEFT,
              font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(8, 0))
 
     # ── Tableau des combinaisons ────────────────────────────────────────────────
@@ -140,6 +141,22 @@ def build_tab_orchestration(tab_frame, app):
         crues_dates = [datetime.fromisoformat(iso) for iso in crues_iso]
         return (code_pdt, combinaisons, crues_dates), None
 
+    def _dates_qmax_pour_crues(paths, code_pdt, crues_dates):
+        """Associe chaque date de crue sélectionnée (date_deb, la clé habituelle) à
+        l'horodatage réel de son pic (DateQmax de CRITERES_PERF.DAT) — nécessaire pour
+        positionner les instants de rejeu supplémentaires avant le pic (voir
+        Paramétrage > "Instants de rejeu supplémentaires"). Best-effort : une crue
+        absente du fichier (ne devrait pas arriver, sélectionnée depuis ce même
+        fichier dans l'onglet Crues) est simplement absente du dict retourné plutôt
+        qu'une erreur bloquante — modules.run_orchestrator ignore alors ses instants
+        supplémentaires pour cette crue avec un avertissement logué."""
+        try:
+            evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+        except (FileNotFoundError, CriteresPerfError):
+            return {}
+        par_debut = {evt.date_deb: evt.date_qmax for evt in evenements}
+        return {d: par_debut[d] for d in crues_dates if d in par_debut}
+
     def _estimer_temps():
         """Estime le temps restant pour amener la sélection actuelle (onglets
         Paramétrage/Crues) à complétion, en ne comptant que ce qui n'est pas déjà
@@ -153,6 +170,8 @@ def build_tab_orchestration(tab_frame, app):
             var_estimation.set(f"Estimation impossible : {erreur}")
             return
         _code_pdt, combinaisons, crues_dates = matrice
+        decalages_pic_heures = app.config_data.get("parametrage", {}).get(
+            "decalages_pic_heures", [])
         try:
             results_store.init_db()
             with results_store.db_session() as conn:
@@ -164,16 +183,38 @@ def build_tab_orchestration(tab_frame, app):
             return
 
         if restantes == 0:
-            var_estimation.set(f"Toutes les étapes de cette sélection ({total}) sont déjà acquises "
-                                "en base — rien à relancer.")
-            return
-        texte_duree = _minutes_vers_duree_grp(minutes)
-        suffixe = (" — sous-estimé : certaines étapes restantes n'ont encore aucune mesure "
-                   "de durée disponible (méthode jamais testée)" if incertain else "")
-        var_estimation.set(
-            f"⏱ Temps estimé restant : {texte_duree} pour {restantes}/{total} étape(s) "
-            f"restante(s) (estimation à partir des durées déjà observées){suffixe}."
-        )
+            texte = (f"Toutes les étapes de cette sélection ({total}) sont déjà acquises "
+                     "en base — rien à relancer.")
+        else:
+            texte_duree = _minutes_vers_duree_grp(minutes)
+            suffixe = (" — sous-estimé : certaines étapes restantes n'ont encore aucune mesure "
+                       "de durée disponible (méthode jamais testée)" if incertain else "")
+            texte = (f"⏱ Temps estimé restant : {texte_duree} pour {restantes}/{total} étape(s) "
+                     f"restante(s) (estimation à partir des durées déjà observées){suffixe}.")
+
+        if decalages_pic_heures:
+            # Majorant volontairement grossier (ne tient PAS compte de ce qui a déjà
+            # été fait pour les instants supplémentaires, contrairement à l'estimation
+            # ci-dessus) : nb_instants x nb_combinaisons x nb_crues x durée médiane
+            # d'un rejeu — suffisant pour donner un ordre de grandeur du surcoût, sans
+            # dupliquer toute la logique de reprise de _crues_a_traiter ici.
+            duree_rejeu_mediane = next(
+                (v["minutes"] for v in mesures.get("rejeu", {}).values() if v.get("minutes")),
+                None)
+            if duree_rejeu_mediane is not None:
+                minutes_instants_max = (len(decalages_pic_heures) * len(combinaisons)
+                                          * len(crues_dates) * duree_rejeu_mediane)
+                texte += (
+                    f"\n+ instants supplémentaires avant le pic ({', '.join(f'H-{h:g}' for h in decalages_pic_heures)}) : "
+                    f"jusqu'à {_minutes_vers_duree_grp(minutes_instants_max)} de plus dans le pire des cas "
+                    f"({len(decalages_pic_heures)} instant(s) × {len(combinaisons)} combinaison(s) × "
+                    f"{len(crues_dates)} crue(s) — bien moins si une partie est déjà en base)."
+                )
+            else:
+                texte += ("\n+ instants supplémentaires avant le pic configurés, mais durée d'un "
+                          "rejeu encore inconnue (aucune mesure disponible) — surcoût non estimable.")
+
+        var_estimation.set(texte)
 
     # ── Lancement (dans un thread séparé) ───────────────────────────────────────
     def _lancer(seulement_echecs=False):
@@ -192,6 +233,16 @@ def build_tab_orchestration(tab_frame, app):
             messagebox.showerror("Campagne", erreur)
             return
         code_pdt, combinaisons, crues_dates = matrice
+
+        # Instants de rejeu supplémentaires avant le pic (voir Paramétrage) —
+        # purement additifs, volontairement PAS comptés dans total_etapes/barre de
+        # progression (voir ProgressionEvent.etape "rejeu_instant" et
+        # _traiter_evenement ci-dessous) : la progression affichée reste celle de la
+        # campagne principale, comme avant l'ajout de cette fonctionnalité.
+        decalages_pic_heures = app.config_data.get("parametrage", {}).get(
+            "decalages_pic_heures", [])
+        dates_qmax = (_dates_qmax_pour_crues(paths, code_pdt, crues_dates)
+                       if decalages_pic_heures else {})
 
         etat["total_etapes"] = len(combinaisons) + len(combinaisons) * len(crues_dates)
         etat["etapes_faites"] = 0
@@ -221,6 +272,12 @@ def build_tab_orchestration(tab_frame, app):
         _log(f"--- Campagne lancée : {len(combinaisons)} combinaison(s) × "
              f"{len(crues_dates)} crue(s) — pas de temps {code_pdt} "
              f"{'(reprise échecs)' if seulement_echecs else ''} ---")
+        if decalages_pic_heures:
+            nb_qmax_connus = len(dates_qmax)
+            _log(f"--- + instants supplémentaires avant le pic : "
+                 f"{', '.join(f'H-{h:g}' for h in decalages_pic_heures)} — "
+                 f"{nb_qmax_connus}/{len(crues_dates)} crue(s) avec un pic connu "
+                 "(journalisés séparément ci-dessous, hors barre de progression) ---")
 
         etat["annulation"].clear()
 
@@ -231,6 +288,8 @@ def build_tab_orchestration(tab_frame, app):
                     callback=lambda evt: file_evenements.put(("evt", evt)),
                     seulement_echecs=seulement_echecs,
                     annulation=etat["annulation"],
+                    decalages_pic_heures=decalages_pic_heures,
+                    dates_qmax=dates_qmax,
                 )
             except Exception as e:
                 logging.getLogger("grp_2023.orchestrateur").exception("Erreur fatale de campagne")
@@ -390,6 +449,20 @@ def build_tab_orchestration(tab_frame, app):
                 _log(f"[ANNULÉ] {evt.message}")
             elif evt.statut == "failed":
                 _log(f"[ÉCHEC] {evt.message}")
+            return
+        if evt.etape == "rejeu_instant":
+            # Instant supplémentaire avant le pic (voir Paramétrage > "Instants de
+            # rejeu supplémentaires") — journalisé pour rester visible, mais VOLONTAIRE-
+            # MENT exclu de la barre de progression et des compteurs crues_ok/crues_ko
+            # de la campagne principale (purement additif, voir run_orchestrator.py).
+            crue_txt = f" crue {evt.crue_date:%d/%m/%Y %H:%M}" if evt.crue_date else ""
+            prefixe = f"[instant {evt.instant_label}]"
+            if evt.statut == "failed":
+                _log(f"[ÉCHEC] {prefixe}{crue_txt} — {evt.horizon}/{evt.seuil_c1}/{evt.methode} : "
+                     f"{evt.message}")
+            elif evt.statut == "success" and evt.message:
+                _log(f"[OK, {evt.message}] {prefixe}{crue_txt} — "
+                     f"{evt.horizon}/{evt.seuil_c1}/{evt.methode}")
             return
         iid = f"{evt.horizon}|{evt.seuil_c1}|{evt.methode}"
         if evt.etape == "calage" and evt.statut == "running":

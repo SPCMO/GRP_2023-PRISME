@@ -1053,6 +1053,23 @@ def _build_detail(frame, app):
     canvas_max.bind("<Enter>", lambda e: canvas_max.bind_all("<MouseWheel>", _molette_max))
     canvas_max.bind("<Leave>", lambda e: canvas_max.unbind_all("<MouseWheel>"))
 
+    # ── Comparaison des instants de rejeu (rejeu à plusieurs instants avant le pic) ──
+    # Un panneau par instant testé (référence + instants supplémentaires configurés en
+    # Paramétrage), même crue et mêmes combinaisons sélectionnées que le graphique
+    # principal ci-dessus — pour visualiser directement si le comportement du modèle
+    # change selon qu'il démarre bien en amont du pic ou en pleine montée de crue
+    # (demande explicite de l'utilisateur, 27/08/2026). Volontairement plus simple que
+    # le graphique principal (pas de survol interactif, pas de tableau récapitulatif
+    # par panneau) : la comparaison visuelle entre panneaux est le seul objectif ici.
+    inn_instants, bg_instants = make_section(
+        frame, "Comparaison des instants de rejeu (avant le pic)", "teal")
+    var_statut_instants = tk.StringVar(value="")
+    tk.Label(inn_instants, textvariable=var_statut_instants, bg=bg_instants, fg="#555555",
+             font=("TkDefaultFont", 8, "italic"), wraplength=900, justify=tk.LEFT).pack(anchor="w")
+    fig_instants = Figure(figsize=(9, 6), dpi=100)
+    canvas_instants = FigureCanvasTkAgg(fig_instants, master=inn_instants)
+    canvas_instants.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+
     for j, (libelle, largeur, _anchor) in enumerate(_COLONNES_MAX):
         tk.Label(grille_max, text=libelle, font=("TkDefaultFont", 9, "bold"), bg="#E0E0E0",
                  relief=tk.RIDGE, borderwidth=1, width=largeur).grid(row=0, column=j, sticky="nsew")
@@ -1200,6 +1217,124 @@ def _build_detail(frame, app):
             if p["libelle"] == var_pdt.get():
                 return p["code"]
         return None
+
+    def _tracer_instants():
+        """Grille 2 colonnes (référence + instants supplémentaires configurés en
+        Paramétrage), un panneau par instant, pour la crue et les combinaisons
+        actuellement sélectionnées dans le graphique principal ci-dessus. Échelle Y
+        commune à tous les panneaux (Qobs + Qsim de tous les instants confondus),
+        indispensable pour comparer directement l'amplitude d'un panneau à l'autre."""
+        fig_instants.clear()
+        decalages = app.config_data.get("parametrage", {}).get("decalages_pic_heures", [])
+        if not decalages:
+            var_statut_instants.set(
+                "Aucun instant supplémentaire configuré — voir Paramétrage > "
+                "\"Instants de rejeu supplémentaires (avant le pic)\".")
+            canvas_instants.draw_idle()
+            return
+
+        paths, _manquants = construire_grp_paths(app)
+        code_pdt = _pas_de_temps_courant()
+        crue_iso = _crue_iso_courante()
+        if paths is None or not code_pdt or not crue_iso:
+            var_statut_instants.set("")
+            canvas_instants.draw_idle()
+            return
+
+        combis = getattr(liste_combis, "_valeurs", [])
+        selection = liste_combis.curselection()
+        combis_selectionnees = [combis[i] for i in selection] if combis else []
+        if not combis_selectionnees:
+            var_statut_instants.set(
+                "Sélectionnez au moins une combinaison ci-dessus pour comparer ses "
+                "instants de rejeu sur cette crue.")
+            canvas_instants.draw_idle()
+            return
+
+        try:
+            evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+        except (FileNotFoundError, CriteresPerfError):
+            var_statut_instants.set("")
+            canvas_instants.draw_idle()
+            return
+        evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
+        if evt is None:
+            var_statut_instants.set("")
+            canvas_instants.draw_idle()
+            return
+        chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                     f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+        try:
+            serie_obs = parse_evenement_serie(chemin_serie)
+        except (FileNotFoundError, CriteresPerfError):
+            serie_obs = []
+
+        labels_instants = [results_store.INSTANT_REFERENCE] + [f"H-{h:g}" for h in decalages]
+        libelles_instants = {results_store.INSTANT_REFERENCE: "Référence (~2j avant le pic)"}
+        libelles_instants.update({f"H-{h:g}": f"Pic − {h:g} h" for h in decalages})
+
+        # Précharge toutes les séries simulées AVANT de tracer quoi que ce soit : la
+        # comparaison entre panneaux n'a de sens qu'avec une échelle Y commune,
+        # calculée sur l'ensemble des instants plutôt que panneau par panneau.
+        series_par_instant = {}
+        toutes_valeurs = [p[2] for p in serie_obs if p[2] is not None]
+        with results_store.db_session() as conn:
+            for label in labels_instants:
+                series_par_instant[label] = []
+                for h, s, m, combinaison_id in combis_selectionnees:
+                    serie_sim = results_store.charger_serie(
+                        conn, combinaison_id, crue_iso, "sim", instant_label=label)
+                    series_par_instant[label].append((h, s, m, serie_sim))
+                    toutes_valeurs.extend(p[1] for p in serie_sim if p[1] is not None)
+        y_max = max(toutes_valeurs) * 1.1 if toutes_valeurs else None
+
+        n = len(labels_instants)
+        ncols = 2 if n > 1 else 1
+        nrows = -(-n // ncols)  # division entière arrondie au supérieur
+        axes = fig_instants.subplots(nrows, ncols, squeeze=False)
+        seuils = app.config_data.get("seuils_q", {})
+
+        for idx, label in enumerate(labels_instants):
+            ax_i = axes[idx // ncols][idx % ncols]
+            if serie_obs:
+                ax_i.plot([p[0] for p in serie_obs], [p[2] for p in serie_obs],
+                          color=_COULEUR_OBS, lw=1.4, label="Q observé")
+            une_courbe_sim = False
+            for i, (h, s, m, serie_sim) in enumerate(series_par_instant[label]):
+                if not serie_sim:
+                    continue
+                une_courbe_sim = True
+                couleur = PALETTE_COURBES[i % len(PALETTE_COURBES)]
+                ax_i.plot([p[0] for p in serie_sim], [p[1] for p in serie_sim],
+                          color=couleur, lw=1.1, ls="--", label=f"{h}/{s:.2f}/{m}")
+            if y_max is not None:
+                ax_i.set_ylim(0, y_max)
+            if var_vigilance.get():
+                for cle, _libelle_seuil, couleur in LIBELLES_SEUILS_Q:
+                    val = seuils.get(cle)
+                    if val is None or (y_max is not None and val > y_max * 1.3):
+                        continue
+                    est_zt = cle.startswith("zt_")
+                    ax_i.axhline(val, color=couleur, lw=0.8 if est_zt else 1.0,
+                                 ls=":" if est_zt else "-", alpha=0.75)
+            ax_i.set_title(libelles_instants[label], fontsize=8.5)
+            ax_i.tick_params(axis="both", labelsize=6.5)
+            ax_i.grid(True, alpha=0.3)
+            if not serie_obs and not une_courbe_sim:
+                ax_i.text(0.5, 0.5, "Pas encore de données", transform=ax_i.transAxes,
+                          ha="center", va="center", fontsize=8, color="#888888")
+            if idx == 0:
+                ax_i.legend(fontsize=6, loc="upper right")
+
+        for idx in range(n, nrows * ncols):  # masque les cases vides si n est impair
+            axes[idx // ncols][idx % ncols].axis("off")
+
+        fig_instants.autofmt_xdate()
+        fig_instants.subplots_adjust(hspace=0.55, wspace=0.25, bottom=0.12)
+        var_statut_instants.set(
+            f"{n} instant(s) comparé(s) pour {len(combis_selectionnees)} combinaison(s) "
+            "sélectionnée(s) — échelle Y commune aux panneaux.")
+        canvas_instants.draw_idle()
 
     def _tracer():
         ax.clear()
@@ -1435,6 +1570,8 @@ def _build_detail(frame, app):
         elif not combis_selectionnees:
             texte += "  —  Aucune combinaison sélectionnée dans la liste (Q observé seul affiché)."
         var_indicateurs.set(texte)
+
+        _tracer_instants()
 
     def _on_pdt_change(*_evt):
         sauvegarder_dernier_pdt(app, _pas_de_temps_courant(), source=_pdt_change_externe)

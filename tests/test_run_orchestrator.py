@@ -56,11 +56,11 @@ def _inserer_combinaison(conn, horizon, seuil_c1, methode, statut):
     ).fetchone()["id"]
 
 
-def _inserer_resultat_crue(conn, combinaison_id, crue_date, statut):
+def _inserer_resultat_crue(conn, combinaison_id, crue_date, statut, instant_label="reference"):
     conn.execute(
-        "INSERT INTO resultats_crues (combinaison_id, crue_date, statut, date_maj) "
-        "VALUES (?, ?, ?, ?)",
-        (combinaison_id, crue_date.isoformat(), statut, datetime.now().isoformat()),
+        "INSERT INTO resultats_crues (combinaison_id, crue_date, instant_label, statut, date_maj) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (combinaison_id, crue_date.isoformat(), instant_label, statut, datetime.now().isoformat()),
     )
     conn.commit()
 
@@ -96,6 +96,31 @@ def test_combinaisons_a_traiter_reprise_garde_calage_ok_mais_crue_manquante(conn
     assert resultat == [("01J00H00M", 5.0, "T")]
 
 
+def test_combinaisons_a_traiter_reprise_garde_combinaison_pour_instant_manquant(conn):
+    # Régression constatée en conditions réelles (27/08/2026) : une combinaison dont
+    # le calage ET la référence de toutes les crues ont déjà réussi doit quand même
+    # être reprise si un instant supplémentaire configuré (voir Paramétrage) lui
+    # manque encore — sans transmettre decalages_pic_heures ICI (pas seulement à
+    # l'appel de _crues_a_traiter fait plus loin dans lancer_campagne), la combinaison
+    # était exclue à tort et "Compléter la campagne" se terminait instantanément sans
+    # traiter aucun instant.
+    crue = datetime(2024, 1, 1)
+    id_combi = _inserer_combinaison(conn, "01J00H00M", 5.0, "T", "success")
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="reference")
+
+    resultat = _combinaisons_a_traiter(
+        conn, [("01J00H00M", 5.0, "T")], [crue], seulement_echecs=True,
+        decalages_pic_heures=[6])
+    assert resultat == [("01J00H00M", 5.0, "T")]
+
+    # Une fois l'instant H-6 lui aussi réussi, plus rien à faire pour cette combinaison.
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="H-6")
+    resultat = _combinaisons_a_traiter(
+        conn, [("01J00H00M", 5.0, "T")], [crue], seulement_echecs=True,
+        decalages_pic_heures=[6])
+    assert resultat == []
+
+
 def test_combinaisons_a_traiter_inconnue_en_base_est_a_traiter(conn):
     # Jamais tentée du tout -> doit être traitée même en mode reprise.
     resultat = _combinaisons_a_traiter(
@@ -119,6 +144,54 @@ def test_crues_a_traiter_reprise_ne_garde_que_les_non_reussies(conn):
     resultat = _crues_a_traiter(
         conn, id_combi, [crue_ok, crue_echec], seulement_echecs=True)
     assert resultat == [crue_echec]
+
+
+def test_crues_a_traiter_ignore_les_instants_supplementaires_pour_le_statut_reference(conn):
+    # Une ligne d'instant supplémentaire (H-24) ne doit jamais être prise pour la
+    # référence par une requête non filtrée sur instant_label — garde-fou contre le
+    # même bug de principe que list_resultats_avec_combinaison (voir results_store).
+    id_combi = _inserer_combinaison(conn, "01J00H00M", 5.0, "T", "success")
+    crue = datetime(2024, 1, 1)
+    _inserer_resultat_crue(conn, id_combi, crue, "failed", instant_label="reference")
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="H-24")
+
+    resultat = _crues_a_traiter(conn, id_combi, [crue], seulement_echecs=True)
+    assert resultat == [crue]  # la référence a échoué -> à refaire, malgré H-24 réussi
+
+
+def test_crues_a_traiter_reprise_pour_instant_supplementaire_manquant(conn):
+    # Référence déjà réussie, mais aucun instant supplémentaire encore tenté -> doit
+    # être reprise pour les ajouter, sans que la référence soit elle-même en échec.
+    id_combi = _inserer_combinaison(conn, "01J00H00M", 5.0, "T", "success")
+    crue = datetime(2024, 1, 1)
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="reference")
+
+    resultat = _crues_a_traiter(conn, id_combi, [crue], seulement_echecs=True,
+                                  decalages_pic_heures=[24, 12])
+    assert resultat == [crue]
+
+
+def test_crues_a_traiter_pas_de_reprise_si_tous_les_instants_deja_reussis(conn):
+    id_combi = _inserer_combinaison(conn, "01J00H00M", 5.0, "T", "success")
+    crue = datetime(2024, 1, 1)
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="reference")
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="H-24")
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="H-12")
+
+    resultat = _crues_a_traiter(conn, id_combi, [crue], seulement_echecs=True,
+                                  decalages_pic_heures=[24, 12])
+    assert resultat == []
+
+
+def test_crues_a_traiter_sans_decalages_ignore_les_instants_supplementaires(conn):
+    # decalages_pic_heures absent/vide (comportement historique) : peu importe ce qui
+    # existe déjà comme instants supplémentaires, seule la référence compte.
+    id_combi = _inserer_combinaison(conn, "01J00H00M", 5.0, "T", "success")
+    crue = datetime(2024, 1, 1)
+    _inserer_resultat_crue(conn, id_combi, crue, "success", instant_label="reference")
+
+    resultat = _crues_a_traiter(conn, id_combi, [crue], seulement_echecs=True)
+    assert resultat == []
 
 
 # -- _calage_deja_charge (lit un vrai LISTE_BASSINS.DAT, pas de connexion sqlite) --------

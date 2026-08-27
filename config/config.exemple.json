@@ -35,7 +35,7 @@
   },
 
   "parametrage": {
-    "_comment": "pas_de_temps : liste éditable (ajout/suppression/réorganisation) via l'écran Paramètres, code au format GRP xxJxxHxxM (utilisé tel quel dans les noms de dossiers GRP, ex. Evenements/<code_site>_00J00H15M/). horizons_par_pdt : horizons possibles pour chaque pas de temps, même format, clé = code du pas de temps — pour 30min, 1h, 5min, 6min, 3h, 6h et 12h, valeurs reprises telles quelles du Tableau 3 de GRP_Manuel_Utilisation.pdf p.34 (colonne correspondante) ; 15min conservé tel quel (sélection métier existante, distincte du Tableau 3, gardée à la demande explicite de l'utilisateur). horizons_selectionnes / seuils_calage / methodes_selectionnees : dernière sélection de campagne (bloc 3), reprise au prochain lancement.",
+    "_comment": "pas_de_temps : liste éditable (ajout/suppression/réorganisation) via l'écran Paramètres, code au format GRP xxJxxHxxM (utilisé tel quel dans les noms de dossiers GRP, ex. Evenements/<code_site>_00J00H15M/). horizons_par_pdt : horizons possibles pour chaque pas de temps, même format, clé = code du pas de temps — pour 30min, 1h, 5min, 6min, 3h, 6h et 12h, valeurs reprises telles quelles du Tableau 3 de GRP_Manuel_Utilisation.pdf p.34 (colonne correspondante) ; 15min conservé tel quel (sélection métier existante, distincte du Tableau 3, gardée à la demande explicite de l'utilisateur). horizons_selectionnes / seuils_calage / methodes_selectionnees : dernière sélection de campagne (bloc 3), reprise au prochain lancement. decalages_pic_heures : instants de rejeu SUPPLÉMENTAIRES à tester en plus de la référence habituelle, exprimés en heures avant le pic réel de chaque crue (ex. [24, 12, 6]) — liste éditable, vide par défaut (comportement inchangé tant que l'utilisateur n'en ajoute pas), voir Aide.html > \"Rejeu à plusieurs instants avant le pic\".",
     "pas_de_temps": [
       {"code": "00J00H15M", "libelle": "15 min"},
       {"code": "00J00H30M", "libelle": "30 min"},
@@ -95,6 +95,7 @@
     },
     "horizons_selectionnes": {},
     "seuils_calage": [0.0],
-    "methodes_selectionnees": ["T"]
+    "methodes_selectionnees": ["T"],
+    "decalages_pic_heures": []
   }
 }

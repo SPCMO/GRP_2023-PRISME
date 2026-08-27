@@ -47,27 +47,38 @@ CREATE TABLE IF NOT EXISTS resultats_crues (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     combinaison_id INTEGER NOT NULL REFERENCES combinaisons(id) ON DELETE CASCADE,
     crue_date TEXT NOT NULL,
+    -- 'reference' = comportement historique (rejeu positionné à la date de début GRP de
+    -- la crue, ~2j avant le pic selon NJ) ; 'H-24'/'H-12'/'H-6'/... = instants
+    -- supplémentaires positionnés par rapport au pic RÉEL de la crue (voir
+    -- modules.run_orchestrator et Aide.html > "Rejeu à plusieurs instants avant le
+    -- pic"). Purement additif : toutes les requêtes qui pilotent la reprise sur échec,
+    -- les badges de couverture et le score composite restent filtrées sur 'reference'
+    -- pour ne jamais changer de comportement vis-à-vis de l'existant.
+    instant_label TEXT NOT NULL DEFAULT 'reference',
     statut TEXT NOT NULL DEFAULT 'pending'
         CHECK (statut IN ('pending', 'running', 'success', 'failed')),
     dqp REAL, dtp REAL, ve REAL, kge REAL,
     suspects TEXT,        -- indicateurs hors bornes plausibles, séparés par des virgules
     erreur TEXT,
     date_maj TEXT NOT NULL,
-    UNIQUE (combinaison_id, crue_date)
+    UNIQUE (combinaison_id, crue_date, instant_label)
 );
 
 CREATE TABLE IF NOT EXISTS series_archivees (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     combinaison_id INTEGER NOT NULL REFERENCES combinaisons(id) ON DELETE CASCADE,
     crue_date TEXT NOT NULL,
+    instant_label TEXT NOT NULL DEFAULT 'reference',  -- voir resultats_crues.instant_label
     type TEXT NOT NULL CHECK (type IN ('obs', 'sim')),
     point_date TEXT NOT NULL,
     debit REAL,
     pluie REAL
 );
 CREATE INDEX IF NOT EXISTS idx_series_archivees
-    ON series_archivees(combinaison_id, crue_date, type);
+    ON series_archivees(combinaison_id, crue_date, instant_label, type);
 """
+
+INSTANT_REFERENCE = "reference"
 
 
 def _chemin_db_par_defaut():
@@ -118,6 +129,81 @@ def _migrer_ancienne_base_partagee_si_necessaire(chemin_station):
                     "active au moment de la migration)", app_config.DB_PATH, chemin_station)
 
 
+def _colonne_existe(conn, table, colonne):
+    # PRAGMA table_info : (cid, name, type, notnull, dflt_value, pk) — colonne d'index 1.
+    # Accès positionnel plutôt que par nom (conn.row_factory n'est pas garanti être
+    # sqlite3.Row ici : init_db() ne le configure pas, contrairement à db_session()).
+    return any(row[1] == colonne for row in conn.execute(f"PRAGMA table_info({table})"))
+
+
+def _migrer_schema_multi_instants(conn):
+    """Migration ponctuelle (rejeu à plusieurs instants avant le pic, 27/08/2026) :
+    `resultats_crues`/`series_archivees` n'avaient qu'une ligne par (combinaison, crue)
+    — un seul instant de rejeu possible. SQLite ne permet pas de modifier une
+    contrainte UNIQUE sur une table existante : reconstruction complète (renommer,
+    créer la nouvelle table avec `instant_label`, recopier, supprimer l'ancienne),
+    dans UNE SEULE transaction explicite (BEGIN/COMMIT du script), avec toutes les
+    lignes déjà en base migrées vers `instant_label='reference'` — comportement
+    strictement identique à avant pour ces lignes existantes, aucune perte.
+
+    Sans effet (retour immédiat) si la colonne existe déjà : base neuve créée
+    directement avec le nouveau schéma, ou migration déjà effectuée lors d'un appel
+    précédent."""
+    if _colonne_existe(conn, "resultats_crues", "instant_label"):
+        return
+
+    logger.info("Migration du schéma resultats_crues/series_archivees (ajout de "
+                "instant_label pour le rejeu à plusieurs instants avant le pic)...")
+    conn.executescript("""
+        BEGIN;
+
+        ALTER TABLE resultats_crues RENAME TO resultats_crues_ancien;
+        CREATE TABLE resultats_crues (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            combinaison_id INTEGER NOT NULL REFERENCES combinaisons(id) ON DELETE CASCADE,
+            crue_date TEXT NOT NULL,
+            instant_label TEXT NOT NULL DEFAULT 'reference',
+            statut TEXT NOT NULL DEFAULT 'pending'
+                CHECK (statut IN ('pending', 'running', 'success', 'failed')),
+            dqp REAL, dtp REAL, ve REAL, kge REAL,
+            suspects TEXT,
+            erreur TEXT,
+            date_maj TEXT NOT NULL,
+            UNIQUE (combinaison_id, crue_date, instant_label)
+        );
+        INSERT INTO resultats_crues
+            (id, combinaison_id, crue_date, instant_label, statut, dqp, dtp, ve, kge,
+             suspects, erreur, date_maj)
+        SELECT id, combinaison_id, crue_date, 'reference', statut, dqp, dtp, ve, kge,
+               suspects, erreur, date_maj
+        FROM resultats_crues_ancien;
+        DROP TABLE resultats_crues_ancien;
+
+        ALTER TABLE series_archivees RENAME TO series_archivees_ancien;
+        CREATE TABLE series_archivees (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            combinaison_id INTEGER NOT NULL REFERENCES combinaisons(id) ON DELETE CASCADE,
+            crue_date TEXT NOT NULL,
+            instant_label TEXT NOT NULL DEFAULT 'reference',
+            type TEXT NOT NULL CHECK (type IN ('obs', 'sim')),
+            point_date TEXT NOT NULL,
+            debit REAL,
+            pluie REAL
+        );
+        INSERT INTO series_archivees
+            (id, combinaison_id, crue_date, instant_label, type, point_date, debit, pluie)
+        SELECT id, combinaison_id, crue_date, 'reference', type, point_date, debit, pluie
+        FROM series_archivees_ancien;
+        DROP TABLE series_archivees_ancien;
+        CREATE INDEX IF NOT EXISTS idx_series_archivees
+            ON series_archivees(combinaison_id, crue_date, instant_label, type);
+
+        COMMIT;
+    """)
+    logger.info("Migration terminée — toutes les lignes existantes conservées avec "
+                "instant_label='reference'.")
+
+
 def init_db(db_path=None):
     db_path = db_path or _chemin_db_par_defaut()
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -125,6 +211,7 @@ def init_db(db_path=None):
     try:
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA)
+        _migrer_schema_multi_instants(conn)
         conn.commit()
     finally:
         conn.close()
@@ -177,22 +264,27 @@ def set_statut_combinaison(conn, combinaison_id, statut, erreur=None):
 
 
 def upsert_resultat_crue(conn, combinaison_id, crue_date, statut, dqp=None, dtp=None,
-                          ve=None, kge=None, suspects=None, erreur=None):
-    """Crée ou remet à jour le résultat d'une crue pour une combinaison donnée."""
+                          ve=None, kge=None, suspects=None, erreur=None,
+                          instant_label=INSTANT_REFERENCE):
+    """Crée ou remet à jour le résultat d'une crue pour une combinaison donnée, à
+    l'instant de rejeu `instant_label` ('reference' par défaut = comportement
+    historique, un seul résultat par (combinaison, crue) ; voir modules.run_orchestrator
+    pour les instants supplémentaires positionnés par rapport au pic)."""
     crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
     suspects_str = ",".join(suspects) if suspects else None
     conn.execute(
         """
         INSERT INTO resultats_crues
-            (combinaison_id, crue_date, statut, dqp, dtp, ve, kge, suspects, erreur, date_maj)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(combinaison_id, crue_date) DO UPDATE SET
+            (combinaison_id, crue_date, instant_label, statut, dqp, dtp, ve, kge,
+             suspects, erreur, date_maj)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(combinaison_id, crue_date, instant_label) DO UPDATE SET
             statut = excluded.statut, dqp = excluded.dqp, dtp = excluded.dtp,
             ve = excluded.ve, kge = excluded.kge, suspects = excluded.suspects,
             erreur = excluded.erreur, date_maj = excluded.date_maj
         """,
-        (combinaison_id, crue_date_str, statut, dqp, dtp, ve, kge, suspects_str, erreur,
-         _horodatage()),
+        (combinaison_id, crue_date_str, instant_label, statut, dqp, dtp, ve, kge,
+         suspects_str, erreur, _horodatage()),
     )
 
 
@@ -205,13 +297,17 @@ def etat_combinaisons(conn):
     lancement) — sans ça, une "Relancer les échecs" affichait comme "pending" des
     combinaisons en réalité déjà réussies (et non retouchées par ce lancement), ce qui
     laissait croire à tort que la campagne entière recommençait de zéro."""
+    # Jointure filtrée sur instant_label='reference' : les instants supplémentaires
+    # (rejeu à plusieurs instants avant le pic) sont purement additifs et ne doivent
+    # jamais changer ce que la reprise sur échec / les badges considèrent comme
+    # "cette crue est faite" pour la campagne principale.
     lignes = conn.execute(
         """
         SELECT c.horizon, c.seuil_c1, c.methode, c.statut,
                SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok,
                SUM(CASE WHEN r.statut = 'failed' THEN 1 ELSE 0 END) AS crues_ko
         FROM combinaisons c
-        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id
+        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id AND r.instant_label = 'reference'
         GROUP BY c.id
         """
     ).fetchall()
@@ -359,8 +455,11 @@ def estimer_temps_restant(conn, combinaisons, crues_dates, duree_par_etape_data)
             crue_deja_ok = False
             if combinaison_id is not None:
                 crue_iso = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+                # instant_label='reference' : voir etat_combinaisons ci-dessus, même
+                # principe — les instants supplémentaires ne comptent jamais ici.
                 r = conn.execute(
-                    "SELECT statut FROM resultats_crues WHERE combinaison_id = ? AND crue_date = ?",
+                    "SELECT statut FROM resultats_crues "
+                    "WHERE combinaison_id = ? AND crue_date = ? AND instant_label = 'reference'",
                     (combinaison_id, crue_iso),
                 ).fetchone()
                 crue_deja_ok = r is not None and r["statut"] == "success"
@@ -381,7 +480,13 @@ def max_debit_simule(conn):
     utilisé par Dashboard > Détail par crue pour une échelle Y COMMUNE entre crues
     (voir ui/tab_dashboard.py) : agrégat SQL, plus rapide qu'une lecture Python de
     toutes les séries archivées. None si aucune série simulée n'est encore archivée."""
-    row = conn.execute("SELECT MAX(debit) AS m FROM series_archivees WHERE type = 'sim'").fetchone()
+    # instant_label='reference' : ignore les séries des instants supplémentaires (rejeu
+    # à plusieurs instants avant le pic), pour ne jamais changer l'échelle Y du
+    # graphique "Détail par crue" existant — ces instants ont leur propre visualisation
+    # dédiée (voir ui/tab_dashboard.py).
+    row = conn.execute(
+        "SELECT MAX(debit) AS m FROM series_archivees WHERE type = 'sim' AND instant_label = 'reference'"
+    ).fetchone()
     return row["m"] if row and row["m"] is not None else None
 
 
@@ -413,13 +518,15 @@ def resume_couverture(conn):
     fois). Si des codes d'horizon venaient à se recouper entre deux pas de temps
     différents, ce résumé les confondrait — situation qui ne s'est pas encore présentée
     (seul le pas de temps 15 min a des horizons renseignés à ce jour)."""
+    # instant_label='reference' : voir etat_combinaisons — même principe, les instants
+    # supplémentaires ne doivent pas gonfler ces compteurs de couverture.
     lignes = conn.execute(
         """
         SELECT c.horizon, c.seuil_c1, c.methode, c.statut,
                COUNT(r.id) AS nb_crues,
                SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok
         FROM combinaisons c
-        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id
+        LEFT JOIN resultats_crues r ON r.combinaison_id = c.id AND r.instant_label = 'reference'
         GROUP BY c.id
         """
     ).fetchall()
@@ -444,13 +551,14 @@ def list_combinaisons_completes(conn):
     entière. Affiché à l'utilisateur (onglet Campagne) pour qu'il sache ce qui est déjà
     fait avant de relancer une nouvelle campagne, potentiellement avec une sélection de
     crues différente."""
+    # instant_label='reference' : voir etat_combinaisons — même principe.
     return conn.execute(
         """
         SELECT c.horizon, c.seuil_c1, c.methode, c.date_maj,
                COUNT(r.id) AS nb_crues,
                SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END) AS crues_ok
         FROM combinaisons c
-        JOIN resultats_crues r ON r.combinaison_id = c.id
+        JOIN resultats_crues r ON r.combinaison_id = c.id AND r.instant_label = 'reference'
         WHERE c.statut = 'success'
         GROUP BY c.id
         HAVING COUNT(r.id) = SUM(CASE WHEN r.statut = 'success' THEN 1 ELSE 0 END)
@@ -484,11 +592,36 @@ def list_resultats(conn, combinaison_id=None, statut=None):
     ).fetchall()
 
 
+def list_instants_resultat(conn, combinaison_id, crue_date):
+    """Tous les résultats disponibles pour (combinaison, crue), un par instant de rejeu
+    testé — 'reference' (comportement historique) puis les instants supplémentaires
+    positionnés par rapport au pic (voir modules.run_orchestrator) — pour la
+    visualisation multi-instants de Dashboard > Détail par crue. 'reference' toujours
+    en premier, puis ordre alphabétique des autres labels (ex. H-12 avant H-24 avant
+    H-6 — sans importance pour l'affichage, qui les trie lui-même par décalage réel)."""
+    crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+    return conn.execute(
+        """
+        SELECT instant_label, statut, dqp, dtp, ve, kge, suspects, erreur, date_maj
+        FROM resultats_crues
+        WHERE combinaison_id = ? AND crue_date = ?
+        ORDER BY CASE WHEN instant_label = 'reference' THEN 0 ELSE 1 END, instant_label
+        """,
+        (combinaison_id, crue_date_str),
+    ).fetchall()
+
+
 def list_resultats_avec_combinaison(conn):
     """Jointure complète — une ligne par (combinaison, crue), utilisée par le dashboard
     (bloc 6) pour croiser horizon × seuil × méthode sans requêtes séparées.
     `combinaison_id` est inclus pour retrouver la série archivée correspondante
-    (voir archiver_serie/charger_serie)."""
+    (voir archiver_serie/charger_serie).
+
+    Filtrée sur instant_label='reference' : le score composite et tous les graphiques
+    du Dashboard ne doivent JAMAIS mélanger les instants supplémentaires (rejeu à
+    plusieurs instants avant le pic) avec le résultat de référence d'une campagne —
+    une même crue physique compterait sinon plusieurs fois avec des indicateurs
+    différents, faussant toutes les statistiques."""
     return conn.execute(
         """
         SELECT c.id AS combinaison_id, c.horizon, c.seuil_c1, c.methode,
@@ -496,51 +629,60 @@ def list_resultats_avec_combinaison(conn):
                r.crue_date, r.statut AS statut_crue, r.dqp, r.dtp, r.ve, r.kge, r.suspects
         FROM combinaisons c
         JOIN resultats_crues r ON r.combinaison_id = c.id
+        WHERE r.instant_label = 'reference'
         ORDER BY c.horizon, c.seuil_c1, c.methode, r.crue_date
         """
     ).fetchall()
 
 
-def archiver_serie(conn, combinaison_id, crue_date, type_serie, points):
+def archiver_serie(conn, combinaison_id, crue_date, type_serie, points,
+                    instant_label=INSTANT_REFERENCE):
     """Archive une série observée ('obs') ou simulée ('sim') — `points` : itérable de
     (datetime, debit, pluie), typiquement le retour de modules.grp_series.parser_*.
 
-    Remplace toute archive précédente pour ce (combinaison_id, crue_date, type) plutôt
-    que d'accumuler des doublons si la même crue est rejouée plusieurs fois (reprise sur
-    échec, nouvelle campagne testant à nouveau la même combinaison).
-    """
+    Remplace toute archive précédente pour ce (combinaison_id, crue_date, instant_label,
+    type) plutôt que d'accumuler des doublons si la même crue est rejouée plusieurs fois
+    (reprise sur échec, nouvelle campagne testant à nouveau la même combinaison).
+
+    `instant_label` ('reference' par défaut) : la série observée ('obs') est identique
+    quel que soit l'instant de rejeu (c'est la même chronique historique) — l'appelant
+    l'archive donc toujours sous 'reference' même en traitant un instant supplémentaire,
+    seule la série simulée ('sim') varie réellement d'un instant à l'autre (voir
+    modules.run_orchestrator)."""
     crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
     conn.execute(
-        "DELETE FROM series_archivees WHERE combinaison_id = ? AND crue_date = ? AND type = ?",
-        (combinaison_id, crue_date_str, type_serie),
+        "DELETE FROM series_archivees "
+        "WHERE combinaison_id = ? AND crue_date = ? AND instant_label = ? AND type = ?",
+        (combinaison_id, crue_date_str, instant_label, type_serie),
     )
     conn.executemany(
         """
-        INSERT INTO series_archivees (combinaison_id, crue_date, type, point_date, debit, pluie)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO series_archivees
+            (combinaison_id, crue_date, instant_label, type, point_date, debit, pluie)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (combinaison_id, crue_date_str, type_serie,
+            (combinaison_id, crue_date_str, instant_label, type_serie,
              date.isoformat() if hasattr(date, "isoformat") else date, debit, pluie)
             for date, debit, pluie in points
         ],
     )
 
 
-def charger_serie(conn, combinaison_id, crue_date, type_serie):
+def charger_serie(conn, combinaison_id, crue_date, type_serie, instant_label=INSTANT_REFERENCE):
     """Recharge une série archivée — retourne une liste de (datetime, debit, pluie)
     triée chronologiquement, vide si rien n'a été archivé pour ce (combinaison, crue,
-    type) (ex. rejeu antérieur à l'ajout de cette fonctionnalité, ou séries GRP absentes
-    au moment du run — voir modules.grp_series)."""
+    instant, type) (ex. rejeu antérieur à l'ajout de cette fonctionnalité, ou séries GRP
+    absentes au moment du run — voir modules.grp_series)."""
     from datetime import datetime as _datetime
 
     crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
     lignes = conn.execute(
         """
         SELECT point_date, debit, pluie FROM series_archivees
-        WHERE combinaison_id = ? AND crue_date = ? AND type = ?
+        WHERE combinaison_id = ? AND crue_date = ? AND instant_label = ? AND type = ?
         ORDER BY point_date
         """,
-        (combinaison_id, crue_date_str, type_serie),
+        (combinaison_id, crue_date_str, instant_label, type_serie),
     ).fetchall()
     return [(_datetime.fromisoformat(l["point_date"]), l["debit"], l["pluie"]) for l in lignes]

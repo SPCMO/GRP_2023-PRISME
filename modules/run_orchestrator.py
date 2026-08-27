@@ -19,9 +19,9 @@ import logging
 import os
 import traceback
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import product
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from modules import grp_series, results_store
 from modules.config_prevision import ConfigPrevisionError, set_prevision
@@ -42,9 +42,17 @@ class ProgressionEvent:
     seuil_c1: float
     methode: str
     crue_date: Optional[datetime]
-    etape: str      # "calage", "rejeu" ou "campagne" (événement global, ex. annulation)
+    # "calage"/"rejeu" : étapes de la campagne principale (comptées dans la barre de
+    # progression et les compteurs crues_ok/crues_ko — comportement historique
+    # inchangé). "rejeu_instant" : instant supplémentaire avant le pic (voir
+    # lancer_campagne), journalisé mais volontairement PAS compté dans ces compteurs —
+    # purement additif, ne doit jamais faire dévier la progression affichée de ce que
+    # results_store (filtré sur instant_label='reference') montrera après coup.
+    # "campagne" : événement global (ex. annulation).
+    etape: str
     statut: str      # "running" / "success" / "failed" / "annule"
     message: str = ""
+    instant_label: str = results_store.INSTANT_REFERENCE
 
 
 ProgressionCallback = Callable[[ProgressionEvent], None]
@@ -57,11 +65,22 @@ def generer_combinaisons(horizons: List[str], seuils: List[float], methodes: Lis
     return sorted(product(horizons, seuils, methodes))
 
 
-def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs):
+def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs,
+                             decalages_pic_heures=None):
     """Filtre la matrice complète si `seulement_echecs` : garde une combinaison si son
     calage n'a pas réussi, OU si au moins une des crues sélectionnées n'a pas encore
     réussi sous cette combinaison (le calage ne sera alors pas relancé — voir
-    `calage_deja_ok` dans lancer_campagne — seules les crues manquantes le seront)."""
+    `calage_deja_ok` dans lancer_campagne — seules les crues manquantes le seront), OU
+    s'il lui manque un instant de rejeu supplémentaire actuellement configuré (voir
+    `_crues_a_traiter`).
+
+    `decalages_pic_heures` DOIT être transmis ici, pas seulement à l'appel de
+    `_crues_a_traiter` fait plus loin dans `lancer_campagne` : sans lui, cette fonction
+    conclut à tort qu'une combinaison déjà entièrement réussie (référence) n'a rien à
+    faire, et l'exclut de `combinaisons_a_faire` AVANT même d'atteindre le second appel
+    — les instants supplémentaires ne seraient alors jamais rejoués (bug constaté en
+    conditions réelles : "Compléter la campagne" terminait instantanément sans qu'aucun
+    instant ne soit traité)."""
     if not seulement_echecs:
         return combinaisons
     a_traiter = []
@@ -73,7 +92,8 @@ def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs):
         if row is None or row["statut"] != "success":
             a_traiter.append((horizon, seuil_c1, methode))
             continue
-        if _crues_a_traiter(conn, row["id"], crues_dates, seulement_echecs=True):
+        if _crues_a_traiter(conn, row["id"], crues_dates, seulement_echecs=True,
+                             decalages_pic_heures=decalages_pic_heures):
             a_traiter.append((horizon, seuil_c1, methode))
     return a_traiter
 
@@ -107,17 +127,41 @@ def _calage_deja_charge(paths, horizon, seuil_c1, methode):
             and ligne.methode_active == methode)
 
 
-def _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs):
+def _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs,
+                      decalages_pic_heures=None):
+    """`decalages_pic_heures` (optionnel) : une crue dont le rejeu de référence a déjà
+    réussi est quand même reprise si un des instants supplémentaires actuellement
+    configurés (voir Paramétrage > "Instants de rejeu supplémentaires") lui manque
+    encore — permet d'ajouter des instants à une campagne déjà entièrement réussie
+    sans passer par une reprise sur échec classique (qui ne trouverait sinon rien à
+    refaire, puisque la référence de chaque crue est déjà un succès). Ne s'applique
+    qu'en mode reprise (`seulement_echecs=True`) : un lancement complet retraite de
+    toute façon tout, référence et instants supplémentaires inclus."""
     if not seulement_echecs:
         return crues_dates
+    labels_attendus = {f"H-{h:g}" for h in (decalages_pic_heures or [])}
     a_refaire = []
     for crue_date in crues_dates:
+        crue_iso = crue_date.isoformat()
+        # instant_label='reference' : sans ce filtre, une ligne d'instant supplémentaire
+        # pourrait être retournée par fetchone() à la place de la référence (même bug de
+        # principe que list_resultats_avec_combinaison, voir modules.results_store).
         row = conn.execute(
-            "SELECT statut FROM resultats_crues WHERE combinaison_id = ? AND crue_date = ?",
-            (combinaison_id, crue_date.isoformat()),
+            "SELECT statut FROM resultats_crues "
+            "WHERE combinaison_id = ? AND crue_date = ? AND instant_label = 'reference'",
+            (combinaison_id, crue_iso),
         ).fetchone()
         if row is None or row["statut"] != "success":
             a_refaire.append(crue_date)
+            continue
+        if labels_attendus:
+            labels_ok = {r["instant_label"] for r in conn.execute(
+                "SELECT instant_label FROM resultats_crues "
+                "WHERE combinaison_id = ? AND crue_date = ? AND statut = 'success'",
+                (combinaison_id, crue_iso),
+            ).fetchall()}
+            if not labels_attendus <= labels_ok:
+                a_refaire.append(crue_date)
     return a_refaire
 
 
@@ -127,7 +171,9 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                      db_path: Optional[str] = None,
                      callback: Optional[ProgressionCallback] = None,
                      seulement_echecs: bool = False,
-                     annulation=None):
+                     annulation=None,
+                     decalages_pic_heures: Optional[List[float]] = None,
+                     dates_qmax: Optional[Dict[datetime, datetime]] = None):
     """Lance la campagne complète. N'interrompt jamais la boucle sur une erreur
     individuelle : chaque combinaison/crue en échec est loguée et signalée, la campagne
     continue avec la suivante — c'est à l'utilisateur de décider, une fois la campagne
@@ -140,6 +186,21 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
     encore traitées restent au statut où elles étaient (pending, ou success si déjà
     faites lors d'un passage précédent) — une reprise ultérieure les reprendra
     normalement.
+
+    `decalages_pic_heures` (ex. [24, 12, 6]) : pour chaque crue dont le rejeu de
+    référence a réussi, rejoue EN PLUS à chaque instant (pic réel de la crue − N
+    heures) — sans reprendre le calage (même BDTR déjà calibrée, voir
+    _calage_deja_charge), pour visualiser comment le comportement du modèle évolue
+    selon qu'il démarre bien en amont du pic ou en pleine montée de crue (demande
+    explicite de l'utilisateur, 27/08/2026). `dates_qmax` associe chaque `crue_date`
+    (date de début, la clé habituelle) à l'horodatage réel de son pic (`DateQmax` de
+    CRITERES_PERF.DAT) — une crue absente de ce dict voit ses instants supplémentaires
+    ignorés (avec un avertissement logué), jamais une erreur bloquante. Ces rejeux
+    supplémentaires sont PUREMENT ADDITIFS : stockés sous un `instant_label` distinct
+    ('reference' reste inchangé), jamais comptés dans la reprise sur échec, les badges
+    de couverture ni le score composite (voir modules.results_store), et notifiés via
+    l'étape "rejeu_instant" plutôt que "rejeu" pour ne pas fausser la barre de
+    progression de la campagne principale.
     """
     results_store.init_db(db_path)
 
@@ -168,7 +229,7 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
 
     with results_store.db_session(db_path) as conn:
         combinaisons_a_faire = _combinaisons_a_traiter(conn, combinaisons, crues_dates,
-                                                        seulement_echecs)
+                                                        seulement_echecs, decalages_pic_heures)
 
     logger.info("=== Début de campagne : %s combinaison(s) à traiter sur %s au total, "
                 "%s crue(s), reprise_echecs=%s ===",
@@ -248,7 +309,69 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                 _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "calage", "success"))
 
         with results_store.db_session(db_path) as conn:
-            crues_a_faire = _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs)
+            crues_a_faire = _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs,
+                                              decalages_pic_heures)
+
+        def _rejeu_instant(crue_date, instant_label, instpr, etape_notif):
+            """Un rejeu unique à l'instant `instpr`, archivé sous `instant_label`.
+            Réutilisée pour l'instant de référence ET les instants supplémentaires
+            avant le pic — même pipeline (set_prevision -> .bat -> extraction PDF ->
+            persistance), seul l'instant et l'étiquette de stockage changent. Retourne
+            True/False (succès), jamais levée : chaque échec est capturé et notifié
+            individuellement, comme pour le reste de l'orchestrateur."""
+            _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, etape_notif,
+                                        "running", instant_label=instant_label))
+            try:
+                set_prevision(paths.config_prevision_ini, instpr=instpr)
+                chemin_pdf = run_prevision_bat(paths.grp_prevision_bat, paths.fiches_controle_dir)
+                resultat = extraire_resultat(chemin_pdf)
+            except (ConfigPrevisionError, GrpRunError, FicheControleError, FileNotFoundError) as e:
+                message = str(e)
+                logger.error("Crue %s (instant %s) sous %s/%s/%s — %s\n%s", crue_date,
+                             instant_label, horizon, seuil_c1, methode, message,
+                             traceback.format_exc())
+                with results_store.db_session(db_path) as conn:
+                    results_store.upsert_resultat_crue(
+                        conn, combinaison_id, crue_date, statut="failed", erreur=message,
+                        instant_label=instant_label)
+                _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, etape_notif,
+                                            "failed", message, instant_label=instant_label))
+                return False
+
+            with results_store.db_session(db_path) as conn:
+                results_store.upsert_resultat_crue(
+                    conn, combinaison_id, crue_date, statut="success",
+                    dqp=resultat.dqp, dtp=resultat.dtp, ve=resultat.ve, kge=resultat.kge,
+                    suspects=resultat.suspects, instant_label=instant_label,
+                )
+            message = "suspect (hors bornes plausibles)" if resultat.est_suspect else ""
+
+            # Archivage best-effort des séries observée/simulée pour le dashboard (bloc 6
+            # > Détail par crue) — <BDDTR>/Temps_Reel/Sorties/ n'expose que le DERNIER
+            # rejeu effectué, donc sans cet archivage immédiat la série serait perdue dès
+            # le rejeu suivant (crue ou instant). Un échec ici ne remet pas en cause le
+            # résultat dQP/dTP/VE/KGE déjà obtenu et persisté ci-dessus (source primaire
+            # des résultats) — le rejeu reste "success", juste sans courbe simulée
+            # disponible dans le dashboard. La série observée est toujours archivée sous
+            # instant_label='reference' (valeur par défaut d'archiver_serie) : c'est la
+            # même chronique historique quel que soit l'instant de rejeu, inutile de la
+            # dupliquer par instant.
+            try:
+                obs = grp_series.parser_observations(paths.sorties_dir)
+                sim = grp_series.parser_previsions(paths.sorties_dir)
+                with results_store.db_session(db_path) as conn:
+                    results_store.archiver_serie(conn, combinaison_id, crue_date, "obs", obs)
+                    results_store.archiver_serie(conn, combinaison_id, crue_date, "sim", sim,
+                                                  instant_label=instant_label)
+            except (FileNotFoundError, GrpSerieError) as e:
+                logger.warning("Archivage des séries impossible pour crue %s (instant %s) "
+                                "sous %s/%s/%s : %s", crue_date, instant_label, horizon,
+                                seuil_c1, methode, e)
+                message = (message + " — " if message else "") + f"série non archivée : {e}"
+
+            _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, etape_notif,
+                                        "success", message, instant_label=instant_label))
+            return True
 
         for crue_date in crues_a_faire:
             if _annule():
@@ -256,49 +379,56 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                                             "annule", "Campagne annulée par l'utilisateur."))
                 _nettoyer_bddtr_final()
                 return
-            _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu", "running"))
-            try:
-                set_prevision(paths.config_prevision_ini, instpr=crue_date)
-                chemin_pdf = run_prevision_bat(paths.grp_prevision_bat, paths.fiches_controle_dir)
-                resultat = extraire_resultat(chemin_pdf)
-            except (ConfigPrevisionError, GrpRunError, FicheControleError, FileNotFoundError) as e:
-                message = str(e)
-                logger.error("Crue %s sous %s/%s/%s — %s\n%s", crue_date, horizon, seuil_c1,
-                             methode, message, traceback.format_exc())
-                with results_store.db_session(db_path) as conn:
-                    results_store.upsert_resultat_crue(
-                        conn, combinaison_id, crue_date, statut="failed", erreur=message)
-                _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu",
-                                            "failed", message))
-                continue  # crue suivante — jamais d'arrêt complet de la combinaison
 
+            # La référence n'est reprise que si elle n'a pas déjà réussi — une crue peut
+            # figurer dans crues_a_faire uniquement parce qu'il lui manque un instant
+            # supplémentaire (voir _crues_a_traiter), auquel cas refaire la référence
+            # serait un travail inutile déjà acquis. Silencieux dans ce cas (aucun
+            # évènement "rejeu" émis) : même principe qu'une crue absente de
+            # crues_a_faire aujourd'hui, pour ne jamais compter deux fois le même
+            # succès dans les compteurs crues_ok de l'interface.
             with results_store.db_session(db_path) as conn:
-                results_store.upsert_resultat_crue(
-                    conn, combinaison_id, crue_date, statut="success",
-                    dqp=resultat.dqp, dtp=resultat.dtp, ve=resultat.ve, kge=resultat.kge,
-                    suspects=resultat.suspects,
-                )
-            message = "suspect (hors bornes plausibles)" if resultat.est_suspect else ""
+                ligne_reference = conn.execute(
+                    "SELECT statut FROM resultats_crues "
+                    "WHERE combinaison_id = ? AND crue_date = ? AND instant_label = ?",
+                    (combinaison_id, crue_date.isoformat(), results_store.INSTANT_REFERENCE),
+                ).fetchone()
+            reference_deja_ok = ligne_reference is not None and ligne_reference["statut"] == "success"
 
-            # Archivage best-effort des séries observée/simulée pour le dashboard (bloc 6
-            # > Détail par crue) — <BDDTR>/Temps_Reel/Sorties/ n'expose que le DERNIER
-            # rejeu effectué, donc sans cet archivage immédiat la série serait perdue dès
-            # la crue suivante. Un échec ici ne remet pas en cause le résultat dQP/dTP/VE/
-            # KGE déjà obtenu et persisté ci-dessus (source primaire des résultats) — la
-            # crue reste "success", juste sans courbe simulée disponible dans le dashboard.
-            try:
-                obs = grp_series.parser_observations(paths.sorties_dir)
-                sim = grp_series.parser_previsions(paths.sorties_dir)
+            if reference_deja_ok:
+                succes_reference = True
+            else:
+                succes_reference = _rejeu_instant(
+                    crue_date, results_store.INSTANT_REFERENCE, crue_date, "rejeu")
+
+            if succes_reference and decalages_pic_heures:
+                date_qmax = (dates_qmax or {}).get(crue_date)
+                if date_qmax is None:
+                    logger.warning(
+                        "Pic (DateQmax) inconnu pour la crue %s — instants supplémentaires "
+                        "avant le pic ignorés pour %s/%s/%s.",
+                        crue_date, horizon, seuil_c1, methode)
+                    continue
+
                 with results_store.db_session(db_path) as conn:
-                    results_store.archiver_serie(conn, combinaison_id, crue_date, "obs", obs)
-                    results_store.archiver_serie(conn, combinaison_id, crue_date, "sim", sim)
-            except (FileNotFoundError, GrpSerieError) as e:
-                logger.warning("Archivage des séries observée/simulée impossible pour crue %s "
-                                "sous %s/%s/%s : %s", crue_date, horizon, seuil_c1, methode, e)
-                message = (message + " — " if message else "") + f"série non archivée : {e}"
+                    labels_deja_ok = {r["instant_label"] for r in conn.execute(
+                        "SELECT instant_label FROM resultats_crues "
+                        "WHERE combinaison_id = ? AND crue_date = ? AND statut = 'success'",
+                        (combinaison_id, crue_date.isoformat()),
+                    ).fetchall()}
 
-            _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, "rejeu",
-                                        "success", message))
+                for decalage_h in decalages_pic_heures:
+                    if _annule():
+                        _notifier(ProgressionEvent(horizon, seuil_c1, methode, None,
+                                                    "campagne", "annule",
+                                                    "Campagne annulée par l'utilisateur."))
+                        _nettoyer_bddtr_final()
+                        return
+                    instant_label = f"H-{decalage_h:g}"
+                    if instant_label in labels_deja_ok:
+                        continue  # déjà réussi précédemment, jamais refait inutilement
+                    _rejeu_instant(crue_date, instant_label,
+                                    date_qmax - timedelta(hours=decalage_h), "rejeu_instant")
 
     logger.info("=== Fin de campagne : %s combinaison(s) traitée(s) ===", len(combinaisons_a_faire))
     _nettoyer_bddtr_final()

@@ -128,6 +128,7 @@ def build_tab_parametrage(tab_frame, app):
     parametrage.setdefault("horizons_selectionnes", {})
     parametrage.setdefault("seuils_calage", [])
     parametrage.setdefault("methodes_selectionnees", [])
+    parametrage.setdefault("decalages_pic_heures", [])
 
     tk.Label(frm, text=NOTE_STRATEGIE, wraplength=820, justify=tk.LEFT,
              fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
@@ -327,6 +328,52 @@ def build_tab_parametrage(tab_frame, app):
              text="Les deux cochées : la campagne lance les runs pour T puis pour R "
                   "successivement (GRP n'accepte qu'une seule méthode par run en mode BDTR).").pack(
         anchor="w", pady=(2, 0))
+
+    # ── Instants de rejeu supplémentaires (avant le pic) ─────────────────────────
+    inn4, bg4 = make_section(frm, "Instants de rejeu supplémentaires (avant le pic)", "teal")
+    tk.Label(inn4, bg=bg4, fg="#555555", font=("TkDefaultFont", 8), wraplength=760,
+             justify=tk.LEFT,
+             text="En plus du rejeu habituel (positionné par GRP à la date de début de la "
+                  "crue, ~2j avant le pic selon le champ NJ de LISTE_BASSINS.DAT), rejoue "
+                  "chaque crue à N heure(s) avant son pic RÉEL — sans reprendre le calage "
+                  "(même dossier BDTR déjà calibré, donc surcoût limité au rejeu lui-même, "
+                  "~20 s) — pour comparer le comportement du modèle selon qu'il démarre bien "
+                  "en amont ou en pleine montée de crue. Liste vide par défaut : comportement "
+                  "inchangé tant que rien n'est ajouté ici. Visible dans Dashboard > Détail "
+                  "par crue une fois la campagne relancée.").pack(anchor="w")
+
+    def _obtenir_decalages():
+        return parametrage["decalages_pic_heures"]
+
+    def _definir_decalages(nouvelle_liste):
+        parametrage["decalages_pic_heures"] = nouvelle_liste
+        app.persist_config()
+
+    def _saisir_decalage(valeur_initiale=None):
+        texte = simpledialog.askstring(
+            "Instant de rejeu avant le pic", "Nombre d'heures avant le pic (ex. 24) :",
+            initialvalue=f"{valeur_initiale:g}" if valeur_initiale is not None else "24",
+            parent=app,
+        )
+        if texte is None:
+            return None
+        try:
+            valeur = float(texte.strip().replace(",", "."))
+        except ValueError:
+            messagebox.showerror("Instant de rejeu avant le pic", f"Valeur non numérique : {texte!r}")
+            return None
+        if valeur <= 0:
+            messagebox.showerror("Instant de rejeu avant le pic",
+                                  "La valeur doit être strictement positive (heures avant le pic).")
+            return None
+        return valeur
+
+    liste_decalages = build_liste_reordonnable(
+        inn4, _obtenir_decalages, _definir_decalages,
+        formatter=lambda h: f"Pic − {h:g} h",
+        on_ajouter=_saisir_decalage, on_modifier=_saisir_decalage, hauteur=4, largeur=24,
+    )
+    liste_decalages.pack(anchor="w", pady=4)
 
     # ── Rafraîchissement combiné de la couverture (bouton en haut à droite) ───────
     def _rafraichir_couverture():
