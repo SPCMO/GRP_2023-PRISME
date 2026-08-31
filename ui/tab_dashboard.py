@@ -685,11 +685,24 @@ def _build_synthese(frame, app):
         total_crues = len(_lister_crues_pour_score(app))
         nb_crues_score = len(crues_incluses) if crues_incluses else total_crues
         station = app.config_data.get("station", {})
-        parametrage = app.config_data.get("parametrage", {})
-        seuils_calage = parametrage.get("seuils_calage", [])
-        methodes = parametrage.get("methodes_selectionnees", [])
+
+        # Seuils/méthodes RÉELLEMENT présents dans les résultats qui seront exportés
+        # (data/runs_<code_station>.sqlite3, tous instants='reference' confondus) —
+        # PAS la sélection actuelle de l'onglet Paramétrage (qui ne prépare qu'une
+        # PROCHAINE campagne et peut très bien avoir changé depuis, ex. une méthode
+        # décochée après coup) ni le filtre d'affichage Tangara/RNA de cette Vue
+        # synthèse (qui ne restreint que le graphique à l'écran, jamais l'export —
+        # voir les cases à cocher "Méthode(s) affichée(s)" ci-dessus). Sans ce
+        # correctif, la fenêtre de vérification pouvait annoncer "Tangara" seul alors
+        # que le classeur exporté contient en réalité les deux méthodes (constaté par
+        # l'utilisateur) — trompeur pour une fenêtre dont le rôle est justement de
+        # prévisualiser fidèlement ce qui va être écrit dans le fichier.
+        lignes_toutes, _erreur = _charger_resultats(app)
+        lignes_reussies = [l for l in lignes_toutes if l["statut_crue"] == "success"]
+        seuils_reels = sorted({l["seuil_c1"] for l in lignes_reussies})
+        methodes_reelles = sorted({l["methode"] for l in lignes_reussies})
         libelles_methodes = ", ".join(
-            "Tangara" if m == "T" else "RNA" if m == "R" else m for m in methodes) or "—"
+            "Tangara" if m == "T" else "RNA" if m == "R" else m for m in methodes_reelles) or "—"
 
         message = (
             f"Vérifiez les paramètres avant d'exporter :\n\n"
@@ -701,8 +714,9 @@ def _build_synthese(frame, app):
             f"avance : {asymetrie_dtp.get('avance')}\n"
             f"Crues incluses dans le score : {nb_crues_score}/{total_crues}"
             + (" (sélection restreinte)" if crues_incluses else " (toutes)") + "\n"
-            f"Seuils de calage testés : {', '.join(str(s) for s in seuils_calage) or '—'}\n"
-            f"Méthode(s) de correction : {libelles_methodes}\n\n"
+            f"Seuils de calage présents dans les résultats : "
+            f"{', '.join(f'{s:.2f}' for s in seuils_reels) or '—'}\n"
+            f"Méthode(s) présente(s) dans les résultats : {libelles_methodes}\n\n"
             f"OK pour continuer et choisir où enregistrer le fichier, "
             f"Annuler pour revenir corriger des valeurs sur l'outil."
         )
