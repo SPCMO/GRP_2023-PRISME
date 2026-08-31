@@ -1,23 +1,28 @@
 # -*- coding: utf-8 -*-
 """Export Excel des résultats de campagne — généré à la demande depuis results_store
 (pas pendant le run), en plus du dashboard interactif (décision validée avec
-l'utilisateur). 6 onglets, demandés explicitement pour retrouver hors de l'outil tout
+l'utilisateur). 7 onglets, demandés explicitement pour retrouver hors de l'outil tout
 ce qui est visible dans le Dashboard : Paramétrage (contexte de la campagne), Vue
 synthèse, Détail par crue, Sensibilité au seuil, Vue 3D, Variation selon le nb de crues
-— soit les 5 sous-onglets du Dashboard, un par un, plus le contexte de campagne.
+— soit les 5 sous-onglets du Dashboard, un par un, plus le contexte de campagne — et
+Analyse crues affl. (contribution des stations affluentes, indépendant de tout calage).
 
 Les graphiques matplotlib sont RE-rendus ici (backend Agg, non interactif) plutôt que
-réutilisés depuis ui/tab_dashboard.py : ce module (modules/) ne doit pas dépendre de
-ui/ (sens de dépendance imposé par l'architecture du projet — voir le plan). Quelques
-petites constantes (couleurs, conversion horizon->minutes) sont donc dupliquées
-volontairement plutôt que partagées entre les deux couches.
+réutilisés depuis ui/tab_dashboard.py ou ui/tab_analyse_affluents.py : ce module
+(modules/) ne doit pas dépendre de ui/ (sens de dépendance imposé par l'architecture du
+projet — voir le plan). Quelques petites constantes (couleurs, conversion
+horizon->minutes) et 2 fonctions de calcul pur (barycentre de la pluie, percentiles du
+temps de réponse) sont donc dupliquées volontairement plutôt que partagées entre les
+deux couches — même doctrine déjà appliquée aux autres onglets de ce module.
 """
 
 import os
 import re
+from datetime import timedelta
 from io import BytesIO
 
 import numpy as np
+from matplotlib import dates as mdates
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour projection="3d"
@@ -27,7 +32,7 @@ from openpyxl.formatting.rule import ColorScaleRule
 from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 
-from modules import results_store
+from modules import affluents, results_store
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import construire_grp_paths
 from modules.score import (
@@ -49,6 +54,14 @@ LIBELLES_SEUILS_Q = (
     ("zt_orange", "ZT Orange"), ("orange", "Orange"),
     ("zt_rouge", "ZT Rouge"), ("rouge", "Rouge"),
 )
+# Version couleur (3-uplet), nécessaire pour "Analyse crues affl." — les autres feuilles
+# n'ont besoin que du libellé (2-uplet ci-dessus), d'où les 2 constantes séparées.
+_LIBELLES_SEUILS_Q_COULEUR = (
+    ("zt_jaune", "ZT Jaune", "#9A7D0A"), ("jaune", "Jaune", "#9A7D0A"),
+    ("zt_orange", "ZT Orange", "#784212"), ("orange", "Orange", "#784212"),
+    ("zt_rouge", "ZT Rouge", "#641E16"), ("rouge", "Rouge", "#641E16"),
+)
+_COULEUR_LOCAL = "#BDC3C7"  # gris, écoulements locaux non expliqués par un affluent suivi
 
 ENTETES_DETAIL = ("Crue", "Date/heure crue", "Horizon", "Seuil C1", "Méthode", "Statut",
                    "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect")
@@ -63,6 +76,12 @@ ENTETES_CRUES = ("Crue", "Date/heure de début", "Qmax observé (m³/s)",
 ENTETES_VARIATION = ("N crues (les plus fortes, Qmax décroissant)", "Combinaison gagnante",
                       "Score normalisé (à ce N)", "KGE moyen (brut)", "Moyenne |dQP| (brut, %)",
                       "Moyenne |dTP| (brut, pdt)")
+ENTETES_AFFLUENTS_CONFIG = ("Nom", "Code station", "Surface BV (km²)",
+                             "Propagation P10", "Propagation P50", "Propagation P90",
+                             "Fichier de débits")
+ENTETES_BILAN_AFFLUENTS = ("Station", "Surface BV (km²)", "Volume transité (hm³)",
+                            "% du volume exutoire", "Q à Qmax exutoire (m³/s)",
+                            "% du Qmax exutoire")
 
 _MOTIF_HORIZON = re.compile(r"(\d{2})J(\d{2})H(\d{2})M")
 
@@ -744,9 +763,405 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
 
 
 # ══════════════════════════════════════════════════════════════════════════════════
+# Onglet 7 — Analyse crues affl. (contribution des stations affluentes, sans calage)
+# ══════════════════════════════════════════════════════════════════════════════════
+
+def _barycentre_pluie(serie, date_limite=None):
+    """Horodatage barycentrique de la pluie d'une série (date, pobs, qobs) — moyenne
+    des horodatages pondérée par la lame Pobs de chaque pas de temps, None si la série
+    ne contient aucune pluie. `date_limite` (typiquement le Qmax de l'exutoire) :
+    si fourni, seules les pluies à cette date ou avant sont prises en compte — une
+    pluie tombée APRÈS le pic n'a pas pu y contribuer. Copie de
+    ui.tab_analyse_affluents._barycentre_pluie (calcul pur, modules/ ne doit pas
+    dépendre de ui/ — voir l'en-tête de ce fichier)."""
+    points = [(d, p) for d, p, _q in serie
+              if p is not None and p > 0 and (date_limite is None or d <= date_limite)]
+    if not points:
+        return None
+    d0 = points[0][0]
+    poids_total = sum(p for _d, p in points)
+    if poids_total <= 0:
+        return None
+    t_bary_s = sum((d - d0).total_seconds() * p for d, p in points) / poids_total
+    return d0 + timedelta(seconds=t_bary_s)
+
+
+def _tr_percentiles(paths, code_pdt, dates_iso_selectionnees):
+    """P10/P50/P90 (minutes) du temps de réponse (Tr = Qmax exutoire − barycentre
+    pluie) sur les crues actuellement sélectionnées pour la campagne
+    (app.config_data["crues_selectionnees"]) — même périmètre que
+    ui.tab_analyse_affluents._tr_crues_selectionnees. None si moins de 2 mesures
+    exploitables (résultat trop instable pour être affiché)."""
+    if not dates_iso_selectionnees:
+        return None
+    try:
+        evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+    except (FileNotFoundError, CriteresPerfError):
+        return None
+    trs = []
+    for evt in evenements:
+        if evt.date_deb.isoformat() not in dates_iso_selectionnees:
+            continue
+        chemin = os.path.join(paths.evenements_dir(code_pdt),
+                               f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+        try:
+            serie = parse_evenement_serie(chemin)
+        except (FileNotFoundError, CriteresPerfError):
+            continue
+        _qmax, date_qmax = affluents.qmax_et_horodatage([(p[0], p[2]) for p in serie])
+        if date_qmax is None:
+            continue
+        date_bary = _barycentre_pluie(serie, date_limite=date_qmax)
+        if date_bary is None:
+            continue
+        trs.append((date_qmax - date_bary).total_seconds() / 60)
+    if len(trs) < 2:
+        return None
+    return tuple(np.percentile(trs, [10, 50, 90]))
+
+
+def _pas_de_temps_analyse_affluents(app):
+    """Résout le pas de temps à utiliser : le dernier sélectionné dans l'outil
+    (partagé entre Dashboard > Détail par crue, Crues et Analyse crues affl. — voir
+    ui.widgets_common.libelle_dernier_pdt, dont ce n'est ici qu'une lecture directe de
+    la clé de config qu'elle gère), ou le premier pas de temps configuré à défaut.
+    Cette feuille ne dépend d'AUCUN résultat de campagne (contrairement aux 6 autres
+    feuilles de ce module) : "Analyse crues affl." est indépendant de tout calage."""
+    pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+    if not pdt_list:
+        return None
+    dernier_code = app.config_data.get("parametrage", {}).get("dernier_pdt_selectionne")
+    if dernier_code and any(p["code"] == dernier_code for p in pdt_list):
+        return dernier_code
+    return pdt_list[0]["code"]
+
+
+def _lister_crues_debit(paths, code_pdt):
+    """Événements de type crue (TypEvt=Q) détectés pour ce pas de temps, triés par n°
+    d'événement croissant — même filtrage/tri que ui.tab_analyse_affluents (liste des
+    crues indépendante de tout résultat de campagne)."""
+    try:
+        evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+    except (FileNotFoundError, CriteresPerfError):
+        return []
+    return sorted((e for e in evenements if e.est_crue), key=lambda e: e.num_evt)
+
+
+def _figure_crue_affluents(evt, code_pdt, app, paths, liste_affl, tr_percentiles):
+    """Reproduit le graphique de ui.tab_analyse_affluents pour une crue donnée : Qobs
+    exutoire, débits affluents, hyétogramme, seuils de vigilance, bandes de propagation
+    par affluent, barycentre de la pluie + temps de réponse (Tr), et 2 camemberts
+    (contribution au pic exutoire, surface de BV suivie).
+
+    Simplification volontaire par rapport à la version interactive : les cases à
+    cocher (seuils/bandes de propagation/camemberts) n'ont pas d'équivalent dans un
+    export statique — tout est toujours affiché. Pas de survol à la souris ni de
+    panneau de vignettes latéral (repris dans le tableau "Volumes transités" qui suit
+    la figure dans la feuille).
+
+    Retourne (figure, lignes_bilan) — lignes_bilan = liste de (nom, surface_km2,
+    volume_m3, pct_volume, q_a_qmax_exutoire, pct_qmax), une ligne par station
+    (exutoire en premier), pour alimenter le tableau de données sans recalculer deux
+    fois les mêmes séries."""
+    nom_exutoire = (app.config_data.get("station", {}).get("nom_station") or "").strip() \
+        or "Station exutoire"
+    label_exutoire = f"Q observé — {nom_exutoire} (exutoire)"
+    surface_exutoire = app.config_data.get("station", {}).get("surface_bv_km2")
+
+    fig = Figure(figsize=(13, 4.6), dpi=100)
+    gs = fig.add_gridspec(1, 3, width_ratios=(3.3, 1, 1), wspace=0.5)
+    ax = fig.add_subplot(gs[0, 0])
+    ax_pluie = ax.twinx()
+    ax_pluie.set_zorder(ax.get_zorder() - 1)
+    ax.patch.set_visible(False)
+    ax_pic = fig.add_subplot(gs[0, 1])
+    ax_surface = fig.add_subplot(gs[0, 2])
+
+    chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                 f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+    try:
+        serie_exutoire = parse_evenement_serie(chemin_serie)
+    except (FileNotFoundError, CriteresPerfError):
+        serie_exutoire = []
+
+    lignes_bilan = []
+    qmax_exutoire = volume_exutoire = date_qmax_exutoire = None
+    y_max_visible = None
+
+    if serie_exutoire:
+        points_exutoire = [(p[0], p[2]) for p in serie_exutoire]
+        ax.plot([d for d, _v in points_exutoire], [v for _d, v in points_exutoire],
+                color=_COULEUR_OBS, lw=1.8, label=label_exutoire)
+        qmax_exutoire, date_qmax_exutoire = affluents.qmax_et_horodatage(points_exutoire)
+        volume_exutoire = affluents.volume_m3(points_exutoire)
+        if qmax_exutoire is not None:
+            ax.plot([date_qmax_exutoire], [qmax_exutoire], marker="o", markersize=6,
+                    color=_COULEUR_OBS, markeredgecolor="white", markeredgewidth=0.7, zorder=10)
+            # Contribue à 100 % de son propre débit — référence des % de contribution
+            # des affluents ci-dessous (même colonne, même instant de référence).
+            lignes_bilan.append((f"{nom_exutoire} (exutoire)", surface_exutoire,
+                                  volume_exutoire, None, qmax_exutoire, 100.0))
+            if qmax_exutoire > 0:
+                y_max_visible = qmax_exutoire * 1.15
+                ax.set_ylim(0, y_max_visible)
+
+        if len(serie_exutoire) >= 2:
+            intervalle_minutes = (serie_exutoire[1][0] - serie_exutoire[0][0]).total_seconds() / 60
+            if intervalle_minutes > 0:
+                dates_pluie = [p[0] for p in serie_exutoire]
+                profondeurs = [p[1] for p in serie_exutoire]
+                largeur_jours = (intervalle_minutes / (24 * 60)) * 0.8
+                ax_pluie.bar(dates_pluie, profondeurs, width=largeur_jours, color="#5DADE2",
+                             edgecolor="#2E86AB", linewidth=0.3, alpha=0.75, zorder=1,
+                             label="Pluie de bassin (exutoire)")
+                plafond = max(max(profondeurs, default=0) * 4, 1)
+                ax_pluie.set_ylim(plafond, 0)
+                ax_pluie.yaxis.set_label_position("right")
+                ax_pluie.set_ylabel("Pluie (mm / pas de temps)", fontsize=7, color="#2E86AB",
+                                     labelpad=12)
+                ax_pluie.tick_params(axis="y", labelsize=6.5, colors="#2E86AB")
+
+    contributions_pie = []
+    surfaces_pie = []
+    for i, a in enumerate(liste_affl):
+        if not a.fichier:
+            continue
+        try:
+            serie_a, _nb_ignorees = affluents.charger_serie_affluent(
+                a.fichier, evt.date_deb, evt.date_fin)
+        except (FileNotFoundError, ValueError):
+            continue
+        if not serie_a:
+            continue
+        couleur = a.couleur or _PALETTE_COURBES[i % len(_PALETTE_COURBES)]
+        ax.plot([d for d, _v in serie_a], [v for _d, v in serie_a],
+                color=couleur, lw=1.3, ls="--", label=a.nom)
+        qmax_a, date_qmax_a = affluents.qmax_et_horodatage(serie_a)
+        volume_a = affluents.volume_m3(serie_a)
+        if qmax_a is not None:
+            ax.plot([date_qmax_a], [qmax_a], marker="o", markersize=6, color=couleur,
+                    markeredgecolor="white", markeredgewidth=0.7, zorder=10)
+        pct_volume = (volume_a / volume_exutoire * 100
+                      if volume_a is not None and volume_exutoire else None)
+
+        # Q rétropropagé : PAS le Qmax propre de l'affluent, mais son débit au moment
+        # où l'eau qu'il fournissait atteignait (en théorie) le pic de l'exutoire —
+        # càd à (horodatage du Qmax exutoire − P50 de CET affluent).
+        q_retropropage = None
+        if date_qmax_exutoire is not None and a.p50_min is not None:
+            date_lookup = date_qmax_exutoire - timedelta(minutes=a.p50_min)
+            q_retropropage, _d = affluents.valeur_au_plus_proche(serie_a, date_lookup)
+        pct_qmax = (q_retropropage / qmax_exutoire * 100
+                    if q_retropropage is not None and qmax_exutoire else None)
+        lignes_bilan.append((a.nom, a.surface_bv_km2, volume_a, pct_volume, q_retropropage, pct_qmax))
+        if pct_qmax is not None and pct_qmax > 0:
+            contributions_pie.append((a.nom, couleur, pct_qmax))
+        if a.surface_bv_km2:
+            surfaces_pie.append((a.nom, couleur, a.surface_bv_km2))
+
+        # Bande de propagation P10-P90 (+ trait P50) à partir du pic de CET affluent,
+        # propagé sur l'axe temporel de l'exutoire — sens INVERSE de la
+        # rétropropagation ci-dessus (ici : pic affluent -> pic exutoire).
+        date_p10, date_p50, date_p90 = affluents.bornes_bande_propagation(date_qmax_a, a)
+        if date_p10 is not None and date_p90 is not None:
+            ax.axvspan(date_p10, date_p90, color=couleur, alpha=0.12, zorder=0)
+        if date_p50 is not None:
+            ax.axvline(date_p50, color=couleur, lw=2.0, alpha=0.7, zorder=2)
+
+    seuils = app.config_data.get("seuils_q", {})
+    for cle, libelle, couleur in _LIBELLES_SEUILS_Q_COULEUR:
+        val = seuils.get(cle)
+        if val is None or (y_max_visible is not None and val > y_max_visible):
+            continue
+        est_zt = cle.startswith("zt_")
+        ax.axhline(val, color=couleur, lw=1.0 if est_zt else 1.3,
+                   ls=":" if est_zt else "-", alpha=0.85)
+        ax.text(0.002, val, f" {libelle} {val:.0f} m³/s", va="bottom", fontsize=6,
+                color=couleur, transform=ax.get_yaxis_transform())
+
+    # Pas de titre sur le graphique lui-même : l'identification de la crue est déjà la
+    # cellule Excel juste au-dessus de l'image (voir _feuille_analyse_affluents) — un
+    # titre ferait doublon et se chevauche avec l'annotation du barycentre de la pluie,
+    # posée elle aussi sur le bord haut du graphique (voir plus bas).
+    ax.set_ylabel("Débit (m³/s)", fontsize=8)
+    ax.grid(True, alpha=0.3)
+    ax.tick_params(axis="both", labelsize=7)
+    lignes_ax, labels_ax = ax.get_legend_handles_labels()
+    lignes_pluie, labels_pluie = ax_pluie.get_legend_handles_labels()
+    ax.legend(lignes_ax + lignes_pluie, labels_ax + labels_pluie, loc="upper right", fontsize=6)
+
+    # Barycentre de la pluie (marqueur sur le bord haut) + Tr, et bande statistique du
+    # Tr calculée sur les crues sélectionnées pour la campagne (voir _tr_percentiles).
+    if serie_exutoire:
+        date_bary = _barycentre_pluie(serie_exutoire, date_limite=date_qmax_exutoire)
+        if date_bary is not None:
+            ax.plot([date_bary], [1], marker="o", markersize=6, color="#0B1F4B",
+                    markeredgecolor="white", markeredgewidth=0.6, zorder=15, clip_on=False,
+                    transform=ax.get_xaxis_transform())
+            texte_tr = ""
+            if date_qmax_exutoire is not None:
+                minutes_tr = round((date_qmax_exutoire - date_bary).total_seconds() / 60)
+                signe = "-" if minutes_tr < 0 else ""
+                h_tr, m_tr = divmod(abs(minutes_tr), 60)
+                texte_tr = f" — Tr={signe}{h_tr}h{m_tr:02d}"
+            ax.annotate(
+                f"Barycentre pluie {date_bary:%d/%m %H:%M}{texte_tr}",
+                xy=(mdates.date2num(date_bary), 1), xycoords=ax.get_xaxis_transform(),
+                xytext=(0, 6), textcoords="offset points", ha="center", va="bottom",
+                fontsize=6, color="#0B1F4B", clip_on=False)
+            if tr_percentiles is not None:
+                p10_tr, p50_tr, p90_tr = tr_percentiles
+                date_p10_tr = date_bary + timedelta(minutes=p10_tr)
+                date_p50_tr = date_bary + timedelta(minutes=p50_tr)
+                date_p90_tr = date_bary + timedelta(minutes=p90_tr)
+                ax.axvspan(date_p10_tr, date_p90_tr, color="#2E86AB", alpha=0.10, zorder=0)
+                ax.axvline(date_p50_tr, color="#2E86AB", lw=1.0, alpha=0.8, zorder=2)
+
+    # -- Camembert 1 : contribution au pic exutoire (% de Q rétropropagé) ------------
+    if contributions_pie:
+        total_pct = sum(p for _n, _c, p in contributions_pie)
+        if total_pct > 100:
+            facteur = 100 / total_pct
+            parts = [(n, c, p * facteur) for n, c, p in contributions_pie]
+        else:
+            parts = list(contributions_pie)
+            reste = 100 - total_pct
+            if reste > 0.5:
+                parts.append(("Écoulements locaux", _COULEUR_LOCAL, reste))
+        ax_pic.pie([p for _n, _c, p in parts], colors=[c for _n, c, _p in parts],
+                   autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
+                   textprops={"fontsize": 6}, wedgeprops={"edgecolor": "white", "linewidth": 0.6})
+        couleur_pct = "#C0392B" if total_pct > 100 else "black"
+        poids_pct = "bold" if total_pct > 100 else "normal"
+        ax_pic.set_title(f"Contribution au pic exutoire\n{total_pct:.0f} %", fontsize=6.5,
+                         color=couleur_pct, fontweight=poids_pct)
+    else:
+        ax_pic.axis("off")
+        ax_pic.text(0.5, 0.5, "Aucune contribution\ncalculable", ha="center", va="center",
+                    fontsize=6.5, color="#888888", transform=ax_pic.transAxes)
+        ax_pic.set_title("Contribution au pic exutoire", fontsize=6.5)
+
+    # -- Camembert 2 : surface de BV suivie -------------------------------------------
+    if surface_exutoire and surface_exutoire > 0:
+        pct_titre = sum(s for _n, _c, s in surfaces_pie) / surface_exutoire * 100
+        total_suivi = sum(s for _n, _c, s in surfaces_pie)
+        parts = list(surfaces_pie)
+        if total_suivi > surface_exutoire:
+            facteur = surface_exutoire / total_suivi
+            parts = [(n, c, s * facteur) for n, c, s in parts]
+            total_suivi = surface_exutoire
+        reste = surface_exutoire - total_suivi
+        if reste > 0.5:
+            parts.append(("Écoulements locaux", _COULEUR_LOCAL, reste))
+        if parts:
+            ax_surface.pie([s for _n, _c, s in parts], colors=[c for _n, c, _s in parts],
+                           autopct=lambda v: f"{v:.0f}%" if v >= 5 else "",
+                           textprops={"fontsize": 6}, wedgeprops={"edgecolor": "white", "linewidth": 0.6})
+        else:
+            ax_surface.axis("off")
+        ax_surface.set_title(f"Surface de BV suivie\n{pct_titre:.0f} %", fontsize=6.5)
+    else:
+        ax_surface.axis("off")
+        ax_surface.text(0.5, 0.5, "Surface exutoire\ninconnue", ha="center", va="center",
+                        fontsize=6.5, color="#888888", transform=ax_surface.transAxes)
+        ax_surface.set_title("Surface de BV suivie", fontsize=6.5)
+
+    fig.autofmt_xdate()
+    return fig, lignes_bilan
+
+
+def _feuille_analyse_affluents(ws, app, paths):
+    """Reproduit ui.tab_analyse_affluents : contribution des stations affluentes à
+    l'hydrogramme observé à l'exutoire — INDÉPENDANT de tout calage GRP (contrairement
+    aux 6 autres feuilles de ce classeur, pas de résultat de campagne ici). Tableau de
+    configuration des affluents, puis pour chaque crue détectée (TypEvt=Q) : un
+    tableau de bilan (volumes/contributions) suivi de sa vignette graphique."""
+    ws.append(("Analyse crues affluentes — contribution des stations affluentes à "
+               "l'hydrogramme observé à l'exutoire",))
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
+    ws.append(("Indépendant de tout calage GRP : ne compare que des débits OBSERVÉS "
+               "(exutoire et affluents), contrairement aux autres feuilles de ce classeur "
+               "qui évaluent une campagne de calage. Reproduction statique de l'onglet "
+               "\"Analyse crues affl.\" — seuils de vigilance, bandes de propagation et "
+               "camemberts toujours affichés (les cases à cocher de la version interactive "
+               "n'ont pas d'équivalent ici).",))
+    ws.append(())
+
+    config_affl = app.config_data.get("affluents") or affluents.config_affluents_par_defaut()
+    liste_affl = [affluents.affluent_depuis_dict(d) for d in config_affl.get("liste", [])]
+    if not liste_affl:
+        ws.append(("Aucune station affluente configurée (onglet Analyse crues affl. > "
+                   "Stations affluentes et temps de propagation).",))
+        return
+
+    ws.append(("Stations affluentes configurées",))
+    ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=11)
+    _entete(ws, ENTETES_AFFLUENTS_CONFIG, [24, 16, 16, 14, 14, 14, 50])
+    for a in liste_affl:
+        ws.append((
+            a.nom, a.code_station or "—",
+            round(a.surface_bv_km2, 1) if a.surface_bv_km2 is not None else "—",
+            affluents.minutes_vers_hhmm(a.p10_min) or "—",
+            affluents.minutes_vers_hhmm(a.p50_min) or "—",
+            affluents.minutes_vers_hhmm(a.p90_min) or "—",
+            a.fichier or "—",
+        ))
+    ws.append(())
+
+    code_pdt = _pas_de_temps_analyse_affluents(app)
+    if not code_pdt or paths is None:
+        ws.append(("Pas de temps ou dossiers de travail non configurés — impossible de "
+                   "lister les crues.",))
+        return
+    crues = _lister_crues_debit(paths, code_pdt)
+    if not crues:
+        ws.append((f"Aucune crue détectée pour le pas de temps utilisé ({code_pdt}).",))
+        return
+
+    dates_iso_selectionnees = set(app.config_data.get("crues_selectionnees", []))
+    tr_percentiles = _tr_percentiles(paths, code_pdt, dates_iso_selectionnees)
+
+    ligne_libre = ws.max_row + 2
+    for evt in crues:
+        ws.cell(row=ligne_libre, column=1,
+                value=f"Crue #{evt.num_evt} — {evt.date_deb:%d/%m/%Y %H:%M} "
+                      f"(Qmax {evt.qmax:.1f} m³/s le {evt.date_qmax:%d/%m %H:%M})"
+                ).font = Font(bold=True, size=11)
+        ligne_libre += 1
+
+        fig, lignes_bilan = _figure_crue_affluents(evt, code_pdt, app, paths, liste_affl,
+                                                     tr_percentiles)
+
+        for j, libelle in enumerate(ENTETES_BILAN_AFFLUENTS, start=1):
+            ws.cell(row=ligne_libre, column=j, value=libelle).font = Font(bold=True)
+        ligne_libre += 1
+        for nom, surface, volume, pct_volume, q_ref, pct_qmax in lignes_bilan:
+            ws.cell(row=ligne_libre, column=1, value=nom)
+            ws.cell(row=ligne_libre, column=2,
+                    value=round(surface, 1) if surface is not None else "—")
+            ws.cell(row=ligne_libre, column=3,
+                    value=round(volume / 1e6, 3) if volume is not None else "—")
+            ws.cell(row=ligne_libre, column=4,
+                    value=round(pct_volume, 1) if pct_volume is not None else "—")
+            ws.cell(row=ligne_libre, column=5,
+                    value=round(q_ref, 1) if q_ref is not None else "—")
+            ws.cell(row=ligne_libre, column=6,
+                    value=round(pct_qmax, 1) if pct_qmax is not None else "—")
+            ligne_libre += 1
+
+        ligne_libre += 1
+        img = _fig_to_image(fig)
+        ws.add_image(img, f"A{ligne_libre}")
+        ligne_libre += 24  # hauteur approx. de l'image + marge (même heuristique que
+                            # _feuille_detail_par_crue, non mesurée précisément)
+
+    _ajuster_largeurs(ws, [26, 18, 20, 18, 22, 18])
+
+
+# ══════════════════════════════════════════════════════════════════════════════════
 
 def exporter(chemin_xlsx, app, db_path=None):
-    """Génère un classeur à 6 feuilles depuis les résultats actuellement en base et la
+    """Génère un classeur à 7 feuilles depuis les résultats actuellement en base et la
     configuration actuelle de l'outil (station, seuils, pondération). Lève une
     exception explicite si aucun résultat n'existe encore."""
     with results_store.db_session(db_path) as conn:
@@ -799,6 +1214,8 @@ def exporter(chemin_xlsx, app, db_path=None):
         points_variation = _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp)
         _feuille_variation_crues(wb.create_sheet("Variation selon le nb de crues"),
                                    points_variation, len(infos_crues), libelle_profil)
+
+        _feuille_analyse_affluents(wb.create_sheet("Analyse crues affl."), app, paths)
 
         os.makedirs(os.path.dirname(chemin_xlsx) or ".", exist_ok=True)
         wb.save(chemin_xlsx)
