@@ -66,16 +66,16 @@ _COULEUR_LOCAL = "#BDC3C7"  # gris, écoulements locaux non expliqués par un af
 ENTETES_DETAIL = ("Crue", "Date/heure crue", "Horizon", "Seuil C1", "Méthode", "Statut",
                    "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect", "Note")
 ENTETES_SYNTHESE = ("Horizon", "Seuil C1", "Méthode", "Score composite", "Nb crues",
-                     "Moyenne |dQP| (%)", "Moyenne |dTP|", "Moyenne |VE| (%)", "Moyenne (1-KGE)")
+                     "Médiane |dQP| (%)", "Médiane |dTP|", "Médiane |VE| (%)", "Médiane (1-KGE)")
 ENTETES_SENSIBILITE = ("Horizon", "Seuil C1", "Méthode", "Score composite")
 ENTETES_VUE3D = ("Horizon", "Seuil C1", "Méthode", "Score composite",
-                  "Écart au meilleur (Δ)", "Moyenne |dQP| (%)", "Moyenne |dTP|",
-                  "Moyenne |VE| (%)", "Moyenne (1-KGE)")
+                  "Écart au meilleur (Δ)", "Médiane |dQP| (%)", "Médiane |dTP|",
+                  "Médiane |VE| (%)", "Médiane (1-KGE)")
 ENTETES_CRUES = ("Crue", "Date/heure de début", "Qmax observé (m³/s)",
                   "Cumul de pluie de l'épisode (mm)")
 ENTETES_VARIATION = ("N crues (les plus fortes, Qmax décroissant)", "Combinaison gagnante",
-                      "Score normalisé (à ce N)", "KGE moyen (brut)", "Moyenne |dQP| (brut, %)",
-                      "Moyenne |dTP| (brut, pdt)")
+                      "Score normalisé (à ce N)", "KGE médian (brut)", "Médiane |dQP| (brut, %)",
+                      "Médiane |dTP| (brut, pdt)")
 ENTETES_AFFLUENTS_CONFIG = ("Nom", "Code station", "Surface BV (km²)",
                              "Propagation P10", "Propagation P50", "Propagation P90",
                              "Fichier de débits")
@@ -313,10 +313,10 @@ def _feuille_vue_synthese(ws, lignes_ok, scores_valides, meilleur):
     for s in scores_valides:
         ws.append((
             s.horizon, s.seuil_c1, s.methode, round(s.score, 4), s.nb_crues,
-            round(s.moyennes_erreur.get("dqp"), 2) if s.moyennes_erreur.get("dqp") is not None else None,
-            round(s.moyennes_erreur.get("dtp"), 2) if s.moyennes_erreur.get("dtp") is not None else None,
-            round(s.moyennes_erreur.get("ve"), 2) if s.moyennes_erreur.get("ve") is not None else None,
-            round(s.moyennes_erreur.get("kge"), 4) if s.moyennes_erreur.get("kge") is not None else None,
+            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
+            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
+            round(s.medianes_erreur.get("ve"), 2) if s.medianes_erreur.get("ve") is not None else None,
+            round(s.medianes_erreur.get("kge"), 4) if s.medianes_erreur.get("kge") is not None else None,
         ))
 
     ligne_libre = ws.max_row + 2
@@ -593,10 +593,10 @@ def _feuille_vue_3d(ws, scores_valides, meilleur):
         ws.append((
             s.horizon, s.seuil_c1, s.methode, round(s.score, 4),
             round(delta, 4) if delta is not None else None,
-            round(s.moyennes_erreur.get("dqp"), 2) if s.moyennes_erreur.get("dqp") is not None else None,
-            round(s.moyennes_erreur.get("dtp"), 2) if s.moyennes_erreur.get("dtp") is not None else None,
-            round(s.moyennes_erreur.get("ve"), 2) if s.moyennes_erreur.get("ve") is not None else None,
-            round(s.moyennes_erreur.get("kge"), 4) if s.moyennes_erreur.get("kge") is not None else None,
+            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
+            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
+            round(s.medianes_erreur.get("ve"), 2) if s.medianes_erreur.get("ve") is not None else None,
+            round(s.medianes_erreur.get("kge"), 4) if s.medianes_erreur.get("kge") is not None else None,
         ))
 
     if not scores_valides or meilleur is None:
@@ -694,18 +694,18 @@ def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp):
 
 def _figure_variation_crues(points):
     """Reproduit le graphique de l'onglet Dashboard "Variation selon le nb de crues" :
-    KGE moyen (brut, non normalisé) de la combinaison gagnante à chaque N, fond
+    KGE médian (brut, non normalisé) de la combinaison gagnante à chaque N, fond
     dégradé rouge/vert, lignes verticales + étiquettes aux bascules de combinaison
     gagnante. Pas d'icône ni de sélection interactive ici (statique, pour un export)."""
     ns = [n for n, _s in points]
-    kges = [s.moyennes_erreur.get("kge") for _n, s in points]
+    kges = [s.medianes_erreur.get("kge") for _n, s in points]
     libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
 
     fig = Figure(figsize=(11, 4.6), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
     ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3)
     ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
-    ax.set_ylabel("KGE moyen — combinaison gagnante (brut, non normalisé)")
+    ax.set_ylabel("KGE médian — combinaison gagnante (brut, non normalisé)")
     ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
     ax.grid(True, alpha=0.3)
 
@@ -740,7 +740,7 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
                 "reste stable.",))
     ws.append(("⚠ Le score normalisé n'est PAS comparable d'un N à l'autre (min-max recalé "
                 "sur le sous-ensemble de chaque N) — utile seulement pour désigner le gagnant "
-                "à ce N précis. Le KGE moyen (brut), lui, est directement comparable d'un N à "
+                "à ce N précis. Le KGE médian (brut), lui, est directement comparable d'un N à "
                 "l'autre : privilégiez les zones stables (peu de variation) plutôt qu'un pic "
                 "isolé, souvent obtenu à petit N et statistiquement fragile.",))
     ws.append(())
@@ -756,9 +756,9 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
     for n, s in points:
         ws.append((
             n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}", round(s.score, 4),
-            round(s.moyennes_erreur.get("kge"), 3) if s.moyennes_erreur.get("kge") is not None else None,
-            round(s.moyennes_erreur.get("dqp"), 2) if s.moyennes_erreur.get("dqp") is not None else None,
-            round(s.moyennes_erreur.get("dtp"), 2) if s.moyennes_erreur.get("dtp") is not None else None,
+            round(s.medianes_erreur.get("kge"), 3) if s.medianes_erreur.get("kge") is not None else None,
+            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
+            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
         ))
     _ajuster_largeurs(ws, [30, 26, 22, 18, 22, 22])
 

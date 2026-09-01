@@ -6,7 +6,7 @@ remplace l'unique graphique Excel du script d'origine par 3 vues complémentaire
      meilleures combinaisons, dispersion de |dQP| par horizon.
   2. Détail par crue : courbe Qobs (+ Qsimulé si disponible) avec seuils de vigilance
      PHyC superposés, indicateurs dQP/dTP/VE/KGE de la combinaison choisie.
-  3. Sensibilité au seuil de calage : score/KGE moyen en fonction de SeuilC1, à horizon
+  3. Sensibilité au seuil de calage : score/KGE médian en fonction de SeuilC1, à horizon
      et méthode fixés.
 """
 
@@ -1950,11 +1950,11 @@ def _build_vue3d(frame, app):
                          "Score composite", texte_colorbar)
 
         # Meilleure combinaison mise en évidence (score le plus bas = le plus vert). Le
-        # détail (paramètres + les 4 indicateurs moyens qui composent son score) est
+        # détail (paramètres + les 4 indicateurs médians qui composent son score) est
         # inclus directement dans le libellé de légende de cette étoile — matplotlib
         # affiche un label multi-lignes comme une seule entrée de légende.
         meilleur = min(scores, key=lambda s: s.score)
-        m = meilleur.moyennes_erreur
+        m = meilleur.medianes_erreur
         libelle_meilleure = (
             "Meilleure combinaison\n"
             f"Horizon {meilleur.horizon} / seuil {meilleur.seuil_c1:.2f} / méthode {meilleur.methode}\n"
@@ -2101,7 +2101,7 @@ _TEXTE_EXPLICATION_KGE = (
     "  1. Chaque point est le gagnant du SCORE COMPOSITE à ce N, pas forcément celui "
     "du meilleur KGE — la combinaison affichée peut changer d'un N à l'autre (voir "
     "les étiquettes verticales), ce n'est pas le suivi d'un seul modèle fixe.\n\n"
-    "  2. Une moyenne sur peu de crues (petit N) est statistiquement fragile — une "
+    "  2. Une médiane sur peu de crues (petit N) est statistiquement fragile — une "
     "seule crue facile ou difficile en plus ou en moins peut faire bondir la valeur. "
     "Un pic à N=10-12 tombe souvent bien sur CE sous-ensemble précis, sans être un "
     "optimum généralisable.\n\n"
@@ -2151,7 +2151,7 @@ def _build_variation_crues(frame, app):
              justify=tk.LEFT,
              text="⚠ Un pic isolé (souvent à petit N) n'est pas forcément le meilleur "
                   "choix : la combinaison gagnante peut changer d'un N à l'autre, et une "
-                  "moyenne sur peu de crues est statistiquement fragile. Préférez les "
+                  "médiane sur peu de crues est statistiquement fragile. Préférez les "
                   "zones stables (peu de variation) — voir l'icône i à côté de l'axe KGE.").pack(
         anchor="w", padx=10, pady=(0, 4))
 
@@ -2173,8 +2173,8 @@ def _build_variation_crues(frame, app):
     for col, libelle, largeur in (
         ("n", "N crues", 70), ("combinaison", "Combinaison gagnante", 220),
         ("score", "Score normalisé (à ce N)", 170),
-        ("kge", "KGE moyen (brut)", 130), ("dqp", "Moyenne |dQP| (brut, %)", 160),
-        ("dtp", "Moyenne |dTP| (brut, pdt)", 160),
+        ("kge", "KGE médian (brut)", 130), ("dqp", "Médiane |dQP| (brut, %)", 160),
+        ("dtp", "Médiane |dTP| (brut, pdt)", 160),
     ):
         tableau.heading(col, text=libelle)
         tableau.column(col, width=largeur, anchor="center" if col != "combinaison" else "w")
@@ -2205,7 +2205,7 @@ def _build_variation_crues(frame, app):
             point = next((p for p in etat_donnees["points"] if p[0] == n_selectionne), None)
             if point is not None:
                 _n, s = point
-                kge_val = s.moyennes_erreur.get("kge")
+                kge_val = s.medianes_erreur.get("kge")
                 if kge_val is not None:
                     etat_selection["marqueur_kge"] = ax.scatter(
                         [_n], [kge_val], s=200, facecolors="none", edgecolors="#C0392B",
@@ -2269,14 +2269,14 @@ def _build_variation_crues(frame, app):
                         f"crues sur {len(isos_ordre)} disponibles) — pondération : {libelle_profil}.")
 
         ns = [n for n, _s in points]
-        kges = [s.moyennes_erreur.get("kge") for _n, s in points]
+        kges = [s.medianes_erreur.get("kge") for _n, s in points]
         heures_horizon = [_horizon_en_minutes(s.horizon) / 60 for _n, s in points]
         libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
 
         ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3,
-                label="KGE moyen (gagnant)")
+                label="KGE médian (gagnant)")
         ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
-        ax.set_ylabel("KGE moyen — combinaison gagnante (brut, non normalisé)")
+        ax.set_ylabel("KGE médian — combinaison gagnante (brut, non normalisé)")
         ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
         ax.grid(True, alpha=0.3)
 
@@ -2356,9 +2356,9 @@ def _build_variation_crues(frame, app):
             tableau.insert("", tk.END, values=(
                 n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}",
                 f"{s.score:.4f}",
-                f"{s.moyennes_erreur.get('kge'):.3f}" if s.moyennes_erreur.get("kge") is not None else "—",
-                f"{s.moyennes_erreur.get('dqp'):.2f}" if s.moyennes_erreur.get("dqp") is not None else "—",
-                f"{s.moyennes_erreur.get('dtp'):.2f}" if s.moyennes_erreur.get("dtp") is not None else "—",
+                f"{s.medianes_erreur.get('kge'):.3f}" if s.medianes_erreur.get("kge") is not None else "—",
+                f"{s.medianes_erreur.get('dqp'):.2f}" if s.medianes_erreur.get("dqp") is not None else "—",
+                f"{s.medianes_erreur.get('dtp'):.2f}" if s.medianes_erreur.get("dtp") is not None else "—",
             ))
 
     _rafraichir()

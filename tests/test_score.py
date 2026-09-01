@@ -90,7 +90,7 @@ def test_calculer_scores_indicateur_manquant_nexclut_pas_la_ligne():
     ]
     scores = calculer_scores(lignes)
     assert len(scores) == 1
-    assert scores[0].moyennes_erreur["dtp"] is None
+    assert scores[0].medianes_erreur["dtp"] is None
     assert scores[0].score is not None  # calculé sur les 3 autres indicateurs
 
 

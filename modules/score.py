@@ -2,15 +2,22 @@
 """Score composite de performance par combinaison (horizon, seuil_c1, méthode) — bloc 6
 "Dashboard et score de synthèse".
 
-Combine |dQP|, |dTP|, |VE|, (1-KGE) — chaque indicateur normalisé min-max sur l'ensemble
-des combinaisons évaluées, puis moyenne pondérée (poids égaux par défaut, réglables). Un
-score PLUS BAS = MEILLEURE performance (0 = la meilleure valeur observée sur chaque
-indicateur, 1 = la pire). Fonction pure, indépendante de l'UI et de results_store, pour
-rester testable isolément.
+Pour chaque combinaison, |dQP|, |dTP|, |VE|, (1-KGE) sont d'abord agrégés sur ses crues
+réussies par la MÉDIANE (pas la moyenne — demandé explicitement pour rester cohérent
+avec results_store.duree_par_etape, qui utilise déjà la médiane : un run/une crue
+atypique fausse beaucoup plus une moyenne qu'une médiane). Chaque indicateur ainsi
+agrégé est ensuite normalisé min-max sur l'ensemble des combinaisons évaluées, puis
+combiné en une MOYENNE PONDÉRÉE (poids égaux par défaut, réglables) — cette 2e étape
+reste une moyenne, jamais une médiane : les poids n'auraient aucun effet sur une
+médiane de 4 valeurs (voir PROFILS_PONDERATION, profil "métier" où dQP compte 3x plus
+que VE/KGE — un réglage qui n'a de sens qu'avec une moyenne pondérée). Un score PLUS
+BAS = MEILLEURE performance (0 = la meilleure valeur observée sur chaque indicateur,
+1 = la pire). Fonction pure, indépendante de l'UI et de results_store, pour rester
+testable isolément.
 """
 
 from dataclasses import dataclass, field
-from statistics import mean
+from statistics import median
 from typing import Dict, List, Optional
 
 INDICATEURS = ("dqp", "dtp", "ve", "kge")
@@ -76,10 +83,11 @@ def explication_score(poids=None, asymetrie_dtp=None):
         "Score composite (0 = meilleur, 1 = pire)\n\n"
         "Calculé UNIQUEMENT sur les combinaisons actuellement affichées à l'écran (jamais "
         "sur une seule, ni sur toute la base) :\n\n"
-        "1. Pour chaque combinaison, on calcule l'erreur moyenne (sur ses crues réussies) "
-        "de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en pas de "
-        "temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et (1 − KGE) "
-        "(KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
+        "1. Pour chaque combinaison, on calcule l'erreur MÉDIANE (sur ses crues réussies, "
+        "pas la moyenne — une crue atypique ne doit pas fausser le score plus qu'il ne "
+        "faut) de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en "
+        "pas de temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et "
+        "(1 − KGE) (KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
         "2. Chaque indicateur est normalisé entre 0 (la MEILLEURE valeur observée parmi "
         "TOUTES les combinaisons affichées) et 1 (la pire) — c'est une échelle RELATIVE à "
         "ce qui est affiché : ajouter ou retirer des combinaisons du graphique/tableau peut "
@@ -148,9 +156,10 @@ class ScoreCombinaison:
     methode: str
     score: Optional[float]     # None si aucun indicateur exploitable
     nb_crues: int
-    moyennes_erreur: Dict[str, Optional[float]] = field(default_factory=dict)
-    # moyennes_erreur : |dQP|, |dTP|, |VE|, (1-KGE) moyens (non normalisés) — pour
-    # affichage humain à côté du score normalisé (peu lisible tel quel).
+    medianes_erreur: Dict[str, Optional[float]] = field(default_factory=dict)
+    # medianes_erreur : |dQP|, |dTP|, |VE|, (1-KGE) médians (non normalisés) — pour
+    # affichage humain à côté du score normalisé (peu lisible tel quel). Médiane et
+    # non moyenne : voir docstring de module en tête de fichier.
 
 
 def _fonction_normalisation(valeurs):
@@ -177,7 +186,7 @@ def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
     l'utilisateur (Dashboard, sélecteur de profil).
 
     Un indicateur manquant (None — GRP note "NA") sur une ligne est simplement exclu de
-    la moyenne POUR CETTE LIGNE, il n'exclut pas la ligne entière : un jeu de résultats
+    la médiane POUR CETTE LIGNE, il n'exclut pas la ligne entière : un jeu de résultats
     partiel reste exploitable plutôt que rejeté en bloc.
 
     Retourne la liste des ScoreCombinaison, triée du meilleur (score le plus bas) au
@@ -202,32 +211,32 @@ def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
             return abs(valeur) * facteur
         return abs(valeur)
 
-    moyennes_par_combinaison = {}
+    medianes_par_combinaison = {}
     for cle, groupe in groupes.items():
-        moyennes = {}
+        medianes = {}
         for indicateur in INDICATEURS:
             erreurs = [e for e in (_erreur(l, indicateur) for l in groupe) if e is not None]
-            moyennes[indicateur] = mean(erreurs) if erreurs else None
-        moyennes_par_combinaison[cle] = (moyennes, len(groupe))
+            medianes[indicateur] = median(erreurs) if erreurs else None
+        medianes_par_combinaison[cle] = (medianes, len(groupe))
 
     normalisateurs = {}
     for indicateur in INDICATEURS:
-        valeurs = [m[indicateur] for m, _ in moyennes_par_combinaison.values()
+        valeurs = [m[indicateur] for m, _ in medianes_par_combinaison.values()
                    if m[indicateur] is not None]
         normalisateurs[indicateur] = _fonction_normalisation(valeurs) if valeurs else None
 
     resultats = []
-    for (horizon, seuil_c1, methode), (moyennes, nb_crues) in moyennes_par_combinaison.items():
+    for (horizon, seuil_c1, methode), (medianes, nb_crues) in medianes_par_combinaison.items():
         composantes, poids_total = [], 0.0
         for indicateur in INDICATEURS:
-            valeur = moyennes[indicateur]
+            valeur = medianes[indicateur]
             normaliseur = normalisateurs[indicateur]
             if valeur is None or normaliseur is None:
                 continue
             composantes.append(poids.get(indicateur, 1.0) * normaliseur(valeur))
             poids_total += poids.get(indicateur, 1.0)
         score = (sum(composantes) / poids_total) if poids_total else None
-        resultats.append(ScoreCombinaison(horizon, seuil_c1, methode, score, nb_crues, moyennes))
+        resultats.append(ScoreCombinaison(horizon, seuil_c1, methode, score, nb_crues, medianes))
 
     resultats.sort(key=lambda r: (r.score is None, r.score))
     return resultats
