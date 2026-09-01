@@ -933,9 +933,19 @@ def _build_detail(frame, app):
 
     r2 = make_row(barre, bg)
     make_label(r2, "Combinaison(s) :", bg, width=14)
-    liste_combis = tk.Listbox(r2, selectmode=tk.EXTENDED, height=5, width=34,
+    # Sélection multiple déjà possible (selectmode=EXTENDED, Ctrl/Maj + clic) — ajout
+    # demandé d'un ascenseur vertical toujours visible : au-delà de `height` lignes, les
+    # combinaisons supplémentaires n'étaient accessibles qu'à la molette, sans aucun
+    # indice qu'il y en avait plus à voir.
+    cadre_liste_combis = tk.Frame(r2, bg=bg)
+    cadre_liste_combis.pack(side=tk.LEFT, padx=(2, 8))
+    liste_combis = tk.Listbox(cadre_liste_combis, selectmode=tk.EXTENDED, height=5, width=34,
                                exportselection=False)
-    liste_combis.pack(side=tk.LEFT, padx=(2, 8))
+    barre_v_combis = tk.Scrollbar(cadre_liste_combis, orient=tk.VERTICAL,
+                                   command=liste_combis.yview)
+    liste_combis.config(yscrollcommand=barre_v_combis.set)
+    liste_combis.pack(side=tk.LEFT, fill=tk.Y)
+    barre_v_combis.pack(side=tk.LEFT, fill=tk.Y)
     cadre_boutons_combi = tk.Frame(r2, bg=bg)
     cadre_boutons_combi.pack(side=tk.LEFT, padx=(0, 12))
     ttk.Button(cadre_boutons_combi, text="Toutes",

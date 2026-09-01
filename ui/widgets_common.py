@@ -187,11 +187,19 @@ def make_scrollable_tab(tab_frame, defilement_horizontal=False):
 
     `defilement_horizontal=True` (Dashboard, Analyse crues affl. — demandé : ces 2
     onglets contiennent des tableaux/graphiques qui peuvent dépasser la largeur de la
-    fenêtre) : ajoute aussi un ascenseur horizontal, molette Maj+clic incluse. Sans ce
-    mode, le contenu intérieur est de toute façon forcé à la largeur du canvas (autre
-    onglets, comportement d'origine inchangé) — avec ce mode, cette contrainte de
-    largeur est levée pour laisser le contenu déborder et défiler plutôt que d'être
-    silencieusement écrasé/tronqué."""
+    fenêtre) : ajoute aussi un ascenseur horizontal, molette Maj+clic incluse.
+
+    Dans TOUS les cas (demandé explicitement, pas seulement avec ascenseur horizontal),
+    la largeur du contenu suit le PLUS GRAND des deux : la largeur naturelle du contenu
+    (`inner.winfo_reqwidth()`) ou celle du canvas — sur un écran large où le canvas est
+    plus grand que le contenu, celui-ci s'étire pour occuper tout l'espace disponible ;
+    sur un canvas plus étroit que le contenu, ce dernier garde sa largeur naturelle
+    (déborde, défilable via l'ascenseur horizontal si `defilement_horizontal`, sinon
+    simplement hors champ tant que la fenêtre n'est pas agrandie). Une première version
+    de `defilement_horizontal` imposait `width=e.width` fixe : ça évitait le
+    débordement mais empêchait aussi le contenu de profiter d'un écran plus large que
+    sa largeur d'origine — signalé par l'utilisateur ("l'ascenseur horizontal a fixé la
+    largeur")."""
     canvas = tk.Canvas(tab_frame, highlightthickness=0)
     vsb = ttk.Scrollbar(tab_frame, orient=tk.VERTICAL, command=canvas.yview)
     canvas.configure(yscrollcommand=vsb.set)
@@ -204,9 +212,15 @@ def make_scrollable_tab(tab_frame, defilement_horizontal=False):
     inner = tk.Frame(canvas)
     win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-    inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    if not defilement_horizontal:
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+    def _ajuster_largeur():
+        canvas.itemconfig(win_id, width=max(canvas.winfo_width(), inner.winfo_reqwidth()))
+
+    def _sur_configure_interieur(_evt):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+        _ajuster_largeur()
+
+    inner.bind("<Configure>", _sur_configure_interieur)
+    canvas.bind("<Configure>", lambda _evt: _ajuster_largeur())
 
     def _scroll_v(e):
         canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
