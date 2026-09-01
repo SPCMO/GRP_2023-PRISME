@@ -335,6 +335,11 @@
 
   <div class="changelog-entry">
     <div class="changelog-date">1er septembre 2026</div>
+    <p><span class="tag tag-feat">Nouveauté</span> Liste des horizons de calage possibles pour le pas de temps <b>15 min</b> mise à jour dans <code>config/config.exemple.json</code> (sélection métier de l'utilisateur, distincte du Tableau 3 du <i>Manuel d'utilisation GRP</i> — voir déjà l'entrée du 20 août 2026 ci-dessous) : 16 horizons désormais, de 15 min à 3 jours, avec 4 échéances courtes supplémentaires (15/30/45 min, et 15 h/21 h en plus des paliers habituels). <code>config/config.json</code> (propre à chaque poste, jamais versionné) n'est pas concerné par ce commit — seul le gabarit d'exemple reçoit cette mise à jour, pour qu'une nouvelle installation démarre directement avec la liste à jour.</p>
+  </div>
+
+  <div class="changelog-entry">
+    <div class="changelog-date">1er septembre 2026</div>
     <p><span class="tag tag-fix">Correctif</span> L'ascenseur horizontal ajouté à Dashboard/Analyse crues affl. (voir plus bas) forçait la largeur du contenu à celle du canvas au chargement, sans jamais la réévaluer à la hausse — sur un écran large, le contenu restait coincé à sa largeur minimale au lieu d'occuper l'espace disponible (signalé par l'utilisateur). <code>ui/widgets_common.make_scrollable_tab</code> calcule désormais la largeur comme le PLUS GRAND de la largeur du canvas et de la largeur naturelle du contenu, dans TOUS les onglets (pas seulement ceux avec ascenseur horizontal) : le contenu s'étire sur un écran large, et garde sa largeur naturelle (débordant proprement) sur un écran étroit.</p>
   </div>
 
