@@ -81,9 +81,37 @@ CREATE INDEX IF NOT EXISTS idx_series_archivees
 INSTANT_REFERENCE = "reference"
 
 
+def dossier_data_effectif():
+    """Dossier où vivent les bases `data/runs_<code_station>.sqlite3` — `app_config.
+    DATA_DIR` (à l'intérieur du dossier d'installation de l'outil) par défaut, ou le
+    dossier externe pointé par `app_config.FICHIER_POINTEUR_DATA` si ce fichier existe
+    et contient un chemin non vide (réglage optionnel, voir ui.tab_config, bandeau
+    "Dossier de stockage des bases de résultats").
+
+    Ce pointeur vit dans %APPDATA%, HORS du dossier d'installation de l'outil : il
+    survit ainsi à une réinstallation dans un nouveau dossier (contrairement à data/,
+    gitignoré et donc absent de toute nouvelle copie/clone) — corrige un incident réel
+    constaté (un utilisateur ayant recloné l'outil dans un nouveau dossier plutôt que
+    de le mettre à jour en place s'est retrouvé avec une base de résultats vierge,
+    l'ancienne étant restée dans l'ancien dossier sans qu'il en soit averti). Une fois
+    ce dossier externe choisi une fois sur un poste, toute future réinstallation de
+    l'outil sur ce même poste (même dans un tout nouveau dossier) retrouve
+    automatiquement les mêmes bases.
+
+    Ne lève jamais : un fichier pointeur absent, illisible ou vide retombe simplement
+    sur le comportement par défaut (DATA_DIR)."""
+    try:
+        with open(app_config.FICHIER_POINTEUR_DATA, encoding="utf-8") as f:
+            chemin = f.read().strip()
+    except (FileNotFoundError, OSError):
+        return app_config.DATA_DIR
+    return chemin or app_config.DATA_DIR
+
+
 def _chemin_db_par_defaut():
-    """Un fichier `data/runs_<code_station>.sqlite3` distinct par station configurée,
-    plutôt qu'un unique `data/runs.sqlite3` partagé par toutes les stations.
+    """Un fichier `<dossier_data_effectif()>/runs_<code_station>.sqlite3` distinct par
+    station configurée, plutôt qu'un unique `runs.sqlite3` partagé par toutes les
+    stations.
 
     Avant cette fonction, la table `combinaisons` n'a aucune colonne station — elle est
     identifiée uniquement par (horizon, seuil_c1, méthode), avec une contrainte UNIQUE
@@ -101,32 +129,35 @@ def _chemin_db_par_defaut():
     Si la configuration est illisible ou que la station n'est pas encore renseignée, on
     retombe sur l'ancien nom générique `runs.sqlite3` — comportement historique,
     jamais bloquant."""
+    dossier = dossier_data_effectif()
+    chemin_partage = os.path.join(dossier, "runs.sqlite3")
     try:
         config_data = config_manager.load_config()
     except (FileNotFoundError, ValueError):
-        return app_config.DB_PATH
+        return chemin_partage
     code_station = (config_data.get("station", {}).get("code_station") or "").strip()
     if not code_station:
-        return app_config.DB_PATH
-    chemin_station = os.path.join(app_config.DATA_DIR, f"runs_{code_station}.sqlite3")
-    _migrer_ancienne_base_partagee_si_necessaire(chemin_station)
+        return chemin_partage
+    chemin_station = os.path.join(dossier, f"runs_{code_station}.sqlite3")
+    _migrer_ancienne_base_partagee_si_necessaire(chemin_station, chemin_partage)
     return chemin_station
 
 
-def _migrer_ancienne_base_partagee_si_necessaire(chemin_station):
+def _migrer_ancienne_base_partagee_si_necessaire(chemin_station, chemin_partage):
     """Migration ponctuelle, exécutée au plus une seule fois en tout et pour tout :
-    tant que l'ancien fichier partagé `runs.sqlite3` existe encore ET qu'aucune base
-    dédiée n'a déjà été créée pour la station actuellement configurée, on le renomme
-    vers cette base dédiée plutôt que de laisser croire à une perte de données. Une
-    fois ce renommage effectué, `runs.sqlite3` n'existe plus : aucune autre station
-    configurée ultérieurement ne pourra plus jamais hériter par erreur de cet
-    historique — la migration ne peut donc profiter qu'à la toute première station
-    active après la mise à jour de l'outil (typiquement celle déjà en cours d'usage)."""
-    if os.path.exists(app_config.DB_PATH) and not os.path.exists(chemin_station):
+    tant que l'ancien fichier partagé `runs.sqlite3` existe encore (dans le dossier
+    data effectif actuel — voir dossier_data_effectif) ET qu'aucune base dédiée n'a
+    déjà été créée pour la station actuellement configurée, on le renomme vers cette
+    base dédiée plutôt que de laisser croire à une perte de données. Une fois ce
+    renommage effectué, `runs.sqlite3` n'existe plus : aucune autre station configurée
+    ultérieurement ne pourra plus jamais hériter par erreur de cet historique — la
+    migration ne peut donc profiter qu'à la toute première station active après la
+    mise à jour de l'outil (typiquement celle déjà en cours d'usage)."""
+    if os.path.exists(chemin_partage) and not os.path.exists(chemin_station):
         os.makedirs(os.path.dirname(chemin_station), exist_ok=True)
-        os.replace(app_config.DB_PATH, chemin_station)
+        os.replace(chemin_partage, chemin_station)
         logger.info("Migration de l'ancienne base partagée %s vers %s (1 fois, station "
-                    "active au moment de la migration)", app_config.DB_PATH, chemin_station)
+                    "active au moment de la migration)", chemin_partage, chemin_station)
 
 
 def _colonne_existe(conn, table, colonne):

@@ -3,9 +3,12 @@
 via PHyC). Construit dans un Frame déjà ajouté au Notebook par main.py.
 """
 
+import os
+import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
+import config as app_config
 from modules import results_store
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
@@ -259,6 +262,106 @@ def build_tab_config(tab_frame, app):
 
     btn_identifier.config(command=_identifier)
     _afficher_seuils_existants()
+
+    # ── Bloc 3 — Dossier de stockage des bases de résultats (optionnel) ──────────
+    # Demandé suite à un incident réel : data/ (bases sqlite) est gitignoré (trop
+    # volumineux/spécifique au poste) — toute réinstallation de l'outil dans un
+    # NOUVEAU dossier (mise à jour faite en clonant/copiant à côté plutôt qu'en place)
+    # repart donc avec une base vierge, sans que l'ancienne — restée dans l'ancien
+    # dossier — ne soit signalée. Ce réglage optionnel externalise le stockage des
+    # bases vers %APPDATA% (voir modules.results_store.dossier_data_effectif) : une
+    # fois choisi une fois sur ce poste, toute future réinstallation de l'outil (même
+    # dans un tout nouveau dossier) retrouve automatiquement les mêmes bases.
+    inn3, bg3 = make_section(frm, "Dossier de stockage des bases de résultats (optionnel)", "teal")
+    tk.Label(inn3, bg=bg3, fg="#555555", font=("TkDefaultFont", 8), wraplength=760,
+             justify=tk.LEFT,
+             text="Par défaut, les bases (data/runs_<code_station>.sqlite3) vivent dans "
+                  "ce dossier d'installation de l'outil — perdues de vue si l'outil est "
+                  "un jour réinstallé dans un AUTRE dossier (mise à jour par nouvelle "
+                  "copie plutôt qu'en place). Choisir ici un dossier externe stable "
+                  "évite ce risque : une fois réglé, toute future installation de "
+                  "l'outil sur ce poste retrouve automatiquement les mêmes bases.").pack(
+        anchor="w", pady=(0, 6))
+
+    r = make_row(inn3, bg3)
+    make_label(r, "Dossier actuel :", bg3, width=30)
+    var_dossier_data = tk.StringVar()
+    tk.Label(r, textvariable=var_dossier_data, bg=bg3,
+             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(2, 0))
+
+    def _rafraichir_affichage_dossier_data():
+        dossier = results_store.dossier_data_effectif()
+        if os.path.normcase(os.path.abspath(dossier)) == os.path.normcase(os.path.abspath(app_config.DATA_DIR)):
+            var_dossier_data.set("Par défaut — dans ce dossier d'installation (data/)")
+        else:
+            var_dossier_data.set(dossier)
+
+    def _choisir_dossier_data():
+        dossier = filedialog.askdirectory(
+            title="Dossier externe de stockage des bases de résultats")
+        if not dossier:
+            return
+        ancien_dossier = results_store.dossier_data_effectif()
+        os.makedirs(app_config.DOSSIER_CONFIG_UTILISATEUR, exist_ok=True)
+        with open(app_config.FICHIER_POINTEUR_DATA, "w", encoding="utf-8") as f:
+            f.write(dossier)
+        os.makedirs(dossier, exist_ok=True)
+
+        # Propose de copier les bases déjà présentes dans l'ancien emplacement — jamais
+        # automatique/silencieux (données de campagne potentiellement volumineuses et
+        # longues à régénérer), toujours une COPIE (jamais un déplacement destructif :
+        # l'ancien fichier reste disponible en repli si quelque chose se passe mal).
+        meme_dossier = (os.path.normcase(os.path.abspath(ancien_dossier))
+                         == os.path.normcase(os.path.abspath(dossier)))
+        if os.path.isdir(ancien_dossier) and not meme_dossier:
+            fichiers_sqlite = sorted(
+                f for f in os.listdir(ancien_dossier) if f.endswith(".sqlite3"))
+            if fichiers_sqlite and messagebox.askyesno(
+                    "Copier les bases existantes ?",
+                    f"{len(fichiers_sqlite)} base(s) de résultats trouvée(s) dans "
+                    f"l'ancien emplacement ({ancien_dossier}) :\n" +
+                    "\n".join(f"  • {n}" for n in fichiers_sqlite) +
+                    "\n\nLes copier vers le nouveau dossier choisi maintenant ?"):
+                erreurs = []
+                for nom in fichiers_sqlite:
+                    src, dst = os.path.join(ancien_dossier, nom), os.path.join(dossier, nom)
+                    if os.path.exists(dst) and not messagebox.askyesno(
+                            "Fichier déjà présent",
+                            f"{nom} existe déjà dans le nouveau dossier — l'écraser avec "
+                            "la copie de l'ancien emplacement ?"):
+                        continue
+                    try:
+                        shutil.copy2(src, dst)
+                    except OSError as e:
+                        erreurs.append(f"{nom} : {e}")
+                if erreurs:
+                    messagebox.showerror("Copie partiellement échouée", "\n".join(erreurs))
+                else:
+                    messagebox.showinfo(
+                        "Copie terminée", f"{len(fichiers_sqlite)} base(s) copiée(s).")
+        _rafraichir_affichage_dossier_data()
+        app.on_config_changed()
+
+    def _revenir_dossier_defaut():
+        if not os.path.isfile(app_config.FICHIER_POINTEUR_DATA):
+            return
+        if messagebox.askyesno(
+                "Revenir au dossier par défaut",
+                "Les futures bases seront de nouveau cherchées dans ce dossier "
+                "d'installation (data/). Les fichiers déjà copiés dans le dossier "
+                "externe n'y sont pas touchés — ils resteront disponibles si vous "
+                "reconfigurez ce dossier externe plus tard.\n\nContinuer ?"):
+            os.remove(app_config.FICHIER_POINTEUR_DATA)
+            _rafraichir_affichage_dossier_data()
+            app.on_config_changed()
+
+    r = make_row(inn3, bg3)
+    ttk.Button(r, text="Choisir un dossier externe…",
+               command=_choisir_dossier_data).pack(side=tk.LEFT, padx=(0, 6))
+    ttk.Button(r, text="Revenir au dossier par défaut",
+               command=_revenir_dossier_defaut).pack(side=tk.LEFT)
+
+    _rafraichir_affichage_dossier_data()
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     # config_data est un unique dict partagé, modifié en place par tous les onglets

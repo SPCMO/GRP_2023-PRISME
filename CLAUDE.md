@@ -79,6 +79,7 @@ config/config.exemple.json  # gabarit versionné, à copier en config.json
 **Données et configuration**
 - `config/config.json` contient des identifiants PHyC réels : jamais committé (gitignoré), jamais copié sur un partage réseau.
 - Les résultats de campagne vivent dans `data/runs_<code_station>.sqlite3` — un fichier **par station** (migration automatique depuis un ancien `runs.sqlite3` partagé) : ne jamais mélanger les résultats de deux stations différentes dans le même fichier.
+- `data/` étant gitignoré, une réinstallation de l'outil dans un **nouveau** dossier (au lieu d'une mise à jour `git pull` en place) repart avec une base vierge, l'ancienne restant invisible dans l'ancien dossier — incident réel déjà rencontré. Deux garde-fous : un message au tout premier lancement (`main.py::App._avertir_si_premier_lancement`), et un pointeur optionnel externe au dossier d'installation (`config.FICHIER_POINTEUR_DATA`, dans `%APPDATA%`) résolu par `modules.results_store.dossier_data_effectif()` — voir Aide.html > Architecture > "Éviter de perdre ses résultats lors d'une réinstallation".
 - Les 4 dossiers de travail GRP (`00_GRP_v2023`, `00_Donnees_*`, `00_BDDTR_*`, `00_Resultats_*`) sont volumineux, spécifiques à chaque poste, et gitignorés.
 - Les scripts `Test_*.py` de diagnostic ponctuel à la racine (hors `Test_pr_install.py`, qui est le vérificateur d'environnement officiel) ne doivent jamais être poussés sur GitHub ni copiés sur le réseau.
 

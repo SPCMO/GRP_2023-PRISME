@@ -47,7 +47,13 @@ class App(tk.Tk):
         self.resizable(True, True)
         self.minsize(950, 700)
 
-        os.makedirs(app_config.DATA_DIR, exist_ok=True)
+        # Détecté AVANT config_manager.load_config() (qui crée config.json depuis le
+        # gabarit s'il est absent) : True seulement au tout premier lancement dans CE
+        # dossier — sert à afficher un rappel migration ci-dessous (voir _build_ui),
+        # jamais aux lancements suivants une fois config.json créé.
+        self._premier_lancement_dossier = not os.path.isfile(app_config.CONFIG_JSON_PATH)
+
+        os.makedirs(results_store.dossier_data_effectif(), exist_ok=True)
         os.makedirs(app_config.LOGS_DIR, exist_ok=True)
 
         # Toute exception levée dans un callback Tkinter (bouton, .after()...) est en
@@ -69,6 +75,7 @@ class App(tk.Tk):
         self._build_menu()
         self._build_ui()
         self._maj_titre()
+        self._avertir_si_premier_lancement()
 
     # ------------------------------------------------------------------------
     # État partagé — appelé par les onglets
@@ -98,6 +105,43 @@ class App(tk.Tk):
         except Exception:
             pass
         self.title(titre)
+
+    def _avertir_si_premier_lancement(self):
+        """Rappel affiché UNE SEULE FOIS, au tout premier lancement dans CE dossier
+        (voir self._premier_lancement_dossier, évalué avant que config_manager.
+        load_config() ne crée config.json depuis le gabarit) — jamais aux lancements
+        suivants, config.json existant alors déjà.
+
+        Demandé suite à un incident réel : un utilisateur ayant mis à jour l'outil en
+        clonant/copiant dans un NOUVEAU dossier (plutôt qu'en place, via `git pull`
+        dans le dossier existant) s'est retrouvé avec une base de résultats vierge —
+        `data/` et `config/config.json` sont volontairement exclus de Git (trop
+        volumineux/spécifiques au poste, voir .gitignore), donc absents de toute
+        nouvelle copie, sans qu'aucun signal n'avertisse que l'ancienne installation
+        (et ses résultats) existe toujours ailleurs sur le disque. Ce message intervient
+        au moment exact où ça compte (avant que l'utilisateur ne travaille sur une base
+        vide en pensant reprendre l'existant), sans scanner le disque ni rien
+        automatiser — voir aussi le bandeau "Dossier de stockage des bases de
+        résultats" (onglet Configuration) pour éviter cet incident de façon durable."""
+        if not self._premier_lancement_dossier:
+            return
+        messagebox.showinfo(
+            "Premier lancement dans ce dossier",
+            "C'est la première fois que l'outil démarre dans ce dossier : la base de "
+            "résultats et la configuration sont vierges.\n\n"
+            "Si c'est votre toute première utilisation de l'outil, tout est normal — "
+            "renseignez l'onglet Configuration pour commencer.\n\n"
+            "Si vous venez de mettre à jour l'outil en le recopiant/reclonant dans un "
+            "NOUVEAU dossier plutôt qu'en place, vos anciens résultats et réglages "
+            "sont probablement restés dans l'ancien dossier, sous data/ et "
+            "config/config.json — copiez-les ici avant de continuer, sans quoi vous "
+            "repartiriez de zéro.\n\n"
+            "Pour éviter ce risque à l'avenir : configurez un « Dossier de stockage "
+            "des bases de résultats » externe (bandeau dédié, en bas de l'onglet "
+            "Configuration) — une fois choisi, toute future réinstallation de l'outil "
+            "sur ce poste retrouvera automatiquement vos données, même dans un tout "
+            "nouveau dossier.",
+        )
 
     def on_config_changed(self):
         """Notifie les onglets dépendants (Paramétrage, Crues) qu'un chemin ou la station
