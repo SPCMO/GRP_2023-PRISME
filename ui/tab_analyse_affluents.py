@@ -43,7 +43,36 @@ def _nom_exutoire(app):
 
 
 def _config_affluents(app):
-    return app.config_data.setdefault("affluents", affluents.config_affluents_par_defaut())
+    """Config affluents PROPRE À LA STATION exutoire actuellement configurée
+    (code_station, onglet Configuration) — clé "affluents_par_station"[code_station],
+    sur le même principe que data/runs_<code_station>.sqlite3 pour les résultats de
+    campagne (modules.results_store). Avant cette mise à jour, une unique configuration
+    "affluents" partagée par TOUTES les stations était silencieusement écrasée à chaque
+    changement de station de l'onglet Configuration (signalé par l'utilisateur :
+    rebasculer sur une station déjà étudiée obligeait à ressaisir tous ses affluents —
+    nom, code station, fichier, temps de propagation).
+
+    Migration automatique et unique, à la première ouverture de cet onglet après cette
+    mise à jour : l'ancienne configuration plate "affluents", si elle existe encore, est
+    rattachée à la station ACTIVE À CE MOMENT PRÉCIS (même logique que la migration
+    équivalente de la base sqlite, voir results_store._chemin_db_par_defaut) — à faire
+    tourner une fois pendant que la station en cours d'étude est encore celle pour
+    laquelle cette configuration a été saisie, avant de basculer sur une nouvelle
+    station."""
+    code_station = app.config_data.get("station", {}).get("code_station")
+    par_station = app.config_data.setdefault("affluents_par_station", {})
+    ancienne_config_plate = app.config_data.get("affluents")
+    if ancienne_config_plate is not None and code_station and code_station not in par_station:
+        par_station[code_station] = ancienne_config_plate
+        del app.config_data["affluents"]
+        app.persist_config()
+    if not code_station:
+        # Pas encore de station identifiée (onglet Configuration) : rien à quoi
+        # rattacher une config affluents persistée — config par défaut en mémoire
+        # seulement, sans toucher à une éventuelle ancienne config "affluents" encore
+        # en attente de migration (voir ci-dessus).
+        return affluents.config_affluents_par_defaut()
+    return par_station.setdefault(code_station, affluents.config_affluents_par_defaut())
 
 
 def _liste_affluents(app):
@@ -107,7 +136,9 @@ def _prochaine_couleur(liste_affluents):
 
 
 def build_tab_analyse_affluents(tab_frame, app):
-    frm = make_scrollable_tab(tab_frame)
+    # defilement_horizontal=True (demandé) : le tableau des stations affluentes et les
+    # figures par crue peuvent dépasser la largeur de la fenêtre.
+    frm = make_scrollable_tab(tab_frame, defilement_horizontal=True)
 
     # ── Bandeau 1 — dossier d'import ────────────────────────────────────────────
     # Même couleur ("ocre") que le bandeau "Dossiers de travail" de l'onglet

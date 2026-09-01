@@ -41,6 +41,25 @@ def config_affluents_par_defaut():
     return {"dossier_import": "", "liste": []}
 
 
+def config_pour_station(config_data, code_station):
+    """Config affluents de `code_station`, en LECTURE SEULE (jamais de mutation ni de
+    persistance ici — réservé à ui.tab_analyse_affluents._config_affluents, seul point
+    responsable de la migration décrite ci-dessous). Utilisée par l'export Excel
+    (modules.export_excel), qui ne doit jamais dépendre de l'ordre d'ouverture des
+    onglets pour lire la bonne configuration.
+
+    Cherche d'abord "affluents_par_station"[code_station] (format courant, une config
+    par station — voir ui.tab_analyse_affluents). À défaut, replie sur l'ancienne
+    configuration plate "affluents" (partagée par toutes les stations avant l'ajout de
+    ce format) tant que l'onglet Analyse crues affl. n'a pas encore été ouvert dans
+    cette session pour la migrer — un export lancé avant d'avoir ouvert cet onglet ne
+    doit pas paraître vide alors que la configuration existe, juste pas encore migrée."""
+    par_station = config_data.get("affluents_par_station", {})
+    if code_station and code_station in par_station:
+        return par_station[code_station]
+    return config_data.get("affluents") or config_affluents_par_defaut()
+
+
 def affluent_depuis_dict(d):
     return Affluent(
         nom=d.get("nom", ""), code_station=d.get("code_station"),

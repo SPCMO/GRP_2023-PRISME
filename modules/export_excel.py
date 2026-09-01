@@ -1092,7 +1092,8 @@ def _feuille_analyse_affluents(ws, app, paths):
                "n'ont pas d'équivalent ici).",))
     ws.append(())
 
-    config_affl = app.config_data.get("affluents") or affluents.config_affluents_par_defaut()
+    code_station = app.config_data.get("station", {}).get("code_station")
+    config_affl = affluents.config_pour_station(app.config_data, code_station)
     liste_affl = [affluents.affluent_depuis_dict(d) for d in config_affl.get("liste", [])]
     if not liste_affl:
         ws.append(("Aucune station affluente configurée (onglet Analyse crues affl. > "

@@ -179,26 +179,53 @@ def make_label(parent, text, bg, width=26):
              font=("TkDefaultFont", 9)).pack(side=tk.LEFT)
 
 
-def make_scrollable_tab(tab_frame):
+def make_scrollable_tab(tab_frame, defilement_horizontal=False):
     """Enveloppe le contenu d'un onglet dans un Canvas + Scrollbar vertical (utile car
     plusieurs onglets — Paramétrage, Crues, Dashboard — afficheront potentiellement plus
     de contenu que la hauteur de fenêtre). Retourne le Frame intérieur dans lequel packer
-    le contenu réel de l'onglet."""
+    le contenu réel de l'onglet.
+
+    `defilement_horizontal=True` (Dashboard, Analyse crues affl. — demandé : ces 2
+    onglets contiennent des tableaux/graphiques qui peuvent dépasser la largeur de la
+    fenêtre) : ajoute aussi un ascenseur horizontal, molette Maj+clic incluse. Sans ce
+    mode, le contenu intérieur est de toute façon forcé à la largeur du canvas (autre
+    onglets, comportement d'origine inchangé) — avec ce mode, cette contrainte de
+    largeur est levée pour laisser le contenu déborder et défiler plutôt que d'être
+    silencieusement écrasé/tronqué."""
     canvas = tk.Canvas(tab_frame, highlightthickness=0)
     vsb = ttk.Scrollbar(tab_frame, orient=tk.VERTICAL, command=canvas.yview)
     canvas.configure(yscrollcommand=vsb.set)
+    if defilement_horizontal:
+        hsb = ttk.Scrollbar(tab_frame, orient=tk.HORIZONTAL, command=canvas.xview)
+        canvas.configure(xscrollcommand=hsb.set)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
     vsb.pack(side=tk.RIGHT, fill=tk.Y)
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     inner = tk.Frame(canvas)
     win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
     inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+    if not defilement_horizontal:
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
 
-    def _scroll(e):
+    def _scroll_v(e):
         canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _scroll))
-    canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+    def _scroll_h(e):
+        canvas.xview_scroll(int(-1 * (e.delta / 120)), "units")
+
+    def _activer_molette(_evt):
+        canvas.bind_all("<MouseWheel>", _scroll_v)
+        if defilement_horizontal:
+            canvas.bind_all("<Shift-MouseWheel>", _scroll_h)
+
+    def _desactiver_molette(_evt):
+        canvas.unbind_all("<MouseWheel>")
+        if defilement_horizontal:
+            canvas.unbind_all("<Shift-MouseWheel>")
+
+    canvas.bind("<Enter>", _activer_molette)
+    canvas.bind("<Leave>", _desactiver_molette)
     return inner
 
 
@@ -222,13 +249,27 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
       ligne (ex. code couleur de couverture des tests déjà réalisés, voir
       ui/tab_parametrage.py) — None ou omis pour la couleur par défaut.
 
+    Sélection multiple (Ctrl/Shift + clic) : "Supprimer" retire alors TOUS les éléments
+    sélectionnés en une fois (avec confirmation au-delà d'un seul, pour éviter une
+    suppression groupée accidentelle) — demandé pour les listes qui peuvent grandir
+    beaucoup (seuils de calage, instants de rejeu). "Modifier"/"Monter"/"Descendre"
+    continuent de n'agir que sur le premier élément sélectionné (une opération à la
+    fois n'a pas de sens groupé pour ces 3 actions).
+
+    Ascenseur vertical toujours présent (la Listbox seule masquait silencieusement les
+    éléments au-delà de `hauteur` sans indiquer qu'il y en avait plus à faire défiler).
+
     Retourne le Frame conteneur, à placer par l'appelant (pack/grid). Le Listbox lui-
     même reste accessible via `cadre.winfo_children()[0]` pour un appelant qui a besoin
     d'y réagir (ex. `<<ListboxSelect>>`).
     """
     cadre = tk.Frame(parent)
-    lb = tk.Listbox(cadre, height=hauteur, width=largeur, exportselection=False)
+    lb = tk.Listbox(cadre, height=hauteur, width=largeur, exportselection=False,
+                     selectmode=tk.EXTENDED)
+    barre_v = tk.Scrollbar(cadre, orient=tk.VERTICAL, command=lb.yview)
+    lb.config(yscrollcommand=barre_v.set)
     lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    barre_v.pack(side=tk.LEFT, fill=tk.Y)
     boutons = tk.Frame(cadre)
     boutons.pack(side=tk.LEFT, padx=6, fill=tk.Y)
 
@@ -256,8 +297,12 @@ def build_liste_reordonnable(parent, obtenir_liste, definir_liste, formatter,
         sel = lb.curselection()
         if not sel:
             return
+        if len(sel) > 1 and not messagebox.askyesno(
+                "Supprimer", f"Supprimer les {len(sel)} éléments sélectionnés ?"):
+            return
         liste = obtenir_liste()
-        del liste[sel[0]]
+        for i in sorted(sel, reverse=True):
+            del liste[i]
         definir_liste(liste)
         _rafraichir()
 

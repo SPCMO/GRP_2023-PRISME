@@ -154,11 +154,19 @@ def build_tab_dashboard(tab_frame, app):
     # (ex. "Détail par crue" sur un PC portable, où le tableau "Maximum de chaque
     # courbe tracée" sous le graphique restait invisible, hors de portée), le contenu
     # devient défilant au lieu d'être simplement coupé sans aucun moyen d'y accéder.
-    _rafraichir_synthese = _build_synthese(make_scrollable_tab(onglet_synthese), app)
-    _build_detail(make_scrollable_tab(onglet_detail), app)
-    _rafraichir_sensibilite = _build_sensibilite(make_scrollable_tab(onglet_sensibilite), app)
-    _rafraichir_vue3d = _build_vue3d(make_scrollable_tab(onglet_3d), app)
-    _rafraichir_variation_crues = _build_variation_crues(make_scrollable_tab(onglet_variation_crues), app)
+    # `defilement_horizontal=True` (demandé) : plusieurs tableaux (heatmap
+    # horizon×seuil, comparaison des instants de rejeu) peuvent être plus larges que la
+    # fenêtre — sans ascenseur horizontal ils étaient silencieusement écrasés/tronqués
+    # plutôt que consultables en défilant.
+    _rafraichir_synthese = _build_synthese(
+        make_scrollable_tab(onglet_synthese, defilement_horizontal=True), app)
+    _build_detail(make_scrollable_tab(onglet_detail, defilement_horizontal=True), app)
+    _rafraichir_sensibilite = _build_sensibilite(
+        make_scrollable_tab(onglet_sensibilite, defilement_horizontal=True), app)
+    _rafraichir_vue3d = _build_vue3d(
+        make_scrollable_tab(onglet_3d, defilement_horizontal=True), app)
+    _rafraichir_variation_crues = _build_variation_crues(
+        make_scrollable_tab(onglet_variation_crues, defilement_horizontal=True), app)
 
     def _rafraichir_toutes_les_vues_du_score():
         # Détail par crue n'affiche pas de score composite (dQP/dTP/VE/KGE de
