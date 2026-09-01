@@ -363,7 +363,7 @@
 
 <section id="changelog">
   <h2>Correctifs &amp; nouvelles fonctionnalités</h2>
-  <p class="muted">148 modifications au total depuis la mise en ligne initiale (20 août 2026), classées ici par nature (Nouveauté / Correctif) et par importance — <b>Majeur</b> = a changé un résultat, débloqué un usage, ou ajouté une fonctionnalité structurante ; sans marque = ajustement ergonomique, visuel ou correctif mineur. Classification automatique, affinable au fil de l'eau.</p>
+  <p class="muted">149 modifications au total depuis la mise en ligne initiale (20 août 2026), classées ici par nature (Nouveauté / Correctif) et par importance — <b>Majeur</b> = a changé un résultat, débloqué un usage, ou ajouté une fonctionnalité structurante ; sans marque = ajustement ergonomique, visuel ou correctif mineur. Classification automatique, affinable au fil de l'eau.</p>
 
   <div class="chg-filtres">
     <div class="chg-filtre-groupe">
@@ -382,17 +382,21 @@
       <button class="chg-lien" type="button" data-tout-replier>Tout replier</button>
     </div>
   </div>
-  <p class="chg-compteur" data-compteur>148 modification(s) affichée(s) sur 148 (26 majeures).</p>
+  <p class="chg-compteur" data-compteur>149 modification(s) affichée(s) sur 149 (26 majeures).</p>
 
   <div class="chg-timeline" data-timeline>
   <div class="chg-groupe chg-ouvert" data-groupe>
     <button class="chg-entete" type="button" data-toggle-groupe>
       <span class="chg-puce"></span>
       <span class="chg-date-lbl">1er septembre 2026</span>
-      <span class="chg-compte">8 modifications <span class="chg-compte-maj">· 3 majeures</span></span>
+      <span class="chg-compte">9 modifications <span class="chg-compte-maj">· 3 majeures</span></span>
       <span class="chg-chevron">▾</span>
     </button>
     <div class="chg-corps">
+      <article class="chg-item" data-nature="tag-feat" data-imp="mineur">
+        <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span></div>
+        <p>Liste des horizons de calage possibles pour le pas de temps <b>15 min</b> corrigée une seconde fois dans <code>config/config.exemple.json</code> (sélection métier de l'utilisateur) : les 3 échéances les plus courtes ajoutées lors de la précédente mise à jour du jour (15/30/45 min) retirées — 13 horizons désormais, de 1 h à 3 jours. <code>config/config.json</code> (propre à chaque poste, jamais versionné) n'est pas concerné — seul le gabarit d'exemple reçoit cette mise à jour.</p>
+      </article>
       <article class="chg-item" data-nature="tag-feat" data-imp="majeur">
         <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span><span class="chg-imp">★ Majeur</span></div>
         <p>Le <b>score composite</b> (<code>modules/score.py::calculer_scores</code>) agrège désormais |dQP|/|dTP|/|VE|/(1-KGE) sur les crues réussies de chaque combinaison par la <b>MÉDIANE</b>, pas la moyenne — question posée par l'utilisateur ("moyenne ou médiane ?"), qui a demandé l'alignement pour homogénéité avec <code>results_store.duree_par_etape</code> (déjà en médiane, pour la même raison : une crue/un run atypique ne doit pas fausser l'indicateur plus qu'il ne faut). La 2<sup>e</sup> étape du calcul — combiner ces 4 indicateurs déjà agrégés en un score unique — RESTE une moyenne pondérée : les poids réglables (profil "métier", dQP favorisé) n'auraient aucun effet sur une médiane de 4 valeurs. Champ <code>ScoreCombinaison.moyennes_erreur</code> renommé <code>medianes_erreur</code> (et tous ses usages dans <code>export_excel.py</code>/<code>tab_dashboard.py</code>/<code>tab_orchestration.py</code>), en-têtes et libellés Excel/Dashboard concernés ("Moyenne |dQP|" → "Médiane |dQP|", "KGE moyen" → "KGE médian", etc.) mis à jour en conséquence. Vérifié : dans l'outil, seul le score composite calculait encore une moyenne sur plusieurs crues — aucun autre indicateur affiché n'est concerné par cette incohérence.</p>
