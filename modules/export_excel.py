@@ -64,7 +64,7 @@ _LIBELLES_SEUILS_Q_COULEUR = (
 _COULEUR_LOCAL = "#BDC3C7"  # gris, écoulements locaux non expliqués par un affluent suivi
 
 ENTETES_DETAIL = ("Crue", "Date/heure crue", "Horizon", "Seuil C1", "Méthode", "Statut",
-                   "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect")
+                   "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect", "Note")
 ENTETES_SYNTHESE = ("Horizon", "Seuil C1", "Méthode", "Score composite", "Nb crues",
                      "Moyenne |dQP| (%)", "Moyenne |dTP|", "Moyenne |VE| (%)", "Moyenne (1-KGE)")
 ENTETES_SENSIBILITE = ("Horizon", "Seuil C1", "Méthode", "Score composite")
@@ -434,7 +434,7 @@ def _figure_vue_synthese(horizons, seuils, scores_valides, lignes_ok, meilleur):
 
 def _feuille_detail_par_crue(ws, lignes, infos_crues, meilleur, meilleur_combinaison_id,
                                paths, app, conn):
-    _entete(ws, ENTETES_DETAIL, [26, 18, 16, 12, 12, 12, 12, 12, 12, 10, 20])
+    _entete(ws, ENTETES_DETAIL, [26, 18, 16, 12, 12, 12, 12, 12, 12, 10, 20, 46])
     for l in lignes:
         info = infos_crues.get(l["crue_date"], {})
         # Date/heure en vraie valeur datetime (pas seulement dans le libellé texte
@@ -451,6 +451,11 @@ def _feuille_detail_par_crue(ws, lignes, infos_crues, meilleur, meilleur_combina
             date_deb,
             l["horizon"], l["seuil_c1"], l["methode"], l["statut_crue"],
             l["dqp"], l["dtp"], l["ve"], l["kge"], l["suspects"] or "",
+            # "Note" : erreur d'échec, OU précision sur un dQP/dTP recalculé depuis les
+            # séries (pas extrait du PDF) ou toujours manquant malgré ce repli — voir
+            # modules.run_orchestrator._recalculer_dqp_dtp. Jamais vide silencieusement
+            # pour une valeur manquante (demandé explicitement par l'utilisateur).
+            l.get("note") or "",
         ))
 
     ligne_libre = ws.max_row + 2

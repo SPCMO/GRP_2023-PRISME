@@ -11,7 +11,8 @@ import pytest
 
 from modules.results_store import SCHEMA
 from modules.run_orchestrator import (
-    _calage_deja_charge, _combinaisons_a_traiter, _crues_a_traiter, generer_combinaisons,
+    _calage_deja_charge, _combinaisons_a_traiter, _crues_a_traiter, _recalculer_dqp_dtp,
+    generer_combinaisons,
 )
 
 
@@ -251,3 +252,49 @@ def test_calage_deja_charge_fichier_introuvable(tmp_path):
 def test_calage_deja_charge_code_site_absent_du_fichier(tmp_path):
     paths = _PathsFactice(_ecrire_liste_bassins(tmp_path), code_site="Z9999999")
     assert _calage_deja_charge(paths, "00J06H00M", 5.0, "T") is False
+
+
+# -- _recalculer_dqp_dtp (repli dQP/dTP quand le PDF ne les a pas reportés) --------------
+# Ajouté suite à une question utilisateur sur des dQP manquants (28/08/2026) : validé par
+# comparaison directe avec des dizaines de résultats déjà extraits du PDF sur la base
+# réelle de l'utilisateur (concordance à la précision d'arrondi près) avant intégration.
+
+def _serie(pas_de_temps_min, valeurs, date_debut=datetime(2024, 1, 1)):
+    """valeurs : liste de débits/pobs, un point espacé de pas_de_temps_min minutes."""
+    from datetime import timedelta
+    return [(date_debut + timedelta(minutes=i * pas_de_temps_min), 0.0, v)
+            for i, v in enumerate(valeurs)]
+
+
+def test_recalculer_dqp_dtp_cas_normal():
+    # Pic observé à l'indice 2 (valeur 100), pic simulé à l'indice 4 (valeur 120) --
+    # décalage de 2 pas de temps, dQP = (120-100)/100*100 = 20%.
+    obs = _serie(15, [10, 50, 100, 60, 20])
+    sim = [(d, v, 0.0) for d, _p, v in _serie(15, [10, 50, 80, 100, 120])]
+    dqp, dtp = _recalculer_dqp_dtp(obs, sim)
+    assert dqp == pytest.approx(20.0)
+    assert dtp == 2
+
+
+def test_recalculer_dqp_dtp_pic_simule_avant_le_pic_observe():
+    obs = _serie(15, [10, 50, 100, 60, 20])
+    sim = [(d, v, 0.0) for d, _p, v in _serie(15, [10, 90, 70, 40, 20])]
+    dqp, dtp = _recalculer_dqp_dtp(obs, sim)
+    assert dqp == pytest.approx(-10.0)
+    assert dtp == -1
+
+
+def test_recalculer_dqp_dtp_serie_observee_trop_courte():
+    assert _recalculer_dqp_dtp([(datetime(2024, 1, 1), 0.0, 10.0)], [(datetime(2024, 1, 1), 10.0, 0.0)]) \
+        == (None, None)
+
+
+def test_recalculer_dqp_dtp_serie_simulee_vide():
+    obs = _serie(15, [10, 50, 100, 60, 20])
+    assert _recalculer_dqp_dtp(obs, []) == (None, None)
+
+
+def test_recalculer_dqp_dtp_qp_observe_nul():
+    obs = _serie(15, [0, 0, 0])
+    sim = [(d, v, 0.0) for d, _p, v in _serie(15, [0, 5, 10])]
+    assert _recalculer_dqp_dtp(obs, sim) == (None, None)

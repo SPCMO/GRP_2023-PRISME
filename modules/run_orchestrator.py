@@ -25,6 +25,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from modules import grp_series, results_store
 from modules.config_prevision import ConfigPrevisionError, set_prevision
+from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.fiche_controle_pdf import FicheControleError, extraire_resultat
 from modules.grp_paths import GrpPaths
 from modules.grp_runner import GrpRunError, nettoyer_bddtr, run_calage, run_prevision_bat
@@ -96,6 +97,63 @@ def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs,
                              decalages_pic_heures=decalages_pic_heures):
             a_traiter.append((horizon, seuil_c1, methode))
     return a_traiter
+
+
+def _serie_observee_complete(paths, pas_de_temps, crue_date):
+    """Série observée COMPLÈTE de la crue (toute la fenêtre détectée par GRP, avant ET
+    après son pic), pour recalculer dQP/dTP en repli quand le PDF ne les a pas reportés
+    (voir _recalculer_dqp_dtp ci-dessous) — À NE JAMAIS CONFONDRE avec la série archivée
+    sous type='obs' dans series_archivees (GRP*Obs.txt) : celle-ci ne couvre que la
+    fenêtre AVANT l'instant de rejeu (l'historique fourni en entrée du modèle), jamais
+    le pic lui-même si le rejeu est positionné avant — constaté en conditions réelles en
+    comparant les deux, un premier essai de recalcul basé dessus donnait des dQP
+    complètement aberrants (des centaines de %) faute de couvrir le bon intervalle.
+
+    Best-effort : None si l'événement ou son fichier EVxxxx.DAT est introuvable —
+    jamais une erreur bloquante pour un simple repli de calcul."""
+    try:
+        evenements = parse_criteres_perf(paths.criteres_perf_dat(pas_de_temps))
+    except (FileNotFoundError, CriteresPerfError):
+        return None
+    evt = next((e for e in evenements if e.date_deb == crue_date), None)
+    if evt is None:
+        return None
+    chemin = os.path.join(paths.evenements_dir(pas_de_temps),
+                           f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+    try:
+        return parse_evenement_serie(chemin)
+    except (FileNotFoundError, CriteresPerfError):
+        return None
+
+
+def _recalculer_dqp_dtp(serie_obs_complete, serie_sim):
+    """Repli quand GRP n'a pas reporté dQP/dTP dans le PDF pour cette crue (cellule
+    vide sur la page 2 — voir modules.fiche_controle_pdf) alors que le rejeu a par
+    ailleurs réussi : recalcule directement depuis les séries RÉELLES plutôt que de
+    laisser un None silencieux. Mêmes définitions que le manuel GRP (§2.4.10, déjà
+    utilisées par l'extraction PDF) : dQP = (QPsim − QPobs) / QPobs × 100 (%), dTP =
+    (tQPsim − tQPobs) exprimé en nombre de pas de temps — déduit de l'écart entre 2
+    points consécutifs de la série observée (jamais d'une valeur nominale de config),
+    pour rester robuste à un pas de temps qui varierait.
+
+    `serie_obs_complete` : voir _serie_observee_complete ci-dessus (PAS la série
+    archivée type='obs', qui ne couvre pas le pic). `serie_sim` : série simulée
+    archivée (date, débit, pluie), voir modules.grp_series.parser_previsions.
+
+    Validé par comparaison directe avec des dizaines de résultats déjà extraits du PDF
+    sur la base réelle de l'utilisateur : concordance à la précision d'arrondi près
+    (dTP identique à l'unité près, dQP à ~0.05 point de % près). Retourne (dqp, dtp),
+    chacun None si non calculable (série trop courte, QPobs nul)."""
+    if len(serie_obs_complete) < 2 or not serie_sim:
+        return None, None
+    qp_obs, t_obs = max((qobs, d) for d, _pobs, qobs in serie_obs_complete)
+    qp_sim, t_sim = max((debit, d) for d, debit, _pluie in serie_sim)
+    if not qp_obs:
+        return None, None
+    dqp = (qp_sim - qp_obs) / qp_obs * 100
+    intervalle_s = (serie_obs_complete[1][0] - serie_obs_complete[0][0]).total_seconds()
+    dtp = round((t_sim - t_obs).total_seconds() / intervalle_s) if intervalle_s > 0 else None
+    return dqp, dtp
 
 
 def _calage_deja_charge(paths, horizon, seuil_c1, methode):
@@ -338,39 +396,79 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                                             "failed", message, instant_label=instant_label))
                 return False
 
-            with results_store.db_session(db_path) as conn:
-                results_store.upsert_resultat_crue(
-                    conn, combinaison_id, crue_date, statut="success",
-                    dqp=resultat.dqp, dtp=resultat.dtp, ve=resultat.ve, kge=resultat.kge,
-                    suspects=resultat.suspects, instant_label=instant_label,
-                )
-            message = "suspect (hors bornes plausibles)" if resultat.est_suspect else ""
-
             # Archivage best-effort des séries observée/simulée pour le dashboard (bloc 6
             # > Détail par crue) — <BDDTR>/Temps_Reel/Sorties/ n'expose que le DERNIER
             # rejeu effectué, donc sans cet archivage immédiat la série serait perdue dès
-            # le rejeu suivant (crue ou instant). Un échec ici ne remet pas en cause le
-            # résultat dQP/dTP/VE/KGE déjà obtenu et persisté ci-dessus (source primaire
-            # des résultats) — le rejeu reste "success", juste sans courbe simulée
-            # disponible dans le dashboard. La série observée est toujours archivée sous
-            # instant_label='reference' (valeur par défaut d'archiver_serie) : c'est la
-            # même chronique historique quel que soit l'instant de rejeu, inutile de la
-            # dupliquer par instant.
+            # le rejeu suivant (crue ou instant). Fait AVANT la persistance du résultat
+            # (contrairement à avant) : la série simulée "sim" sert aussi de repli pour
+            # recalculer dQP/dTP juste en dessous quand le PDF ne les a pas reportés.
+            erreur_series = None
             try:
                 obs = grp_series.parser_observations(paths.sorties_dir)
                 sim = grp_series.parser_previsions(paths.sorties_dir)
+            except (FileNotFoundError, GrpSerieError) as e:
+                obs, sim = [], []
+                erreur_series = str(e)
+
+            # Repli quand GRP n'a pas reporté dQP/dTP dans le PDF pour cette crue
+            # (cellule vide sur la page 2 — voir modules.fiche_controle_pdf, cas
+            # constaté en conditions réelles, distinct d'un échec d'extraction) : la
+            # crue reste un rejeu RÉUSSI (VE/KGE, indicateurs globaux non liés à un
+            # seul instant de pic, restent d'ailleurs généralement disponibles), mais
+            # ni dQP ni dTP n'étaient auparavant reportés nulle part — jamais signalé,
+            # ni à l'utilisateur ni dans les logs (demandé explicitement : plus jamais
+            # de valeur manquante silencieuse). Recalculée directement depuis les
+            # séries RÉELLES (observée complète + simulée) quand c'est possible, avec
+            # la provenance toujours indiquée explicitement (jamais confondu avec une
+            # valeur extraite du PDF) — voir _recalculer_dqp_dtp pour la validation.
+            dqp, dtp = resultat.dqp, resultat.dtp
+            recalcules = []
+            if (dqp is None or dtp is None) and sim:
+                serie_obs_complete = _serie_observee_complete(paths, pas_de_temps, crue_date)
+                if serie_obs_complete:
+                    dqp_calc, dtp_calc = _recalculer_dqp_dtp(serie_obs_complete, sim)
+                    if dqp is None and dqp_calc is not None:
+                        dqp, recalcules = dqp_calc, recalcules + ["dQP"]
+                    if dtp is None and dtp_calc is not None:
+                        dtp, recalcules = dtp_calc, recalcules + ["dTP"]
+
+            note = None
+            if dqp is None or dtp is None:
+                indicateurs_manquants = [n for n, v in (("dQP", dqp), ("dTP", dtp)) if v is None]
+                note = (f"{'/'.join(indicateurs_manquants)} non fourni(s) par le PDF pour cette "
+                        "crue (cellule vide) et non recalculable(s) depuis les séries")
+                logger.warning("Crue %s (instant %s) sous %s/%s/%s : %s",
+                                crue_date, instant_label, horizon, seuil_c1, methode, note)
+            elif recalcules:
+                note = f"{'/'.join(recalcules)} recalculé(s) depuis les séries (non fourni par le PDF)"
+
+            with results_store.db_session(db_path) as conn:
+                results_store.upsert_resultat_crue(
+                    conn, combinaison_id, crue_date, statut="success",
+                    dqp=dqp, dtp=dtp, ve=resultat.ve, kge=resultat.kge,
+                    suspects=resultat.suspects, erreur=note, instant_label=instant_label,
+                )
+
+            message_parts = []
+            if resultat.est_suspect:
+                message_parts.append("suspect (hors bornes plausibles)")
+            if note:
+                message_parts.append(note)
+
+            if erreur_series:
+                logger.warning("Archivage des séries impossible pour crue %s (instant %s) "
+                                "sous %s/%s/%s : %s", crue_date, instant_label, horizon,
+                                seuil_c1, methode, erreur_series)
+                message_parts.append(f"série non archivée : {erreur_series}")
+            else:
                 with results_store.db_session(db_path) as conn:
                     results_store.archiver_serie(conn, combinaison_id, crue_date, "obs", obs)
                     results_store.archiver_serie(conn, combinaison_id, crue_date, "sim", sim,
                                                   instant_label=instant_label)
-            except (FileNotFoundError, GrpSerieError) as e:
-                logger.warning("Archivage des séries impossible pour crue %s (instant %s) "
-                                "sous %s/%s/%s : %s", crue_date, instant_label, horizon,
-                                seuil_c1, methode, e)
-                message = (message + " — " if message else "") + f"série non archivée : {e}"
 
             _notifier(ProgressionEvent(horizon, seuil_c1, methode, crue_date, etape_notif,
-                                        "success", message, instant_label=instant_label))
+                                        "success", " — ".join(message_parts),
+                                        instant_label=instant_label))
             return True
 
         for crue_date in crues_a_faire:

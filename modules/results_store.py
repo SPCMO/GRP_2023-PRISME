@@ -626,7 +626,8 @@ def list_resultats_avec_combinaison(conn):
         """
         SELECT c.id AS combinaison_id, c.horizon, c.seuil_c1, c.methode,
                c.statut AS statut_combinaison,
-               r.crue_date, r.statut AS statut_crue, r.dqp, r.dtp, r.ve, r.kge, r.suspects
+               r.crue_date, r.statut AS statut_crue, r.dqp, r.dtp, r.ve, r.kge, r.suspects,
+               r.erreur AS note
         FROM combinaisons c
         JOIN resultats_crues r ON r.combinaison_id = c.id
         WHERE r.instant_label = 'reference'
