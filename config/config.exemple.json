@@ -97,5 +97,14 @@
     "seuils_calage": [0.0],
     "methodes_selectionnees": ["T"],
     "decalages_pic_heures": []
+  },
+
+  "alertes": {
+    "_comment": "Alerte ntfy.sh de fin de campagne (notification push mobile, onglet Configuration) — topic PROPRE à CETTE installation, à ne jamais diffuser (il fait office de mot de passe : quiconque le connaît peut publier/lire dessus, voir modules/notification.py). active=false par défaut : comportement strictement inchangé tant que l'utilisateur ne coche rien. Voir Aide.html > Utilisation > Configuration.",
+    "active": false,
+    "serveur": "https://ntfy.sh",
+    "topic": "",
+    "priorite_fin_ok": "default",
+    "priorite_fin_echec": "high"
   }
 }

@@ -19,7 +19,7 @@ from datetime import datetime
 from tkinter import messagebox, scrolledtext, ttk
 
 import config as app_config
-from modules import results_store, run_orchestrator, score
+from modules import notification, proxy_utils, results_store, run_orchestrator, score
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
@@ -40,11 +40,25 @@ def _minutes_vers_duree_grp(minutes):
     return f"{jours:02d}J{heures:02d}H{minutes_restantes:02d}M"
 
 
+def _duree_vers_hhmm(duree):
+    """Formate un timedelta en "hh:mm" (heures potentiellement > 23) — pour le message
+    de l'alerte de fin de campagne (voir _envoyer_alerte_fin_campagne), plus lisible
+    sur une notification mobile que le format GRP xxJxxHxxM utilisé ailleurs."""
+    total_minutes = int(duree.total_seconds() // 60)
+    heures, minutes = divmod(total_minutes, 60)
+    return f"{heures:02d}:{minutes:02d}"
+
+
 def build_tab_orchestration(tab_frame, app):
     frm = make_scrollable_tab(tab_frame)
     file_evenements = queue.Queue()
     etat = {"thread": None, "total_etapes": 0, "etapes_faites": 0, "combinaisons": {},
-            "annulation": threading.Event()}
+            "annulation": threading.Event(),
+            # Pour l'alerte de fin de campagne (voir _envoyer_alerte_fin_campagne) :
+            # horodatage de lancement (durée), dernière erreur fatale reçue (None si
+            # aucune), pas de temps de CETTE campagne (code_pdt est une variable locale
+            # de _lancer(), pas partagée avec _poll() sans passer par etat).
+            "heure_debut": None, "derniere_erreur_fatale": None, "code_pdt_courant": None}
 
     inn, bg = make_section(frm, "Lancement de la campagne", "rouge")
 
@@ -304,6 +318,9 @@ def build_tab_orchestration(tab_frame, app):
                  "(journalisés séparément ci-dessous, hors barre de progression) ---")
 
         etat["annulation"].clear()
+        etat["heure_debut"] = datetime.now()
+        etat["derniere_erreur_fatale"] = None
+        etat["code_pdt_courant"] = code_pdt
 
         def _travail():
             try:
@@ -601,6 +618,75 @@ def build_tab_orchestration(tab_frame, app):
         barre.config(value=min(etat["etapes_faites"], etat["total_etapes"]))
         var_resume.set(f"{etat['etapes_faites']} / {etat['total_etapes']} étapes terminées.")
 
+    def _envoyer_alerte_fin_campagne():
+        """Alerte ntfy de fin de campagne (voir modules/notification.py et onglet
+        Configuration > "Alerte de fin de campagne") — demandé explicitement (2
+        septembre 2026) : une campagne peut durer longtemps et se lance souvent sans
+        surveillance. Ne fait RIEN si l'utilisateur n'a rien activé/renseigné
+        (comportement inchangé par défaut). BEST-EFFORT : un échec d'envoi (réseau,
+        proxy...) ne doit jamais perturber la fin de campagne — logué et signalé
+        discrètement dans le journal ci-dessus, jamais de messagebox bloquante ici
+        (contrairement au bouton "Envoyer une alerte de test" de Configuration, qui
+        lui reste une action explicite de l'utilisateur, donc peut se permettre un
+        retour bloquant). Couvre les 3 façons dont une campagne se termine : normale,
+        annulée par l'utilisateur (etat["annulation"]), ou erreur fatale
+        (etat["derniere_erreur_fatale"], mis à jour par _poll() sur nature=="fatal")
+        — les 3 mettent "fin" dans la queue en dernier (voir _lancer/_travail)."""
+        cfg = app.config_data.get("alertes", {})
+        topic = (cfg.get("topic") or "").strip()
+        if not cfg.get("active") or not topic:
+            return
+
+        lignes_tableau = [tableau.item(iid, "values") for iid in tableau.get_children()]
+        nb_combi_ok = sum(1 for v in lignes_tableau if v[3] == "success")
+        nb_combi_echec = len(lignes_tableau) - nb_combi_ok
+        nb_crues_ok = sum(s["crues_ok"] for s in etat["combinaisons"].values())
+        nb_crues_echec = sum(s["crues_ko"] for s in etat["combinaisons"].values())
+        duree_txt = (_duree_vers_hhmm(datetime.now() - etat["heure_debut"])
+                     if etat["heure_debut"] else "?")
+        pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+        libelle_pdt = next((p["libelle"] for p in pdt_list
+                             if p["code"] == etat["code_pdt_courant"]),
+                            etat["code_pdt_courant"] or "?")
+        nom_station = app.config_data.get("station", {}).get("nom_station") or "PRISME"
+
+        if etat["derniere_erreur_fatale"] is not None:
+            titre = f"PRISME — {nom_station} (erreur)"
+            erreur_txt = str(etat["derniere_erreur_fatale"])[:200]
+            message = (f"Campagne {nom_station} interrompue par une erreur — {libelle_pdt}. "
+                       f"{erreur_txt}. Calage : {nb_combi_ok} OK / {nb_combi_echec} échec "
+                       f"(partiel, campagne non terminée). Durée {duree_txt}.")
+            priorite = cfg.get("priorite_fin_echec", "high")
+        elif etat["annulation"].is_set():
+            titre = f"PRISME — {nom_station} (annulée)"
+            message = (f"Campagne {nom_station} annulée — {libelle_pdt}. "
+                       f"Calage : {nb_combi_ok} OK / {nb_combi_echec} échec. "
+                       f"Rejeux crue : {nb_crues_ok} OK / {nb_crues_echec} échec. "
+                       f"Durée {duree_txt}.")
+            priorite = cfg.get("priorite_fin_ok", "default")
+        else:
+            en_echec = nb_combi_echec > 0 or nb_crues_echec > 0
+            titre = f"PRISME — {nom_station}"
+            message = (f"Campagne {nom_station} terminée — {libelle_pdt}. "
+                       f"Calage : {nb_combi_ok} OK / {nb_combi_echec} échec. "
+                       f"Rejeux crue : {nb_crues_ok} OK / {nb_crues_echec} échec. "
+                       f"Durée {duree_txt}.")
+            priorite = cfg.get("priorite_fin_echec" if en_echec else "priorite_fin_ok",
+                                "high" if en_echec else "default")
+
+        try:
+            notification.envoyer_alerte_ntfy(
+                cfg.get("serveur", notification.SERVEUR_NTFY_PAR_DEFAUT), topic,
+                titre=titre, message=message, priorite=priorite,
+                proxies=proxy_utils.dict_proxies(),
+            )
+            _log("--- Alerte de fin de campagne envoyée (ntfy) ---")
+        except notification.NotificationError as e:
+            logging.getLogger("grp_2023.notification").warning(
+                "Échec d'envoi de l'alerte de fin de campagne : %s", e)
+            _log(f"--- Échec de l'alerte de fin de campagne (best-effort, campagne "
+                 f"non affectée) : {e} ---")
+
     def _poll():
         try:
             while True:
@@ -608,6 +694,7 @@ def build_tab_orchestration(tab_frame, app):
                 if nature == "evt":
                     _traiter_evenement(contenu)
                 elif nature == "fatal":
+                    etat["derniere_erreur_fatale"] = contenu
                     _log(f"[ERREUR FATALE] {contenu}")
                     messagebox.showerror("Campagne — erreur fatale", contenu)
                 elif nature == "fin":
@@ -621,6 +708,7 @@ def build_tab_orchestration(tab_frame, app):
                     # résultats dès la fin du run, sans attendre un changement de
                     # config sans rapport pour se mettre à jour.
                     app.rafraichir_badges_onglets()
+                    _envoyer_alerte_fin_campagne()
         except queue.Empty:
             pass
         if etat["thread"] and etat["thread"].is_alive():

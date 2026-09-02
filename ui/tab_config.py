@@ -9,11 +9,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import config as app_config
-from modules import results_store
+from modules import notification, proxy_utils, results_store
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.widgets_common import (
-    bouton_enregistrer, make_label, make_row, make_scrollable_tab, make_section,
+    bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section,
 )
 
 # Libellés affichés à l'utilisateur pour chaque couleur de seuil de vigilance PHyC (débit),
@@ -362,6 +362,113 @@ def build_tab_config(tab_frame, app):
                command=_revenir_dossier_defaut).pack(side=tk.LEFT)
 
     _rafraichir_affichage_dossier_data()
+
+    # ── Bloc 4 — Alerte de fin de campagne (optionnel) ───────────────────────────
+    # Demandé explicitement (2 septembre 2026) : une campagne de calage peut durer
+    # longtemps (voir onglet Campagne) et se lance souvent sans surveillance —
+    # prévenir sur téléphone qu'elle est terminée, sans avoir à rouvrir l'outil pour
+    # le savoir. Canal ntfy.sh (notification push), mis au point et testé en amont
+    # dans une session dédiée (voir modules/notification.py pour le détail technique
+    # et les raisons du choix). Décoché/vide par défaut : comportement strictement
+    # inchangé tant que l'utilisateur n'active rien lui-même.
+    inn4, bg4 = make_section(frm, "Alerte de fin de campagne (optionnel)", "bleu")
+
+    r = make_row(inn4, bg4)
+    var_alerte_active = tk.BooleanVar(
+        value=bool(app.config_data.get("alertes", {}).get("active", False)))
+
+    def _appliquer_alerte_active():
+        app.config_data.setdefault("alertes", {})["active"] = var_alerte_active.get()
+        app.persist_config()
+
+    tk.Checkbutton(r, text="M'alerter (notification push) à la fin de la campagne",
+                   variable=var_alerte_active, bg=bg4,
+                   command=_appliquer_alerte_active).pack(side=tk.LEFT)
+
+    r = make_row(inn4, bg4)
+    make_label(r, "Sujet ntfy (topic) :", bg4, width=30)
+    var_topic = tk.StringVar(value=app.config_data.get("alertes", {}).get("topic", ""))
+    ent_topic = ttk.Entry(r, textvariable=var_topic, width=40)
+    ent_topic.pack(side=tk.LEFT, padx=(2, 4))
+
+    def _valider_topic(_evt=None):
+        app.config_data.setdefault("alertes", {})["topic"] = var_topic.get().strip()
+        app.persist_config()
+
+    ent_topic.bind("<FocusOut>", _valider_topic)
+
+    def _generer_topic():
+        nom_station = app.config_data.get("station", {}).get("nom_station") \
+            or app.config_data.get("station", {}).get("code_site") or ""
+        var_topic.set(notification.generer_topic_ntfy(nom_station))
+        _valider_topic()
+
+    ttk.Button(r, text="Générer un sujet", command=_generer_topic).pack(side=tk.LEFT, padx=(0, 4))
+
+    def _copier_topic():
+        topic = var_topic.get().strip()
+        if not topic:
+            return
+        r.clipboard_clear()
+        r.clipboard_append(topic)
+
+    ttk.Button(r, text="Copier", command=_copier_topic).pack(side=tk.LEFT, padx=(0, 4))
+
+    def _texte_aide_alerte():
+        # Callable (pas une chaîne fixe) pour que le sujet affiché reste à jour même
+        # si l'utilisateur en a régénéré un juste avant de cliquer sur ⓘ — voir
+        # bouton_info().
+        topic_actuel = var_topic.get().strip() or "(aucun sujet généré pour l'instant)"
+        return (
+            "Marche à suivre :\n\n"
+            "1. Installer l'application « ntfy » (Play Store / App Store).\n"
+            "2. Dans l'appli, s'abonner (+) au sujet ci-contre — copiez-le avec le "
+            f"bouton « Copier » puis collez-le dans l'appli :\n   {topic_actuel}\n"
+            "3. Dans les réglages de CE sujet (dans l'appli ntfy), activer « Livraison "
+            "instantanée », puis dans les réglages batterie Android/iOS de l'appli, "
+            "passer sur « Sans restriction » — sinon les notifications n'arrivent "
+            "qu'à l'ouverture de l'appli (Firebase seul est bridé sur beaucoup de "
+            "téléphones, ex. Samsung/Xiaomi).\n"
+            "4. Ne JAMAIS communiquer ce sujet à quelqu'un d'extérieur : quiconque le "
+            "connaît peut lire ET publier dessus (il fait office de mot de passe). Il "
+            "est propre à CETTE installation de PRISME — ne pas le réutiliser sur un "
+            "autre poste/bassin, sauf pour partager volontairement les mêmes alertes "
+            "(ex. prévenir un 2e portable d'astreinte : abonnez-le au même sujet, "
+            "aucun réglage supplémentaire côté PRISME).\n"
+            "5. Testez la chaîne avec le bouton « Envoyer une alerte de test » ci-dessous."
+        )
+
+    bouton_info(r, "Alerte de fin de campagne — marche à suivre",
+                _texte_aide_alerte, bg=bg4).pack(side=tk.LEFT, padx=(4, 0))
+
+    r = make_row(inn4, bg4)
+    var_resultat_test = tk.StringVar(value="")
+
+    def _tester_alerte():
+        topic = var_topic.get().strip()
+        if not topic:
+            messagebox.showwarning("Alerte de test", "Renseignez d'abord un sujet ntfy "
+                                    "(bouton « Générer un sujet » ci-dessus).")
+            return
+        cfg = app.config_data.get("alertes", {})
+        nom_station = app.config_data.get("station", {}).get("nom_station") or "PRISME"
+        try:
+            notification.envoyer_alerte_ntfy(
+                cfg.get("serveur", notification.SERVEUR_NTFY_PAR_DEFAUT), topic,
+                titre=f"PRISME — {nom_station} (test)",
+                message="Ceci est une alerte de test envoyée depuis l'onglet "
+                        "Configuration — la chaîne fonctionne.",
+                priorite="default", proxies=proxy_utils.dict_proxies(),
+            )
+        except notification.NotificationError as e:
+            var_resultat_test.set(f"Échec : {e}")
+            return
+        var_resultat_test.set("Notification envoyée — vérifiez votre téléphone "
+                               "(quelques secondes de délai).")
+
+    ttk.Button(r, text="Envoyer une alerte de test", command=_tester_alerte).pack(side=tk.LEFT)
+    tk.Label(r, textvariable=var_resultat_test, bg=bg4, fg="#555555",
+             font=("TkDefaultFont", 9, "italic")).pack(side=tk.LEFT, padx=(10, 0))
 
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     # config_data est un unique dict partagé, modifié en place par tous les onglets
