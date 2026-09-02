@@ -7,14 +7,16 @@ import os
 # demandé par l'utilisateur pour repérer d'un coup d'œil la version en cours d'usage
 # sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne).
 # Format MAJEUR.MINEUR (pas de patch) : MAJEUR incrémenté à un changement structurel de
-# l'outil (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 — un
-# changement qui redéfinit le fonctionnement de tout l'outil, pas juste un onglet) ;
-# MINEUR incrémenté à chaque jour de déploiement suivant le dernier changement majeur,
-# quel que soit le nombre de correctifs/nouveautés livrés ce jour-là (voir Aide.html >
-# changelog pour le détail de chaque évolution — cette version n'est qu'un repère macro,
-# pas un décompte exhaustif). À incrémenter manuellement ici lors du prochain
-# déploiement significatif — jamais recalculé automatiquement.
-VERSION = "2.3"
+# l'outil (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 ; v3.0
+# = recalcul automatique du dQP/dTP + score composite en médiane, 1er septembre 2026 —
+# des changements qui redéfinissent le fonctionnement/la fiabilité de tout l'outil, pas
+# juste un onglet) ; MINEUR incrémenté à chaque lot de déploiement suivant le dernier
+# changement majeur (un jour peut donc contenir plusieurs incréments MINEUR — voir
+# Aide.html > Architecture > "Numéro de version" pour l'historique détaillé ; cette
+# version n'est qu'un repère macro, pas un décompte exhaustif du changelog). À
+# incrémenter manuellement ici lors du prochain déploiement significatif — jamais
+# recalculé automatiquement.
+VERSION = "3.2"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_JSON_PATH = os.path.join(BASE_DIR, "config", "config.json")

@@ -87,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023-PRISME v2.3 — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME v3.2 — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -265,12 +265,12 @@
   <h2>Architecture</h2>
 
   <h3>Numéro de version</h3>
-  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v2.3</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
+  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.2</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
   <ul>
-    <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026).</li>
-    <li><b>MINEUR</b> incrémenté à chaque <b>jour de déploiement</b> suivant le dernier changement majeur, quel que soit le nombre de correctifs/nouveautés livrés ce jour-là.</li>
+    <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement ou la fiabilité de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 ; v3.0 = recalcul automatique du dQP/dTP + score composite en médiane, 1<sup>er</sup> septembre 2026).</li>
+    <li><b>MINEUR</b> incrémenté à chaque <b>lot de déploiement</b> suivant le dernier changement majeur — un même jour peut donc contenir plusieurs incréments MINEUR si plusieurs livraisons distinctes s'y succèdent.</li>
   </ul>
-  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v2.3 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique, score en médiane, garde-fous anti-perte de données). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
+  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v3.0 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique + score en médiane) → v3.1 (1<sup>er</sup> septembre, garde-fous anti-perte de données lors d'une réinstallation) → v3.2 (1<sup>er</sup> septembre, numéro de version affiché). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
 
   <h3>Choix structurants</h3>
   <ul>
@@ -413,7 +413,7 @@
     <div class="chg-corps">
       <article class="chg-item" data-nature="tag-feat" data-imp="mineur">
         <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span></div>
-        <p>Numéro de <b>version</b> affiché dans le titre de la fenêtre (ex. <code>GRP_2023-PRISME v2.3</code>, <code>config.VERSION</code>) — demandé pour repérer d'un coup d'œil la version en cours sur un poste donné. Format MAJEUR.MINEUR : MAJEUR incrémenté à un changement structurel de l'outil, MINEUR à chaque jour de déploiement suivant — voir Architecture &gt; "Numéro de version" pour le détail et l'historique.</p>
+        <p>Numéro de <b>version</b> affiché dans le titre de la fenêtre (ex. <code>GRP_2023-PRISME v3.2</code>, <code>config.VERSION</code>) — demandé pour repérer d'un coup d'œil la version en cours sur un poste donné. Format MAJEUR.MINEUR : MAJEUR incrémenté à un changement structurel de l'outil (v3.0 = recalcul dQP/dTP automatique + score en médiane, ce même jour), MINEUR à chaque lot de déploiement suivant — voir Architecture &gt; "Numéro de version" pour le détail et l'historique complet.</p>
       </article>
       <article class="chg-item" data-nature="tag-feat" data-imp="majeur">
         <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span><span class="chg-imp">★ Majeur</span></div>
