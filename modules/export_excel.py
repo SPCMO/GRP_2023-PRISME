@@ -65,8 +65,9 @@ _COULEUR_LOCAL = "#BDC3C7"  # gris, écoulements locaux non expliqués par un af
 
 ENTETES_DETAIL = ("Crue", "Date/heure crue", "Horizon", "Seuil C1", "Méthode", "Statut",
                    "dQP (%)", "dTP (pdt)", "VE (%)", "KGE", "Suspect", "Note")
-ENTETES_SYNTHESE = ("Horizon", "Seuil C1", "Méthode", "Score composite", "Nb crues",
-                     "Médiane |dQP| (%)", "Médiane |dTP|", "Médiane |VE| (%)", "Médiane (1-KGE)")
+ENTETES_SYNTHESE = ("Horizon", "Seuil C1", "Méthode", "Score ac méd. (0=meilleur)",
+                     "Score ac moy. (0=meilleur)", "Nb crues", "Sous/sur-estim.",
+                     "dQp médian (%)", "dQp moyen (%)", "dT médian (pdt)", "dT moyen (pdt)")
 ENTETES_SENSIBILITE = ("Horizon", "Seuil C1", "Méthode", "Score composite")
 ENTETES_VUE3D = ("Horizon", "Seuil C1", "Méthode", "Score composite",
                   "Écart au meilleur (Δ)", "Médiane |dQP| (%)", "Médiane |dTP|",
@@ -205,7 +206,7 @@ def _libelle_crue(iso, info):
 # ══════════════════════════════════════════════════════════════════════════════════
 
 def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp, libelle_profil,
-                           crues_incluses):
+                           crues_incluses, agregation="mediane"):
     station = app.config_data.get("station", {})
     seuils_q = app.config_data.get("seuils_q", {})
     pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
@@ -266,6 +267,8 @@ def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp,
     ws.append(())
 
     _titre("Pondération du score composite actuellement active : " + libelle_profil)
+    ws.append(("Agrégation des erreurs par crue (bandeau partagé, Dashboard)",
+                "Médiane" if agregation == "mediane" else "Moyenne"))
     ws.append(("Indicateur", "Poids"))
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
@@ -282,7 +285,7 @@ def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp,
     ws.append(())
     ws.append(("Explication détaillée du calcul :",))
     ws.cell(row=ws.max_row, column=1).font = Font(italic=True)
-    for ligne_txt in explication_score(poids, asymetrie_dtp).split("\n"):
+    for ligne_txt in explication_score(poids, asymetrie_dtp, agregation=agregation).split("\n"):
         ws.append((ligne_txt,))
     ws.append(())
 
@@ -307,16 +310,48 @@ def _feuille_parametrage(ws, app, couverture, infos_crues, poids, asymetrie_dtp,
 # Onglet 2 — Vue synthèse
 # ══════════════════════════════════════════════════════════════════════════════════
 
-def _feuille_vue_synthese(ws, lignes_ok, scores_valides, meilleur):
+def _feuille_vue_synthese(ws, lignes_ok, scores_valides, scores_alt_valides, mode_actif, meilleur):
+    """`scores_valides` : mode d'agrégation ACTUELLEMENT ACTIF (`mode_actif` :
+    "mediane" ou "moyenne", app.config_data["score"]["agregation"]) — détermine
+    `meilleur`, la heatmap et la dispersion ci-dessous, cohérent avec ce que montre le
+    Dashboard à l'écran au moment de l'export. `scores_alt_valides` : l'AUTRE mode,
+    calculé uniquement pour peupler les colonnes "Score ac méd./moy." et "dQp
+    médian/moyen" et "dT médian/moyen" du classement ci-dessous, qui affiche TOUJOURS
+    les 2 côte à côte (même formalisme que le tableau du Dashboard, voir
+    ui/tab_dashboard.py::_build_synthese — demandé explicitement)."""
+    est_mediane = mode_actif == "mediane"
+    alt_par_cle = {(s.horizon, s.seuil_c1, s.methode): s for s in scores_alt_valides}
+    lignes_par_combi = {}
+    for l in lignes_ok:
+        lignes_par_combi.setdefault((l["horizon"], l["seuil_c1"], l["methode"]), []).append(l)
+
     # -- Classement complet (même contenu que le tableau "Classement" du Dashboard) --
-    _entete(ws, ENTETES_SYNTHESE, [16, 12, 12, 18, 10, 18, 18, 18, 18])
+    _entete(ws, ENTETES_SYNTHESE, [16, 12, 12, 20, 20, 10, 14, 14, 14, 14, 14])
     for s in scores_valides:
+        cle = (s.horizon, s.seuil_c1, s.methode)
+        s_alt = alt_par_cle.get(cle)
+        m = s.erreurs_agregees
+        m_alt = s_alt.erreurs_agregees if s_alt else {}
+        # Score/dQp/dT "principal" (s, mode_actif) vs "alt" (s_alt, l'autre mode)
+        # réassignés en colonnes méd/moy selon mode_actif — jamais supposé fixe ici.
+        score_med = s.score if est_mediane else (s_alt.score if s_alt else None)
+        score_moy = s_alt.score if est_mediane else s.score
+        dqp_med = m.get("dqp") if est_mediane else m_alt.get("dqp")
+        dqp_moy = m_alt.get("dqp") if est_mediane else m.get("dqp")
+        dt_med = m.get("dtp") if est_mediane else m_alt.get("dtp")
+        dt_moy = m_alt.get("dtp") if est_mediane else m.get("dtp")
+        lignes_combi = lignes_par_combi.get(cle, [])
+        nb_sous = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] < 0)
+        nb_sur = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] > 0)
         ws.append((
-            s.horizon, s.seuil_c1, s.methode, round(s.score, 4), s.nb_crues,
-            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
-            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
-            round(s.medianes_erreur.get("ve"), 2) if s.medianes_erreur.get("ve") is not None else None,
-            round(s.medianes_erreur.get("kge"), 4) if s.medianes_erreur.get("kge") is not None else None,
+            s.horizon, s.seuil_c1, s.methode,
+            round(score_med, 4) if score_med is not None else None,
+            round(score_moy, 4) if score_moy is not None else None,
+            s.nb_crues, f"{nb_sous} / {nb_sur}",
+            round(dqp_med, 2) if dqp_med is not None else None,
+            round(dqp_moy, 2) if dqp_moy is not None else None,
+            round(dt_med, 2) if dt_med is not None else None,
+            round(dt_moy, 2) if dt_moy is not None else None,
         ))
 
     ligne_libre = ws.max_row + 2
@@ -593,10 +628,10 @@ def _feuille_vue_3d(ws, scores_valides, meilleur):
         ws.append((
             s.horizon, s.seuil_c1, s.methode, round(s.score, 4),
             round(delta, 4) if delta is not None else None,
-            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
-            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
-            round(s.medianes_erreur.get("ve"), 2) if s.medianes_erreur.get("ve") is not None else None,
-            round(s.medianes_erreur.get("kge"), 4) if s.medianes_erreur.get("kge") is not None else None,
+            round(s.erreurs_agregees.get("dqp"), 2) if s.erreurs_agregees.get("dqp") is not None else None,
+            round(s.erreurs_agregees.get("dtp"), 2) if s.erreurs_agregees.get("dtp") is not None else None,
+            round(s.erreurs_agregees.get("ve"), 2) if s.erreurs_agregees.get("ve") is not None else None,
+            round(s.erreurs_agregees.get("kge"), 4) if s.erreurs_agregees.get("kge") is not None else None,
         ))
 
     if not scores_valides or meilleur is None:
@@ -664,7 +699,7 @@ def _figure_vue_3d(scores_tries, meilleur):
 # Onglet 6 — Variation selon le nombre de crues
 # ══════════════════════════════════════════════════════════════════════════════════
 
-def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp):
+def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp, agregation="mediane"):
     """Même logique que ui.tab_dashboard._build_variation_crues (voir ce module pour le
     détail) : pour N croissant de 3 au nombre total de crues avec Qmax connu (classées
     Qmax décroissant), la combinaison gagnante du score composite sur les N crues les
@@ -684,7 +719,8 @@ def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp):
         lignes_n = [l for l in lignes_success if l["crue_date"] in isos_n]
         if not lignes_n:
             continue
-        scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                                agregation=agregation)
                     if s.score is not None]
         if not scores_n:
             continue
@@ -698,7 +734,7 @@ def _figure_variation_crues(points):
     dégradé rouge/vert, lignes verticales + étiquettes aux bascules de combinaison
     gagnante. Pas d'icône ni de sélection interactive ici (statique, pour un export)."""
     ns = [n for n, _s in points]
-    kges = [s.medianes_erreur.get("kge") for _n, s in points]
+    kges = [s.erreurs_agregees.get("kge") for _n, s in points]
     libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
 
     fig = Figure(figsize=(11, 4.6), dpi=100)
@@ -756,9 +792,9 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
     for n, s in points:
         ws.append((
             n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}", round(s.score, 4),
-            round(s.medianes_erreur.get("kge"), 3) if s.medianes_erreur.get("kge") is not None else None,
-            round(s.medianes_erreur.get("dqp"), 2) if s.medianes_erreur.get("dqp") is not None else None,
-            round(s.medianes_erreur.get("dtp"), 2) if s.medianes_erreur.get("dtp") is not None else None,
+            round(s.erreurs_agregees.get("kge"), 3) if s.erreurs_agregees.get("kge") is not None else None,
+            round(s.erreurs_agregees.get("dqp"), 2) if s.erreurs_agregees.get("dqp") is not None else None,
+            round(s.erreurs_agregees.get("dtp"), 2) if s.erreurs_agregees.get("dtp") is not None else None,
         ))
     _ajuster_largeurs(ws, [30, 26, 22, 18, 22, 22])
 
@@ -1184,11 +1220,21 @@ def exporter(chemin_xlsx, app, db_path=None):
         # tous les résultats, indépendamment de la sélection de crues du score.
         app.config_data.setdefault("score", config_ponderation_par_defaut())
         poids, asymetrie_dtp, libelle_profil = resoudre_ponderation(app.config_data["score"])
+        agregation = app.config_data["score"].get("agregation", "mediane")
         crues_incluses = app.config_data["score"].get("crues_incluses")
         lignes_ok = filtrer_par_crues([l for l in lignes if l["statut_crue"] == "success"],
                                         crues_incluses)
-        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                  agregation=agregation)
         scores_valides = [s for s in scores if s.score is not None]
+        # Mode alternatif — uniquement pour peupler les colonnes doublées (méd/moy) de
+        # la feuille Vue synthèse, voir _feuille_vue_synthese. `meilleur` (ci-dessous),
+        # la heatmap et Sensibilité/Vue 3D restent sur `scores_valides` (mode ACTIF
+        # uniquement), cohérent avec ce que montre le Dashboard.
+        mode_alt = "moyenne" if agregation == "mediane" else "mediane"
+        scores_alt_valides = [s for s in calculer_scores(
+            lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=mode_alt)
+            if s.score is not None]
         meilleur = min(scores_valides, key=lambda s: s.score) if scores_valides else None
         meilleur_combinaison_id = None
         if meilleur is not None:
@@ -1206,9 +1252,10 @@ def exporter(chemin_xlsx, app, db_path=None):
         ws_param = wb.active
         ws_param.title = "Paramétrage"
         _feuille_parametrage(ws_param, app, couverture, infos_crues, poids, asymetrie_dtp,
-                              libelle_profil, crues_incluses)
+                              libelle_profil, crues_incluses, agregation)
 
-        _feuille_vue_synthese(wb.create_sheet("Vue synthèse"), lignes_ok, scores_valides, meilleur)
+        _feuille_vue_synthese(wb.create_sheet("Vue synthèse"), lignes_ok, scores_valides,
+                               scores_alt_valides, agregation, meilleur)
 
         _feuille_detail_par_crue(wb.create_sheet("Détail par crue"), lignes, infos_crues,
                                    meilleur, meilleur_combinaison_id, paths, app, conn)
@@ -1217,7 +1264,8 @@ def exporter(chemin_xlsx, app, db_path=None):
 
         _feuille_vue_3d(wb.create_sheet("Vue 3D"), scores_valides, meilleur)
 
-        points_variation = _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp)
+        points_variation = _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp,
+                                                     agregation)
         _feuille_variation_crues(wb.create_sheet("Variation selon le nb de crues"),
                                    points_variation, len(infos_crues), libelle_profil)
 

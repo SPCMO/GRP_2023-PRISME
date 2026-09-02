@@ -90,8 +90,62 @@ def test_calculer_scores_indicateur_manquant_nexclut_pas_la_ligne():
     ]
     scores = calculer_scores(lignes)
     assert len(scores) == 1
-    assert scores[0].medianes_erreur["dtp"] is None
+    assert scores[0].erreurs_agregees["dtp"] is None
     assert scores[0].score is not None  # calculé sur les 3 autres indicateurs
+
+
+def test_calculer_scores_agregation_mediane_par_defaut():
+    """Comportement inchangé si `agregation` n'est pas précisé — voir
+    AGREGATION_PAR_DEFAUT ("mediane")."""
+    # 3 crues, dQP = 1, 2, 100 -> médiane = 2 (robuste à l'outlier), moyenne = 34.33
+    # (très sensible à l'outlier) : les deux modes doivent donc donner des valeurs
+    # nettement différentes pour erreurs_agregees["dqp"].
+    lignes = [
+        _ligne("01J00H00M", 5.0, "T", "2024-01-01", dqp=1, dtp=0, ve=0, kge=1.0),
+        _ligne("01J00H00M", 5.0, "T", "2024-02-01", dqp=2, dtp=0, ve=0, kge=1.0),
+        _ligne("01J00H00M", 5.0, "T", "2024-03-01", dqp=-100, dtp=0, ve=0, kge=1.0),
+    ]
+    scores = calculer_scores(lignes)
+    assert scores[0].erreurs_agregees["dqp"] == 2  # médiane de [1, 2, 100]
+
+
+def test_calculer_scores_agregation_moyenne_explicite():
+    lignes = [
+        _ligne("01J00H00M", 5.0, "T", "2024-01-01", dqp=1, dtp=0, ve=0, kge=1.0),
+        _ligne("01J00H00M", 5.0, "T", "2024-02-01", dqp=2, dtp=0, ve=0, kge=1.0),
+        _ligne("01J00H00M", 5.0, "T", "2024-03-01", dqp=-100, dtp=0, ve=0, kge=1.0),
+    ]
+    scores = calculer_scores(lignes, agregation="moyenne")
+    assert scores[0].erreurs_agregees["dqp"] == pytest.approx((1 + 2 + 100) / 3)
+
+
+def test_calculer_scores_mediane_et_moyenne_donnent_des_scores_differents():
+    """Sur un jeu avec un vrai outlier, les 2 modes doivent produire un score composite
+    différent pour la même combinaison — sinon le sélecteur d'agrégation du Dashboard
+    n'aurait aucun effet visible."""
+    lignes_a = [
+        _ligne("01J00H00M", 5.0, "T", "2024-01-01", dqp=1, dtp=1, ve=1, kge=0.99),
+        _ligne("01J00H00M", 5.0, "T", "2024-02-01", dqp=2, dtp=1, ve=1, kge=0.99),
+        _ligne("01J00H00M", 5.0, "T", "2024-03-01", dqp=200, dtp=1, ve=1, kge=0.99),
+    ]
+    lignes_b = [
+        _ligne("02J00H00M", 5.0, "T", "2024-01-01", dqp=10, dtp=1, ve=1, kge=0.99),
+        _ligne("02J00H00M", 5.0, "T", "2024-02-01", dqp=11, dtp=1, ve=1, kge=0.99),
+        _ligne("02J00H00M", 5.0, "T", "2024-03-01", dqp=12, dtp=1, ve=1, kge=0.99),
+    ]
+    lignes = lignes_a + lignes_b
+    scores_mediane = {s.horizon: s.score for s in calculer_scores(lignes, agregation="mediane")}
+    scores_moyenne = {s.horizon: s.score for s in calculer_scores(lignes, agregation="moyenne")}
+    # En médiane, combinaison A (médiane dQP=2) bat largement B (médiane dQP=11).
+    assert scores_mediane["01J00H00M"] < scores_mediane["02J00H00M"]
+    # En moyenne, l'outlier (200) fait perdre A face à B (moyenne dQP=71 vs 11).
+    assert scores_moyenne["01J00H00M"] > scores_moyenne["02J00H00M"]
+
+
+def test_calculer_scores_agregation_invalide_leve_key_error():
+    with pytest.raises(KeyError):
+        calculer_scores([_ligne("01J00H00M", 5.0, "T", "2024-01-01", 1, 1, 1, 0.9)],
+                         agregation="inconnue")
 
 
 def test_calculer_scores_asymetrie_dtp_penalise_le_retard():

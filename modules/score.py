@@ -3,26 +3,34 @@
 "Dashboard et score de synthèse".
 
 Pour chaque combinaison, |dQP|, |dTP|, |VE|, (1-KGE) sont d'abord agrégés sur ses crues
-réussies par la MÉDIANE (pas la moyenne — demandé explicitement pour rester cohérent
-avec results_store.duree_par_etape, qui utilise déjà la médiane : un run/une crue
-atypique fausse beaucoup plus une moyenne qu'une médiane). Chaque indicateur ainsi
+réussies — par la MÉDIANE par défaut (cohérent avec results_store.duree_par_etape, qui
+utilise déjà la médiane : un run/une crue atypique fausse beaucoup plus une moyenne
+qu'une médiane), ou par la MOYENNE si `agregation="moyenne"` est demandé explicitement
+(voir `calculer_scores`, paramètre `agregation` — réglage exposé dans le Dashboard,
+bandeau partagé, pour comparer les deux modes sans code). Chaque indicateur ainsi
 agrégé est ensuite normalisé min-max sur l'ensemble des combinaisons évaluées, puis
 combiné en une MOYENNE PONDÉRÉE (poids égaux par défaut, réglables) — cette 2e étape
-reste une moyenne, jamais une médiane : les poids n'auraient aucun effet sur une
-médiane de 4 valeurs (voir PROFILS_PONDERATION, profil "métier" où dQP compte 3x plus
-que VE/KGE — un réglage qui n'a de sens qu'avec une moyenne pondérée). Un score PLUS
-BAS = MEILLEURE performance (0 = la meilleure valeur observée sur chaque indicateur,
-1 = la pire). Fonction pure, indépendante de l'UI et de results_store, pour rester
-testable isolément.
+reste TOUJOURS une moyenne, quel que soit `agregation` : les poids n'auraient aucun
+effet sur une médiane de 4 valeurs (voir PROFILS_PONDERATION, profil "métier" où dQP
+compte 3x plus que VE/KGE — un réglage qui n'a de sens qu'avec une moyenne pondérée).
+Un score PLUS BAS = MEILLEURE performance (0 = la meilleure valeur observée sur chaque
+indicateur, 1 = la pire). Fonction pure, indépendante de l'UI et de results_store, pour
+rester testable isolément.
 """
 
 from dataclasses import dataclass, field
-from statistics import median
+from statistics import mean, median
 from typing import Dict, List, Optional
 
 INDICATEURS = ("dqp", "dtp", "ve", "kge")
 POIDS_PAR_DEFAUT = {"dqp": 1.0, "dtp": 1.0, "ve": 1.0, "kge": 1.0}
 ASYMETRIE_DTP_PAR_DEFAUT = {"retard": 1.0, "avance": 1.0}  # symétrique : 1.0/1.0
+
+# Fonctions d'agrégation des erreurs par crue proposées à l'utilisateur (Dashboard,
+# bandeau partagé) — voir calculer_scores(agregation=...). "mediane" reste le
+# comportement par défaut (jamais changé en place, comme pour PROFILS_PONDERATION).
+FONCTIONS_AGREGATION = {"mediane": median, "moyenne": mean}
+AGREGATION_PAR_DEFAUT = "mediane"
 
 # Profils de pondération proposés dans le Dashboard (sélecteur partagé, voir
 # ui/tab_dashboard.py) — "egal" est le comportement d'origine, jamais modifié en place
@@ -44,13 +52,15 @@ PROFILS_PONDERATION = {
 }
 
 
-def explication_score(poids=None, asymetrie_dtp=None):
+def explication_score(poids=None, asymetrie_dtp=None, agregation=AGREGATION_PAR_DEFAUT):
     """Texte affiché dans le bouton "ⓘ" à côté de chaque "Score composite" du
-    Dashboard — généré à partir de la pondération RÉELLEMENT active (voir
-    ui/tab_dashboard.py, sélecteur de profil), pour ne jamais afficher une description
-    qui ne correspond plus au calcul effectivement fait."""
+    Dashboard — généré à partir de la pondération ET de l'agrégation RÉELLEMENT
+    actives (voir ui/tab_dashboard.py, sélecteurs de profil et d'agrégation), pour ne
+    jamais afficher une description qui ne correspond plus au calcul effectivement
+    fait."""
     poids = poids or POIDS_PAR_DEFAUT
     asymetrie_dtp = asymetrie_dtp or ASYMETRIE_DTP_PAR_DEFAUT
+    libelle_agregation = "MÉDIANE" if agregation == "mediane" else "MOYENNE"
     poids_egaux = all(v == poids["dqp"] for v in poids.values())
     dtp_symetrique = asymetrie_dtp["retard"] == asymetrie_dtp["avance"]
 
@@ -83,11 +93,12 @@ def explication_score(poids=None, asymetrie_dtp=None):
         "Score composite (0 = meilleur, 1 = pire)\n\n"
         "Calculé UNIQUEMENT sur les combinaisons actuellement affichées à l'écran (jamais "
         "sur une seule, ni sur toute la base) :\n\n"
-        "1. Pour chaque combinaison, on calcule l'erreur MÉDIANE (sur ses crues réussies, "
-        "pas la moyenne — une crue atypique ne doit pas fausser le score plus qu'il ne "
-        "faut) de 4 indicateurs : |dQP| (écart % sur le débit de pointe), |dTP| (écart en "
-        "pas de temps sur l'heure du pic), |VE| (écart % sur le volume écoulé), et "
-        "(1 − KGE) (KGE théoriquement ≤ 1 dans le meilleur cas).\n\n"
+        f"1. Pour chaque combinaison, on calcule l'erreur {libelle_agregation} (sur ses "
+        "crues réussies) de 4 indicateurs : |dQP| (écart % sur le débit de pointe), "
+        "|dTP| (écart en pas de temps sur l'heure du pic), |VE| (écart % sur le volume "
+        "écoulé), et (1 − KGE) (KGE théoriquement ≤ 1 dans le meilleur cas). Réglable "
+        "(médiane/moyenne, bandeau partagé) — la médiane évite qu'une crue atypique ne "
+        "fausse le score plus qu'il ne faut.\n\n"
         "2. Chaque indicateur est normalisé entre 0 (la MEILLEURE valeur observée parmi "
         "TOUTES les combinaisons affichées) et 1 (la pire) — c'est une échelle RELATIVE à "
         "ce qui est affiché : ajouter ou retirer des combinaisons du graphique/tableau peut "
@@ -156,10 +167,12 @@ class ScoreCombinaison:
     methode: str
     score: Optional[float]     # None si aucun indicateur exploitable
     nb_crues: int
-    medianes_erreur: Dict[str, Optional[float]] = field(default_factory=dict)
-    # medianes_erreur : |dQP|, |dTP|, |VE|, (1-KGE) médians (non normalisés) — pour
-    # affichage humain à côté du score normalisé (peu lisible tel quel). Médiane et
-    # non moyenne : voir docstring de module en tête de fichier.
+    erreurs_agregees: Dict[str, Optional[float]] = field(default_factory=dict)
+    # erreurs_agregees : |dQP|, |dTP|, |VE|, (1-KGE) agrégés (non normalisés) — pour
+    # affichage humain à côté du score normalisé (peu lisible tel quel). Médiane ou
+    # moyenne selon le paramètre `agregation` de calculer_scores (voir docstring de
+    # module) — nom volontairement neutre (pas "medianes_erreur", son nom jusqu'au
+    # 1er septembre 2026 : le contenu peut désormais être des moyennes).
 
 
 def _fonction_normalisation(valeurs):
@@ -173,7 +186,8 @@ def _fonction_normalisation(valeurs):
     return lambda x: (x - mini) / etendue
 
 
-def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
+def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None,
+                     agregation=AGREGATION_PAR_DEFAUT):
     """`lignes_resultats` : itérable d'objets/dicts avec au moins les clés horizon,
     seuil_c1, methode, dqp, dtp, ve, kge (typiquement
     results_store.list_resultats_avec_combinaison() filtré sur statut_crue == "success").
@@ -185,15 +199,21 @@ def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
     symétrique d'origine. Voir PROFILS_PONDERATION pour des jeux de valeurs proposés à
     l'utilisateur (Dashboard, sélecteur de profil).
 
+    `agregation` : "mediane" (défaut) ou "moyenne" — fonction utilisée pour agréger
+    l'erreur de chaque indicateur sur les crues réussies d'une combinaison (voir
+    FONCTIONS_AGREGATION et la docstring de module). Demandé explicitement (Dashboard,
+    bandeau partagé) pour comparer les 2 modes à la volée, sans reprendre aucun calage.
+
     Un indicateur manquant (None — GRP note "NA") sur une ligne est simplement exclu de
-    la médiane POUR CETTE LIGNE, il n'exclut pas la ligne entière : un jeu de résultats
-    partiel reste exploitable plutôt que rejeté en bloc.
+    l'agrégation POUR CETTE LIGNE, il n'exclut pas la ligne entière : un jeu de
+    résultats partiel reste exploitable plutôt que rejeté en bloc.
 
     Retourne la liste des ScoreCombinaison, triée du meilleur (score le plus bas) au
     moins bon. Liste vide si `lignes_resultats` est vide.
     """
     poids = poids or POIDS_PAR_DEFAUT
     asymetrie_dtp = asymetrie_dtp or ASYMETRIE_DTP_PAR_DEFAUT
+    fonction_agregation = FONCTIONS_AGREGATION[agregation]
 
     groupes = {}
     for ligne in lignes_resultats:
@@ -211,38 +231,39 @@ def calculer_scores(lignes_resultats, poids=None, asymetrie_dtp=None):
             return abs(valeur) * facteur
         return abs(valeur)
 
-    medianes_par_combinaison = {}
+    erreurs_par_combinaison = {}
     for cle, groupe in groupes.items():
-        medianes = {}
+        agregees = {}
         for indicateur in INDICATEURS:
             erreurs = [e for e in (_erreur(l, indicateur) for l in groupe) if e is not None]
-            medianes[indicateur] = median(erreurs) if erreurs else None
-        medianes_par_combinaison[cle] = (medianes, len(groupe))
+            agregees[indicateur] = fonction_agregation(erreurs) if erreurs else None
+        erreurs_par_combinaison[cle] = (agregees, len(groupe))
 
     normalisateurs = {}
     for indicateur in INDICATEURS:
-        valeurs = [m[indicateur] for m, _ in medianes_par_combinaison.values()
-                   if m[indicateur] is not None]
+        valeurs = [a[indicateur] for a, _ in erreurs_par_combinaison.values()
+                   if a[indicateur] is not None]
         normalisateurs[indicateur] = _fonction_normalisation(valeurs) if valeurs else None
 
     resultats = []
-    for (horizon, seuil_c1, methode), (medianes, nb_crues) in medianes_par_combinaison.items():
+    for (horizon, seuil_c1, methode), (agregees, nb_crues) in erreurs_par_combinaison.items():
         composantes, poids_total = [], 0.0
         for indicateur in INDICATEURS:
-            valeur = medianes[indicateur]
+            valeur = agregees[indicateur]
             normaliseur = normalisateurs[indicateur]
             if valeur is None or normaliseur is None:
                 continue
             composantes.append(poids.get(indicateur, 1.0) * normaliseur(valeur))
             poids_total += poids.get(indicateur, 1.0)
         score = (sum(composantes) / poids_total) if poids_total else None
-        resultats.append(ScoreCombinaison(horizon, seuil_c1, methode, score, nb_crues, medianes))
+        resultats.append(ScoreCombinaison(horizon, seuil_c1, methode, score, nb_crues, agregees))
 
     resultats.sort(key=lambda r: (r.score is None, r.score))
     return resultats
 
 
-def meilleur_candidat(lignes_resultats, poids=None, asymetrie_dtp=None) -> Optional[ScoreCombinaison]:
+def meilleur_candidat(lignes_resultats, poids=None, asymetrie_dtp=None,
+                       agregation=AGREGATION_PAR_DEFAUT) -> Optional[ScoreCombinaison]:
     """Raccourci : la meilleure combinaison, ou None si aucun résultat exploitable."""
-    scores = calculer_scores(lignes_resultats, poids, asymetrie_dtp)
+    scores = calculer_scores(lignes_resultats, poids, asymetrie_dtp, agregation)
     return scores[0] if scores and scores[0].score is not None else None

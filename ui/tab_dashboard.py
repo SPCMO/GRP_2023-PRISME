@@ -28,7 +28,7 @@ from modules import export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
 from modules.score import (
-    PROFILS_PONDERATION, calculer_scores, config_ponderation_par_defaut,
+    AGREGATION_PAR_DEFAUT, PROFILS_PONDERATION, calculer_scores, config_ponderation_par_defaut,
     explication_score, filtrer_par_crues, resoudre_ponderation,
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
@@ -122,6 +122,28 @@ def build_tab_dashboard(tab_frame, app):
     ttk.Button(barre_pondération, text="Choisir…",
                command=lambda: _ouvrir_selecteur_crues_score(
                    app, lambda: _apres_choix_crues_score())).pack(side=tk.LEFT)
+
+    # Sélecteur d'agrégation des erreurs par crue (médiane/moyenne) — même principe
+    # que les 2 réglages ci-dessus (un seul, partagé par les 3 vues qui affichent un
+    # score composite ET la fenêtre "Combinaisons déjà réalisées") : demandé pour
+    # comparer les 2 modes à la volée, sans reprendre aucun calage/rejeu GRP (le score
+    # ne dépend que des dQP/dTP/VE/KGE déjà stockés en base par crue). "Médiane" reste
+    # le comportement par défaut (jamais changé en place, voir _agregation_active).
+    tk.Label(barre_pondération, text="Agrégation par crue :").pack(side=tk.LEFT, padx=(40, 0))
+    var_agregation = tk.StringVar()
+    combo_agregation = ttk.Combobox(
+        barre_pondération, textvariable=var_agregation, state="readonly", width=10,
+        values=["Médiane", "Moyenne"])
+    combo_agregation.pack(side=tk.LEFT, padx=(6, 0))
+
+    def _appliquer_agregation(*_evt):
+        _config_score(app)["agregation"] = (
+            "mediane" if var_agregation.get() == "Médiane" else "moyenne")
+        app.persist_config()
+        _rafraichir_toutes_les_vues_du_score()
+
+    combo_agregation.bind("<<ComboboxSelected>>", _appliquer_agregation)
+    var_agregation.set("Médiane" if _agregation_active(app) == "mediane" else "Moyenne")
 
     def _maj_label_crues_score():
         total = len(_lister_crues_pour_score(app))
@@ -338,6 +360,16 @@ def _poids_actifs(app):
     qu'elles utilisent toutes la même pondération que celle affichée dans le
     sélecteur, sans jamais la dupliquer en dur."""
     return resoudre_ponderation(_config_score(app))
+
+
+def _agregation_active(app):
+    """Mode d'agrégation des erreurs par crue (médiane/moyenne) RÉELLEMENT actif à cet
+    instant — "mediane" par défaut, jamais changé sans action explicite de
+    l'utilisateur (même principe que _poids_actifs). Partagé par toutes les vues à
+    score du Dashboard ET la fenêtre "Combinaisons déjà réalisées" (onglet Campagne),
+    pour que le score composite désigne toujours la même chose partout dans l'outil —
+    voir modules.score.calculer_scores(agregation=...)."""
+    return _config_score(app).get("agregation", AGREGATION_PAR_DEFAUT)
 
 
 def _crues_incluses_score(app):
@@ -648,7 +680,9 @@ def _build_synthese(frame, app):
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
     bouton_info(barre, "Score composite",
-                lambda: explication_score(*_poids_actifs(app)[:2])).pack(side=tk.LEFT, padx=(6, 0))
+                lambda: explication_score(*_poids_actifs(app)[:2],
+                                           agregation=_agregation_active(app))).pack(
+        side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT, padx=4)
     bouton_export = ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter())
     bouton_export.pack(side=tk.RIGHT)
@@ -704,17 +738,51 @@ def _build_synthese(frame, app):
         "inférieur au nombre total de crues de la colonne \"Nb crues\"."
     ).pack(side=tk.LEFT, padx=(4, 0))
 
+    # Colonnes du tableau — score ET dQP/dTP affichés en DOUBLE (médiane + moyenne,
+    # côte à côte, toujours les deux) : demandé pour comparer les 2 modes d'agrégation
+    # directement, indépendamment du sélecteur "Agrégation par crue" ci-dessus (qui,
+    # lui, ne pilote que la heatmap/dispersion et le tri PAR DÉFAUT du tableau — voir
+    # _COLONNE_SCORE_PAR_AGREGATION et _trier_tableau ci-dessous).
+    _COLONNES_TABLEAU = ("horizon", "seuil", "methode", "score_med", "score_moy",
+                          "nb_crues", "sous_sur", "dqp_med", "dqp_moy", "dt_med", "dt_moy")
+    _LIBELLES_TABLEAU = {
+        "horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
+        "score_med": "Score ac méd. (0=meilleur)", "score_moy": "Score ac moy. (0=meilleur)",
+        "nb_crues": "Nb crues", "sous_sur": "Sous/sur-estim.",
+        "dqp_med": "dQp médian (%)", "dqp_moy": "dQp moyen (%)",
+        "dt_med": "dT médian (pdt)", "dt_moy": "dT moyen (pdt)",
+    }
+    # Colonne de tri par défaut selon le mode actif (voir demande explicite : "quand
+    # l'utilisateur a choisi Médiane, le tri croissant se fait sur Score ac méd., idem
+    # pour Moyenne") — recalée à CHAQUE changement du sélecteur (voir
+    # _appliquer_agregation ci-dessus), sans effacer un tri manuel choisi entretemps
+    # (l'utilisateur peut re-cliquer une colonne après coup pour trier autrement).
+    _COLONNE_SCORE_PAR_AGREGATION = {"mediane": "score_med", "moyenne": "score_moy"}
+
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
-    tableau = ttk.Treeview(
-        cadre_classement,
-        columns=("horizon", "seuil", "methode", "score", "nb_crues", "sous_sur"),
-        show="headings", height=8)
-    for col, libelle in (("horizon", "Horizon"), ("seuil", "Seuil C1"), ("methode", "Méthode"),
-                         ("score", "Score (0=meilleur)"), ("nb_crues", "Nb crues"),
-                         ("sous_sur", "Sous/sur-estim.")):
-        tableau.heading(col, text=libelle)
-        tableau.column(col, width=120, anchor="center")
+    tableau = ttk.Treeview(cadre_classement, columns=_COLONNES_TABLEAU,
+                            show="headings", height=8)
+    etat_tri = {"colonne": _COLONNE_SCORE_PAR_AGREGATION[_agregation_active(app)],
+                "croissant": True, "dernier_mode_vu": None}
+
+    def _trier_tableau(col):
+        if etat_tri["colonne"] == col:
+            etat_tri["croissant"] = not etat_tri["croissant"]
+        else:
+            etat_tri["colonne"], etat_tri["croissant"] = col, True
+        _rafraichir()
+
+    def _maj_entetes_tri():
+        for col in _COLONNES_TABLEAU:
+            texte = _LIBELLES_TABLEAU[col]
+            if col == etat_tri["colonne"]:
+                texte += " ▲" if etat_tri["croissant"] else " ▼"
+            tableau.heading(col, text=texte, command=lambda c=col: _trier_tableau(c))
+
+    _maj_entetes_tri()
+    for col in _COLONNES_TABLEAU:
+        tableau.column(col, width=118, anchor="center")
     ascenseur_tableau = ttk.Scrollbar(cadre_classement, orient=tk.VERTICAL, command=tableau.yview)
     tableau.configure(yscrollcommand=ascenseur_tableau.set)
     tableau.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -790,6 +858,17 @@ def _build_synthese(frame, app):
         messagebox.showinfo("Export Excel", f"Export réussi : {chemin}")
 
     def _rafraichir():
+        # Recale le tri sur la colonne de score du mode ACTIF dès qu'il vient de
+        # changer (sélecteur "Agrégation par crue") — demandé explicitement — sans
+        # écraser un tri manuel choisi entretemps pour toute autre raison de
+        # rafraîchissement (nouvelle campagne, changement de pondération...).
+        mode_actif = _agregation_active(app)
+        if etat_tri["dernier_mode_vu"] != mode_actif:
+            etat_tri["colonne"] = _COLONNE_SCORE_PAR_AGREGATION[mode_actif]
+            etat_tri["croissant"] = True
+            etat_tri["dernier_mode_vu"] = mode_actif
+        _maj_entetes_tri()
+
         lignes, erreur = _charger_resultats(app)
         if erreur:
             var_statut.set(erreur)
@@ -821,9 +900,21 @@ def _build_synthese(frame, app):
             return
 
         poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
-        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=_agregation_active(app))
         var_statut.set(f"{len(lignes_ok)} résultat(s) réussi(s), {len(scores)} combinaison(s) "
                         f"— pondération : {libelle_profil}.")
+
+        # Le tableau de classement affiche TOUJOURS les 2 modes côte à côte (demandé),
+        # indépendamment de `scores` ci-dessus (mode actif, utilisé UNIQUEMENT pour la
+        # heatmap/dispersion/cadre jaune) — réutilise `scores` sans le recalculer pour
+        # le mode déjà obtenu, calcule l'autre mode séparément.
+        scores_mediane = (scores if mode_actif == "mediane" else
+                           calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                            agregation="mediane"))
+        scores_moyenne = (scores if mode_actif == "moyenne" else
+                           calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                            agregation="moyenne"))
+        scores_moyenne_par_cle = {(s.horizon, s.seuil_c1, s.methode): s for s in scores_moyenne}
 
         # Échelles X/Y calculées sur les 2 méthodes confondues (indépendamment des
         # cases cochées) — pour que basculer Tangara/RNA ne fasse jamais bouger les
@@ -875,7 +966,7 @@ def _build_synthese(frame, app):
             # 2 méthodes sont toutes les deux correctes en moyenne, sans qu'aucune des
             # deux n'atteigne individuellement le meilleur score de l'ensemble.
             texte_heatmap = (
-                explication_score(poids, asymetrie_dtp) + "\n\n"
+                explication_score(poids, asymetrie_dtp, agregation=_agregation_active(app)) + "\n\n"
                 "Note sur la heatmap : chaque case est la MOYENNE des méthodes (T et/ou "
                 "R) qui partagent cet horizon et ce seuil — le cadre jaune désigne, lui, "
                 "la MEILLEURE COMBINAISON INDIVIDUELLE (une seule méthode). Une case peut "
@@ -955,14 +1046,53 @@ def _build_synthese(frame, app):
         for l in lignes_ok:
             lignes_par_combi.setdefault((l["horizon"], l["seuil_c1"], l["methode"]), []).append(l)
 
-        tableau.delete(*tableau.get_children())
-        for s in scores:  # toutes les combinaisons, pas seulement les 15 meilleures -- l'ascenseur permet de tout parcourir
-            lignes_combi = lignes_par_combi.get((s.horizon, s.seuil_c1, s.methode), [])
+        def _fmt(valeur, decimales=2):
+            return f"{valeur:.{decimales}f}" if valeur is not None else "—"
+
+        lignes_tableau = []
+        for s in scores_mediane:  # toutes les combinaisons (mêmes identités des 2 côtés)
+            cle = (s.horizon, s.seuil_c1, s.methode)
+            s_moy = scores_moyenne_par_cle.get(cle)
+            lignes_combi = lignes_par_combi.get(cle, [])
             nb_sous = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] < 0)
             nb_sur = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] > 0)
-            tableau.insert("", tk.END, values=(s.horizon, f"{s.seuil_c1:.2f}", s.methode,
-                                                f"{s.score:.4f}" if s.score is not None else "—",
-                                                s.nb_crues, f"{nb_sous} / {nb_sur}"))
+            m_med, m_moy = s.erreurs_agregees, (s_moy.erreurs_agregees if s_moy else {})
+            lignes_tableau.append({
+                "horizon": s.horizon, "seuil": s.seuil_c1, "methode": s.methode,
+                "score_med": s.score, "score_moy": s_moy.score if s_moy else None,
+                "nb_crues": s.nb_crues, "sous_sur_tri": nb_sous,
+                "sous_sur_texte": f"{nb_sous} / {nb_sur}",
+                "dqp_med": m_med.get("dqp"), "dqp_moy": m_moy.get("dqp"),
+                "dt_med": m_med.get("dtp"), "dt_moy": m_moy.get("dtp"),
+            })
+
+        # Tri générique par colonne (clic sur un en-tête, voir _trier_tableau) — None
+        # toujours en dernier quel que soit le sens (repli à 0, jamais utilisé par les
+        # colonnes non numériques horizon/seuil/methode/sous_sur, jamais None).
+        # "horizon" trié par sa durée réelle en minutes (_horizon_en_minutes), pas
+        # alphabétiquement ("10J..." < "2J..." donnerait un ordre chronologique faux.
+        def _cle_tri(ligne):
+            col = etat_tri["colonne"]
+            if col == "horizon":
+                v = _horizon_en_minutes(ligne["horizon"])
+            elif col == "sous_sur":
+                v = ligne["sous_sur_tri"]
+            else:
+                v = ligne.get(col)
+            return (v is None, v if v is not None else 0)
+
+        lignes_tableau.sort(key=_cle_tri)
+        if not etat_tri["croissant"]:
+            lignes_tableau.reverse()
+
+        tableau.delete(*tableau.get_children())
+        for l in lignes_tableau:  # toutes les combinaisons -- l'ascenseur permet de tout parcourir
+            tableau.insert("", tk.END, values=(
+                l["horizon"], f"{l['seuil']:.2f}", l["methode"],
+                _fmt(l["score_med"], 4), _fmt(l["score_moy"], 4),
+                l["nb_crues"], l["sous_sur_texte"],
+                _fmt(l["dqp_med"]), _fmt(l["dqp_moy"]), _fmt(l["dt_med"]), _fmt(l["dt_moy"]),
+            ))
 
     _rafraichir()
     return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
@@ -1807,7 +1937,7 @@ def _build_sensibilite(frame, app):
         # (les calculer séparément donnerait à chacune son propre 0/1, faussant la
         # comparaison visuelle).
         poids, asymetrie_dtp, _libelle_profil = _poids_actifs(app)
-        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        scores = calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=_agregation_active(app))
         if not scores:
             canvas.draw_idle()
             return
@@ -1837,7 +1967,8 @@ def _build_sensibilite(frame, app):
         # continu) — signalé par l'utilisateur.
         ax.legend(loc="best", fontsize=7.5, ncol=2 if nb_courbes > 5 else 1, handlelength=3.5)
         icone_info_axe(fig, canvas, etat_icones, "y", 0.06, 0.88,
-                         "Score composite", explication_score(poids, asymetrie_dtp))
+                         "Score composite",
+                         explication_score(poids, asymetrie_dtp, agregation=_agregation_active(app)))
         canvas.draw_idle()
 
     # Retrace automatiquement dès que la sélection change (horizon ou méthode) — plus
@@ -1870,7 +2001,9 @@ def _build_vue3d(frame, app):
     var_statut = tk.StringVar(value="")
     tk.Label(barre, textvariable=var_statut, fg="#555555").pack(side=tk.LEFT)
     bouton_info(barre, "Score composite",
-                lambda: explication_score(*_poids_actifs(app)[:2])).pack(side=tk.LEFT, padx=(6, 0))
+                lambda: explication_score(*_poids_actifs(app)[:2],
+                                           agregation=_agregation_active(app))).pack(
+        side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT)
 
     tk.Label(frame, font=("TkDefaultFont", 8, "italic"), fg="#555555",
@@ -1940,7 +2073,7 @@ def _build_vue3d(frame, app):
         # Un seul appel à calculer_scores sur TOUS les résultats réussis : normalisation
         # cohérente avec la Vue synthèse (même score, même échelle 0=meilleur/1=pire).
         poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
-        scores = [s for s in calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp)
+        scores = [s for s in calculer_scores(lignes_ok, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=_agregation_active(app))
                   if s.score is not None]
         var_statut.set(f"{len(scores)} combinaison(s) avec score exploitable.")
         if not scores:
@@ -2016,7 +2149,7 @@ def _build_vue3d(frame, app):
         # inclus directement dans le libellé de légende de cette étoile — matplotlib
         # affiche un label multi-lignes comme une seule entrée de légende.
         meilleur = min(scores, key=lambda s: s.score)
-        m = meilleur.medianes_erreur
+        m = meilleur.erreurs_agregees
         libelle_meilleure = (
             "Meilleure combinaison\n"
             f"Horizon {meilleur.horizon} / seuil {meilleur.seuil_c1:.2f} / méthode {meilleur.methode}\n"
@@ -2267,7 +2400,7 @@ def _build_variation_crues(frame, app):
             point = next((p for p in etat_donnees["points"] if p[0] == n_selectionne), None)
             if point is not None:
                 _n, s = point
-                kge_val = s.medianes_erreur.get("kge")
+                kge_val = s.erreurs_agregees.get("kge")
                 if kge_val is not None:
                     etat_selection["marqueur_kge"] = ax.scatter(
                         [_n], [kge_val], s=200, facecolors="none", edgecolors="#C0392B",
@@ -2315,7 +2448,7 @@ def _build_variation_crues(frame, app):
             lignes_n = [l for l in lignes_ok if l["crue_date"] in isos_n]
             if not lignes_n:
                 continue
-            scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp)
+            scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=_agregation_active(app))
                         if s.score is not None]
             if not scores_n:
                 continue
@@ -2331,7 +2464,7 @@ def _build_variation_crues(frame, app):
                         f"crues sur {len(isos_ordre)} disponibles) — pondération : {libelle_profil}.")
 
         ns = [n for n, _s in points]
-        kges = [s.medianes_erreur.get("kge") for _n, s in points]
+        kges = [s.erreurs_agregees.get("kge") for _n, s in points]
         heures_horizon = [_horizon_en_minutes(s.horizon) / 60 for _n, s in points]
         libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
 
@@ -2418,9 +2551,9 @@ def _build_variation_crues(frame, app):
             tableau.insert("", tk.END, values=(
                 n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}",
                 f"{s.score:.4f}",
-                f"{s.medianes_erreur.get('kge'):.3f}" if s.medianes_erreur.get("kge") is not None else "—",
-                f"{s.medianes_erreur.get('dqp'):.2f}" if s.medianes_erreur.get("dqp") is not None else "—",
-                f"{s.medianes_erreur.get('dtp'):.2f}" if s.medianes_erreur.get("dtp") is not None else "—",
+                f"{s.erreurs_agregees.get('kge'):.3f}" if s.erreurs_agregees.get("kge") is not None else "—",
+                f"{s.erreurs_agregees.get('dqp'):.2f}" if s.erreurs_agregees.get("dqp") is not None else "—",
+                f"{s.erreurs_agregees.get('dtp'):.2f}" if s.erreurs_agregees.get("dtp") is not None else "—",
             ))
 
     _rafraichir()

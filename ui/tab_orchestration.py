@@ -375,10 +375,13 @@ def build_tab_orchestration(tab_frame, app):
         # (onglet Dashboard, en haut) — un score composite doit désigner la même chose
         # partout dans l'outil.
         poids, asymetrie_dtp, _libelle = score.resoudre_ponderation(app.config_data.get("score"))
+        agregation = (app.config_data.get("score") or {}).get("agregation", "mediane")
         crues_incluses = (app.config_data.get("score") or {}).get("crues_incluses")
         resultats = score.filtrer_par_crues(resultats, crues_incluses)
-        scores = score.calculer_scores(resultats, poids=poids, asymetrie_dtp=asymetrie_dtp) if resultats else []
-        return scores, dates_maj, poids, asymetrie_dtp
+        scores = (score.calculer_scores(resultats, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                         agregation=agregation)
+                  if resultats else [])
+        return scores, dates_maj, poids, asymetrie_dtp, agregation
 
     def _afficher_combinaisons_completes():
         """Ouvre une fenêtre listant les combinaisons dont le calage ET toutes les
@@ -398,17 +401,21 @@ def build_tab_orchestration(tab_frame, app):
         tk.Label(ligne_entete, textvariable=entete_var, anchor="w", pady=6,
                   wraplength=940, justify="left").pack(side=tk.LEFT, fill=tk.X, expand=True)
         bouton_info(ligne_entete, "Score composite",
-                    lambda: score.explication_score(*score.resoudre_ponderation(
-                        app.config_data.get("score"))[:2])).pack(side=tk.RIGHT, anchor="n")
+                    lambda: score.explication_score(
+                        *score.resoudre_ponderation(app.config_data.get("score"))[:2],
+                        agregation=(app.config_data.get("score") or {}).get(
+                            "agregation", "mediane"))).pack(side=tk.RIGHT, anchor="n")
 
         # Le score composite seul n'est pas interprétable avec peu de combinaisons
         # complètes (il est normalisé min-max SUR CET ENSEMBLE : avec une seule
         # combinaison, min=max=elle-même, donc score=0 par construction, quelle que
         # soit la qualité réelle du calage — pas une preuve de mauvaise/bonne
-        # extraction). Les médianes brutes |dQP|/|dTP|/|VE|/(1-KGE) (mêmes valeurs que
-        # score.ScoreCombinaison.medianes_erreur) sont donc affichées à côté, pour
-        # vérifier d'un coup d'œil que les indicateurs extraits sont plausibles,
-        # indépendamment du nombre de combinaisons déjà comparées.
+        # extraction). Les erreurs agrégées |dQP|/|dTP|/|VE|/(1-KGE) (mêmes valeurs que
+        # score.ScoreCombinaison.erreurs_agregees, médiane ou moyenne selon le
+        # sélecteur "Agrégation par crue" du Dashboard — même réglage partagé, voir
+        # modules.score) sont donc affichées à côté, pour vérifier d'un coup d'œil que
+        # les indicateurs extraits sont plausibles, indépendamment du nombre de
+        # combinaisons déjà comparées.
         tk.Label(fenetre, text="Sélection multiple : Ctrl/Maj + clic — pour supprimer "
                                "une ou plusieurs combinaisons ci-dessous.",
                  fg="#555555", font=("TkDefaultFont", 8)).pack(anchor="w", padx=8)
@@ -417,22 +424,32 @@ def build_tab_orchestration(tab_frame, app):
                     "crues_ok", "date_maj")
         arbre = ttk.Treeview(fenetre, columns=colonnes, show="headings", height=15,
                               selectmode="extended")
-        entetes_c = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
-                     "score": "Score (0=meilleur, relatif)", "dqp": "|dQP| méd (%)",
-                     "dtp": "|dTP| méd (pdt)", "ve": "|VE| méd (%)", "kge": "(1-KGE) méd",
-                     "crues_ok": "Crues réussies", "date_maj": "Dernière mise à jour"}
-        for col in colonnes:
-            arbre.heading(col, text=entetes_c[col])
+        for col, libelle in (("horizon", "Horizon"), ("seuil", "Seuil C1"),
+                              ("methode", "Méthode"), ("score", "Score (0=meilleur, relatif)"),
+                              ("crues_ok", "Crues réussies"), ("date_maj", "Dernière mise à jour")):
+            arbre.heading(col, text=libelle)
+            arbre.column(col, width=95, anchor="center")
+        for col in ("dqp", "dtp", "ve", "kge"):  # libellés dynamiques, voir _rafraichir
             arbre.column(col, width=95, anchor="center")
         arbre.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
         def _rafraichir():
             try:
-                scores, dates_maj, _poids, _asymetrie = _charger_combinaisons_completes()
+                scores, dates_maj, _poids, _asymetrie, agregation = _charger_combinaisons_completes()
             except Exception as e:
                 messagebox.showerror("Combinaisons déjà réalisées",
                                       f"Impossible de lire les résultats en base : {e}")
                 return
+            # En-têtes dynamiques (méd/moy) : le sélecteur "Agrégation par crue" du
+            # Dashboard peut changer à tout moment, cette fenêtre doit toujours
+            # afficher fidèlement ce qu'elle montre réellement.
+            abrege = "méd" if agregation == "mediane" else "moy"
+            libelles_colonnes = {
+                "dqp": f"|dQP| {abrege} (%)", "dtp": f"|dTP| {abrege} (pdt)",
+                "ve": f"|VE| {abrege} (%)", "kge": f"(1-KGE) {abrege}",
+            }
+            for col, libelle in libelles_colonnes.items():
+                arbre.heading(col, text=libelle)
             arbre.delete(*arbre.get_children())
             if not scores:
                 entete_var.set("Aucune combinaison entièrement réussie pour l'instant "
@@ -441,12 +458,13 @@ def build_tab_orchestration(tab_frame, app):
                                 "tableau ci-dessous — elles n'apparaîtront ici qu'une "
                                 "fois complètes).")
                 return
+            libelle_agregation = "médiane" if agregation == "mediane" else "moyenne"
             entete_var.set(f"{len(scores)} combinaison(s) déjà réalisée(s) et complète(s), "
                             "triées de la meilleure à la moins bonne (score composite, "
                             "voir Dashboard > Vue synthèse). Avec 1 seule combinaison "
                             "complète, un score à 0 est normal (rien à comparer) — fiez-"
-                            "vous aux médianes |dQP|/|dTP|/|VE|/(1-KGE) tant qu'il n'y en "
-                            "a pas plusieurs.")
+                            f"vous aux {libelle_agregation}s |dQP|/|dTP|/|VE|/(1-KGE) tant "
+                            "qu'il n'y en a pas plusieurs.")
 
             def _fmt(valeur):
                 return f"{valeur:.2f}" if valeur is not None else "—"
@@ -454,7 +472,7 @@ def build_tab_orchestration(tab_frame, app):
             for s in scores:  # déjà trié meilleur -> moins bon par score.calculer_scores
                 cle = (s.horizon, s.seuil_c1, s.methode)
                 texte_score = f"{s.score:.3f}" if s.score is not None else "—"
-                m = s.medianes_erreur
+                m = s.erreurs_agregees
                 arbre.insert("", tk.END, values=(
                     s.horizon, f"{s.seuil_c1:.2f}", s.methode, texte_score,
                     _fmt(m.get("dqp")), _fmt(m.get("dtp")), _fmt(m.get("ve")), _fmt(m.get("kge")),
