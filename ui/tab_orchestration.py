@@ -409,9 +409,14 @@ def build_tab_orchestration(tab_frame, app):
         # score.ScoreCombinaison.medianes_erreur) sont donc affichées à côté, pour
         # vérifier d'un coup d'œil que les indicateurs extraits sont plausibles,
         # indépendamment du nombre de combinaisons déjà comparées.
+        tk.Label(fenetre, text="Sélection multiple : Ctrl/Maj + clic — pour supprimer "
+                               "une ou plusieurs combinaisons ci-dessous.",
+                 fg="#555555", font=("TkDefaultFont", 8)).pack(anchor="w", padx=8)
+
         colonnes = ("horizon", "seuil", "methode", "score", "dqp", "dtp", "ve", "kge",
                     "crues_ok", "date_maj")
-        arbre = ttk.Treeview(fenetre, columns=colonnes, show="headings", height=15)
+        arbre = ttk.Treeview(fenetre, columns=colonnes, show="headings", height=15,
+                              selectmode="extended")
         entetes_c = {"horizon": "Horizon", "seuil": "Seuil C1", "methode": "Méthode",
                      "score": "Score (0=meilleur, relatif)", "dqp": "|dQP| méd (%)",
                      "dtp": "|dTP| méd (pdt)", "ve": "|VE| méd (%)", "kge": "(1-KGE) méd",
@@ -456,9 +461,61 @@ def build_tab_orchestration(tab_frame, app):
                     s.nb_crues, dates_maj.get(cle, ""),
                 ))
 
+        def _supprimer_selection():
+            """Supprime définitivement les combinaisons sélectionnées (calage +
+            TOUTES leurs crues, via ON DELETE CASCADE — voir results_store.
+            supprimer_combinaisons) — demandé explicitement, avec confirmation
+            nominative (jamais un simple "N éléments") tant l'opération est
+            irréversible : aucune corbeille, aucun moyen de récupérer un calage
+            supprimé par erreur autrement qu'en relançant une campagne complète.
+
+            Propage le changement PARTOUT où des données dérivées sont affichées
+            (voir main.App.on_resultats_changed, demandé explicitement) — sans quoi
+            le titre de la fenêtre, les badges d'onglets, le tableau "Combinaisons
+            testées" ci-dessous, les badges de couverture de Paramétrage et les 5
+            vues du Dashboard resteraient silencieusement obsolètes."""
+            iids = arbre.selection()
+            if not iids:
+                messagebox.showinfo("Supprimer",
+                                     "Sélectionnez d'abord une ou plusieurs combinaisons "
+                                     "(Ctrl/Maj + clic pour en sélectionner plusieurs).")
+                return
+            lignes = [arbre.item(iid, "values") for iid in iids]
+            libelles = "\n".join(f"  • {h} / seuil {float(s):.2f} / {m}"
+                                  for h, s, m, *_ in lignes)
+            if not messagebox.askyesno(
+                    "Supprimer des combinaisons — irréversible",
+                    f"Supprimer définitivement {len(lignes)} combinaison(s), avec le "
+                    "calage ET TOUS les résultats de crue associés (aucune corbeille, "
+                    "aucun moyen d'annuler — il faudrait relancer une campagne pour "
+                    "les reproduire) :\n\n"
+                    f"{libelles}\n\nContinuer ?"):
+                return
+            try:
+                results_store.init_db()
+                with results_store.db_session() as conn:
+                    ids = []
+                    for h, s_txt, m, *_ in lignes:
+                        row = conn.execute(
+                            "SELECT id FROM combinaisons WHERE horizon = ? AND seuil_c1 = ? "
+                            "AND methode = ?", (h, float(s_txt), m),
+                        ).fetchone()
+                        if row is not None:
+                            ids.append(row["id"])
+                    results_store.supprimer_combinaisons(conn, ids)
+            except Exception as e:
+                messagebox.showerror("Supprimer", f"Échec de la suppression : {e}")
+                return
+
+            _rafraichir()  # cette fenêtre elle-même
+            app.on_resultats_changed()  # partout ailleurs dans l'outil
+            messagebox.showinfo("Supprimer", f"{len(ids)} combinaison(s) supprimée(s).")
+
         barre_boutons = tk.Frame(fenetre)
         barre_boutons.pack(pady=(0, 10))
         ttk.Button(barre_boutons, text="Rafraîchir", command=_rafraichir).pack(side=tk.LEFT, padx=4)
+        ttk.Button(barre_boutons, text="Supprimer la sélection",
+                   command=_supprimer_selection).pack(side=tk.LEFT, padx=4)
         ttk.Button(barre_boutons, text="Fermer", command=fenetre.destroy).pack(side=tk.LEFT, padx=4)
 
         _rafraichir()
@@ -554,6 +611,43 @@ def build_tab_orchestration(tab_frame, app):
     btn_lancer.config(command=lambda: _lancer(seulement_echecs=False))
     btn_reprise.config(command=lambda: _lancer(seulement_echecs=True))
     btn_annuler.config(command=_annuler)
+
+    def _rafraichir_tableau_depuis_base():
+        """Resynchronise le tableau "Combinaisons testées" avec la base, SANS relancer
+        aucune campagne — exposé sur app.rafraichir_tableau_campagne (voir
+        main.App.on_resultats_changed) pour qu'une suppression faite depuis la fenêtre
+        "Combinaisons déjà réalisées" ne laisse jamais une ligne fantôme (combinaison
+        supprimée en base, mais encore affichée avec son ancien statut/nb de crues).
+
+        Ne touche que les lignes DÉJÀ affichées (celles d'une matrice déjà construite
+        par un lancement précédent) : ce tableau reflète une SÉLECTION de campagne,
+        pas "toutes les combinaisons en base" — avant tout premier lancement, il est
+        simplement vide et le reste (rien à resynchroniser)."""
+        if etat["thread"] and etat["thread"].is_alive():
+            return  # jamais pendant une campagne en cours — le poll live fait déjà foi
+        try:
+            results_store.init_db()
+            with results_store.db_session() as conn:
+                etats_connus = results_store.etat_combinaisons(conn)
+        except Exception:
+            return  # best-effort, comme les autres rafraîchissements de cet onglet
+        for iid in list(tableau.get_children()):
+            h, s_txt, m = tableau.item(iid, "values")[:3]
+            try:
+                cle = (h, float(s_txt), m)
+            except ValueError:
+                continue
+            connu = etats_connus.get(cle)
+            if connu is None:
+                tableau.delete(iid)  # combinaison supprimée en base
+                etat["combinaisons"].pop(iid, None)
+                continue
+            tag = connu["statut"] if connu["statut"] in ("failed", "success", "running") else ""
+            tableau.item(iid, values=(h, s_txt, m, connu["statut"],
+                                       connu["crues_ok"], connu["crues_ko"]), tags=(tag,))
+            etat["combinaisons"][iid] = {"crues_ok": connu["crues_ok"], "crues_ko": connu["crues_ko"]}
+
+    app.rafraichir_tableau_campagne = _rafraichir_tableau_depuis_base
 
     def _rafraichir_combo_pdt():
         pdt_list = app.config_data.get("parametrage", {}).get("pas_de_temps", [])

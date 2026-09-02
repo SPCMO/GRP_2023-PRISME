@@ -336,3 +336,59 @@ def test_list_combinaisons_completes_exclut_les_combinaisons_avec_un_echec(tmp_p
         completes = results_store.list_combinaisons_completes(conn)
     horizons = {c["horizon"] for c in completes}
     assert horizons == {"01J00H00M"}
+
+
+# -- supprimer_combinaisons ---------------------------------------------------------------
+
+def test_supprimer_combinaisons_efface_la_cascade_resultats_et_series(tmp_path):
+    """Vérifie que ON DELETE CASCADE (PRAGMA foreign_keys=ON de db_session) supprime
+    bien resultats_crues ET series_archivees sans requête DELETE séparée — voir la
+    fenêtre "Combinaisons déjà réalisées" (ui/tab_orchestration.py)."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        c1 = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        results_store.upsert_resultat_crue(conn, c1, "2024-01-01T00:00:00", "success")
+        results_store.archiver_serie(conn, c1, "2024-01-01T00:00:00", "sim",
+                                      [("2024-01-01T00:00:00", 12.5, 0.0)])
+        c2 = results_store.upsert_combinaison(conn, "02J00H00M", 5.0, "T", statut="success")
+        results_store.upsert_resultat_crue(conn, c2, "2024-01-01T00:00:00", "success")
+
+    with results_store.db_session(chemin) as conn:
+        results_store.supprimer_combinaisons(conn, [c1])
+
+    with results_store.db_session(chemin) as conn:
+        combinaisons = {c["id"] for c in results_store.list_combinaisons(conn)}
+        assert combinaisons == {c2}  # c1 supprimée, c2 intacte
+        assert results_store.list_resultats(conn, combinaison_id=c1) == []
+        assert results_store.charger_serie(conn, c1, "2024-01-01T00:00:00", "sim") == []
+        # c2 (non supprimée) reste intacte, aucun effet de bord
+        assert len(results_store.list_resultats(conn, combinaison_id=c2)) == 1
+
+
+def test_supprimer_combinaisons_plusieurs_a_la_fois(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        ids = [results_store.upsert_combinaison(conn, f"0{i}J00H00M", 5.0, "T",
+                                                  statut="success") for i in range(1, 4)]
+
+    with results_store.db_session(chemin) as conn:
+        results_store.supprimer_combinaisons(conn, ids[:2])
+
+    with results_store.db_session(chemin) as conn:
+        restantes = {c["id"] for c in results_store.list_combinaisons(conn)}
+    assert restantes == {ids[2]}
+
+
+def test_supprimer_combinaisons_liste_vide_ne_fait_rien(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        cid = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+
+    with results_store.db_session(chemin) as conn:
+        results_store.supprimer_combinaisons(conn, [])
+
+    with results_store.db_session(chemin) as conn:
+        assert {c["id"] for c in results_store.list_combinaisons(conn)} == {cid}

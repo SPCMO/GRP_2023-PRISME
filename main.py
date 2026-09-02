@@ -150,6 +150,39 @@ class App(tk.Tk):
         self._maj_titre()
         self.rafraichir_badges_onglets()
 
+    def on_resultats_changed(self):
+        """Notifie TOUT ce qui affiche des données dérivées de la base de résultats
+        (data/runs_<code_station>.sqlite3) qu'elles viennent de changer en dehors
+        d'une campagne — pour l'instant uniquement après une suppression manuelle de
+        combinaisons (fenêtre "Combinaisons déjà réalisées", onglet Campagne > bouton
+        Supprimer), mais conçue pour tout futur cas similaire.
+
+        Demandé explicitement ("il y a des refresh partout... ou ce sera impacté") :
+        avant cette méthode, seul le tableau de la fenêtre "Combinaisons déjà
+        réalisées" elle-même se rafraîchissait après une suppression — le titre de la
+        fenêtre, les badges d'onglets, le tableau "Combinaisons testées" de Campagne,
+        les badges de couverture de Paramétrage et les 5 vues du Dashboard restaient
+        silencieusement obsolètes jusqu'au prochain déclencheur sans rapport (clic sur
+        un bouton, changement de sous-onglet, redémarrage de l'outil).
+
+        Chaque rafraîchissement est appelé via getattr(..., None) : les onglets sont
+        tous construits au démarrage (voir _build_ui), donc ces attributs existent
+        toujours en pratique au moment où cette méthode peut être appelée (fenêtre
+        ouverte manuellement par l'utilisateur, après le démarrage complet) — le repli
+        défensif protège seulement contre un futur onglet qui oublierait de
+        s'enregistrer, plutôt que de faire planter toute la notification pour ça."""
+        self._maj_titre()
+        self.rafraichir_badges_onglets()
+        for nom_attribut in (
+            "rafraichir_tableau_campagne", "rafraichir_couverture_parametrage",
+            "rafraichir_dashboard_synthese", "rafraichir_dashboard_detail",
+            "rafraichir_dashboard_sensibilite", "rafraichir_dashboard_vue3d",
+            "rafraichir_dashboard_variation_crues",
+        ):
+            fonction = getattr(self, nom_attribut, None)
+            if fonction:
+                fonction()
+
     def rafraichir_badges_onglets(self):
         """Signale l'état d'avancement du workflow directement sur les libellés
         d'onglets (demandé) — sans ça, rien n'indique si Configuration est complète ou

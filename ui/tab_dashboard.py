@@ -160,13 +160,26 @@ def build_tab_dashboard(tab_frame, app):
     # plutôt que consultables en défilant.
     _rafraichir_synthese = _build_synthese(
         make_scrollable_tab(onglet_synthese, defilement_horizontal=True), app)
-    _build_detail(make_scrollable_tab(onglet_detail, defilement_horizontal=True), app)
+    _rafraichir_detail = _build_detail(
+        make_scrollable_tab(onglet_detail, defilement_horizontal=True), app)
     _rafraichir_sensibilite = _build_sensibilite(
         make_scrollable_tab(onglet_sensibilite, defilement_horizontal=True), app)
     _rafraichir_vue3d = _build_vue3d(
         make_scrollable_tab(onglet_3d, defilement_horizontal=True), app)
     _rafraichir_variation_crues = _build_variation_crues(
         make_scrollable_tab(onglet_variation_crues, defilement_horizontal=True), app)
+
+    # Exposées sur `app` pour main.App.on_resultats_changed (voir aussi
+    # ui/tab_orchestration.py, fenêtre "Combinaisons déjà réalisées" > Supprimer) :
+    # après une suppression de combinaisons en base, TOUTES les vues du Dashboard
+    # doivent redevenir cohérentes, pas seulement celle actuellement affichée à
+    # l'écran (le binding <<NotebookTabChanged>> ci-dessous ne rafraîchit que le
+    # sous-onglet qu'on VIENT de sélectionner, jamais les autres déjà construits).
+    app.rafraichir_dashboard_synthese = _rafraichir_synthese
+    app.rafraichir_dashboard_detail = _rafraichir_detail
+    app.rafraichir_dashboard_sensibilite = _rafraichir_sensibilite
+    app.rafraichir_dashboard_vue3d = _rafraichir_vue3d
+    app.rafraichir_dashboard_variation_crues = _rafraichir_variation_crues
 
     def _rafraichir_toutes_les_vues_du_score():
         # Détail par crue n'affiche pas de score composite (dQP/dTP/VE/KGE de
@@ -1673,6 +1686,10 @@ def _build_detail(frame, app):
     if libelle_init:
         var_pdt.set(libelle_init)
     _rafraichir_crues()
+    return _rafraichir_crues  # exposé pour build_tab_dashboard (changement de sous-onglet,
+                               # et main.App.on_resultats_changed après une suppression de
+                               # combinaisons) — jusqu'ici jamais rafraîchi de l'extérieur,
+                               # une combinaison supprimée pouvait rester listée/sélectionnée.
 
 
 # ══════════════════════════════════════════════════════════════════════════════════

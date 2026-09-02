@@ -384,6 +384,13 @@ def build_tab_parametrage(tab_frame, app):
         var_duree.set(_texte_duree(_charger_duree()))
         var_derniere_actualisation.set(f"actualisé à {datetime.now():%H:%M:%S}")
 
+    # Exposée sur app.rafraichir_couverture_parametrage (voir main.App.
+    # on_resultats_changed) : jusqu'ici seul le bouton "⟳ Couverture des tests"
+    # rafraîchissait ces badges — une suppression de combinaisons depuis la fenêtre
+    # "Combinaisons déjà réalisées" (onglet Campagne) les laissait sinon obsolètes
+    # (couverture surestimée) jusqu'au prochain clic manuel sur ce bouton.
+    app.rafraichir_couverture_parametrage = _rafraichir_couverture
+
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)
 

@@ -309,6 +309,30 @@ def set_statut_combinaison(conn, combinaison_id, statut, erreur=None):
     )
 
 
+def supprimer_combinaisons(conn, combinaison_ids):
+    """Supprime définitivement les combinaisons dont l'id figure dans
+    `combinaison_ids` (itérable) — utilisé par la fenêtre "Combinaisons déjà
+    réalisées" (onglet Campagne) pour retirer une combinaison devenue inutile
+    (mauvais réglage, doublon d'une grille resserrée par-dessus une grille grossière,
+    etc.) sans avoir à rouvrir la base à la main.
+
+    `ON DELETE CASCADE` (voir SCHEMA, PRAGMA foreign_keys=ON activé par db_session)
+    supprime automatiquement, pour chaque combinaison, ses lignes `resultats_crues`
+    ET `series_archivees` associées — aucune requête DELETE séparée nécessaire ici,
+    aucun résidu orphelin possible.
+
+    Irréversible : c'est à l'appelant (voir ui/tab_orchestration.py) de demander une
+    confirmation explicite avant d'appeler cette fonction, et de propager le
+    changement à tout ce qui affiche des données dérivées (titre de la fenêtre,
+    badges d'onglets, tableau de campagne, badges de couverture Paramétrage, toutes
+    les vues du Dashboard) — voir main.App.on_resultats_changed."""
+    ids = list(combinaison_ids)
+    if not ids:
+        return
+    marqueurs = ",".join("?" * len(ids))
+    conn.execute(f"DELETE FROM combinaisons WHERE id IN ({marqueurs})", ids)
+
+
 def upsert_resultat_crue(conn, combinaison_id, crue_date, statut, dqp=None, dtp=None,
                           ve=None, kge=None, suspects=None, erreur=None,
                           instant_label=INSTANT_REFERENCE):
