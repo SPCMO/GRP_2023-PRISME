@@ -87,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023-PRISME — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME v2.3 — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -264,6 +264,14 @@
 <section id="architecture">
   <h2>Architecture</h2>
 
+  <h3>Numéro de version</h3>
+  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v2.3</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
+  <ul>
+    <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026).</li>
+    <li><b>MINEUR</b> incrémenté à chaque <b>jour de déploiement</b> suivant le dernier changement majeur, quel que soit le nombre de correctifs/nouveautés livrés ce jour-là.</li>
+  </ul>
+  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v2.3 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique, score en médiane, garde-fous anti-perte de données). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
+
   <h3>Choix structurants</h3>
   <ul>
     <li><b>Interface Tkinter desktop</b> (comme OPALE v2), pas d'application web.</li>
@@ -392,17 +400,21 @@
       <button class="chg-lien" type="button" data-tout-replier>Tout replier</button>
     </div>
   </div>
-  <p class="chg-compteur" data-compteur>151 modification(s) affichée(s) sur 151 (27 majeures).</p>
+  <p class="chg-compteur" data-compteur>152 modification(s) affichée(s) sur 152 (27 majeures).</p>
 
   <div class="chg-timeline" data-timeline>
   <div class="chg-groupe chg-ouvert" data-groupe>
     <button class="chg-entete" type="button" data-toggle-groupe>
       <span class="chg-puce"></span>
       <span class="chg-date-lbl">1er septembre 2026</span>
-      <span class="chg-compte">11 modifications <span class="chg-compte-maj">· 4 majeures</span></span>
+      <span class="chg-compte">12 modifications <span class="chg-compte-maj">· 4 majeures</span></span>
       <span class="chg-chevron">▾</span>
     </button>
     <div class="chg-corps">
+      <article class="chg-item" data-nature="tag-feat" data-imp="mineur">
+        <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span></div>
+        <p>Numéro de <b>version</b> affiché dans le titre de la fenêtre (ex. <code>GRP_2023-PRISME v2.3</code>, <code>config.VERSION</code>) — demandé pour repérer d'un coup d'œil la version en cours sur un poste donné. Format MAJEUR.MINEUR : MAJEUR incrémenté à un changement structurel de l'outil, MINEUR à chaque jour de déploiement suivant — voir Architecture &gt; "Numéro de version" pour le détail et l'historique.</p>
+      </article>
       <article class="chg-item" data-nature="tag-feat" data-imp="majeur">
         <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span><span class="chg-imp">★ Majeur</span></div>
         <p>Onglet <b>Configuration</b> : nouveau bandeau <b>« Dossier de stockage des bases de résultats »</b> — un pointeur optionnel (<code>%APPDATA%\GRP_2023-PRISME\data_emplacement.txt</code>, hors du dossier d'installation) permet de stocker les bases dans un dossier externe stable, retrouvé automatiquement par toute future réinstallation de l'outil sur le même poste, même dans un tout nouveau dossier. Corrige un incident réel : <code>data/</code> étant gitignoré, une réinstallation dans un nouveau dossier (au lieu d'une mise à jour en place) repartait avec une base vierge sans que l'ancienne (restée dans l'ancien dossier) ne soit signalée. Bouton "Choisir un dossier externe…" proposant de copier automatiquement (jamais silencieusement) les bases déjà présentes ; bouton "Revenir au dossier par défaut". Voir <code>modules/results_store.dossier_data_effectif()</code> et Architecture &gt; "Éviter de perdre ses résultats lors d'une réinstallation". 4 nouveaux tests (<code>tests/test_results_store.py</code>).</p>

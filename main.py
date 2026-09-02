@@ -29,7 +29,7 @@ from ui.tab_orchestration import build_tab_orchestration
 from ui.tab_parametrage import build_tab_parametrage
 from ui.widgets_common import init_styles
 
-TITRE_BASE = "GRP_2023-PRISME — Campagnes de calage GRP"
+TITRE_BASE = f"GRP_2023-PRISME v{app_config.VERSION} — Campagnes de calage GRP"
 
 
 class App(tk.Tk):
