@@ -637,7 +637,8 @@ def _build_synthese(frame, app):
     bouton_info(barre, "Score composite",
                 lambda: explication_score(*_poids_actifs(app)[:2])).pack(side=tk.LEFT, padx=(6, 0))
     ttk.Button(barre, text="Rafraîchir", command=lambda: _rafraichir()).pack(side=tk.RIGHT, padx=4)
-    ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter()).pack(side=tk.RIGHT)
+    bouton_export = ttk.Button(barre, text="Exporter en Excel…", command=lambda: _exporter())
+    bouton_export.pack(side=tk.RIGHT)
 
     # Filtre méthode(s) pour le graphique composite (heatmap + dispersion + tableau) —
     # les 2 cases cochées par défaut reproduisent le comportement d'origine (les 2
@@ -736,11 +737,24 @@ def _build_synthese(frame, app):
             filetypes=[("Classeur Excel", "*.xlsx")])
         if not chemin:
             return
+        # Retour visuel minimal pendant l'export (classeur à 7 feuilles avec figures
+        # matplotlib re-rendues, potentiellement plusieurs secondes) — signalé comme
+        # manquant : sans lui, l'interface semble figée et incite à recliquer. Pas de
+        # thread dédié (contrairement à l'onglet Campagne, pour un traitement bien plus
+        # long) : juste désactiver le bouton et forcer l'affichage avant l'appel
+        # bloquant, qui suffit pour une opération de l'ordre de quelques secondes.
+        texte_normal = bouton_export["text"]
+        bouton_export.config(text="Export en cours…", state="disabled")
+        app.config(cursor="watch")
+        app.update_idletasks()
         try:
             export_excel.exporter(chemin, app)
         except Exception as e:
             messagebox.showerror("Export Excel", str(e))
             return
+        finally:
+            bouton_export.config(text=texte_normal, state="normal")
+            app.config(cursor="")
         messagebox.showinfo("Export Excel", f"Export réussi : {chemin}")
 
     def _rafraichir():

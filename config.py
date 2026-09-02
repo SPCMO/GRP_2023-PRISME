@@ -16,7 +16,7 @@ import os
 # version n'est qu'un repère macro, pas un décompte exhaustif du changelog). À
 # incrémenter manuellement ici lors du prochain déploiement significatif — jamais
 # recalculé automatiquement.
-VERSION = "3.2"
+VERSION = "3.3"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_JSON_PATH = os.path.join(BASE_DIR, "config", "config.json")

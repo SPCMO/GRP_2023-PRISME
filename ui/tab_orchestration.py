@@ -54,7 +54,7 @@ def build_tab_orchestration(tab_frame, app):
     combo_pdt = ttk.Combobox(r, textvariable=var_pdt_libelle, state="readonly", width=18)
     combo_pdt.pack(side=tk.LEFT, padx=(2, 12))
 
-    btn_lancer = ttk.Button(r, text="Lancement initial\nde la campagne")
+    btn_lancer = ttk.Button(r, text="Nouvelle campagne\n(tout relancer)")
     btn_lancer.pack(side=tk.LEFT, padx=(0, 6))
     btn_reprise = ttk.Button(r, text="Compléter la campagne\net relancer les échecs")
     btn_reprise.pack(side=tk.LEFT, padx=(0, 6))
@@ -252,6 +252,30 @@ def build_tab_orchestration(tab_frame, app):
         results_store.init_db()  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
         with results_store.db_session() as conn:
             etats_connus = results_store.etat_combinaisons(conn)
+
+        # Confirmation demandée avant un "Nouvelle campagne (tout relancer)" (jamais
+        # avant "Compléter la campagne...", qui ne touche par construction que ce qui
+        # manque) si des combinaisons de LA MATRICE ACTUELLE ont déjà réussi : sans
+        # filtre, ce bouton relance le calage de TOUTES les combinaisons sélectionnées,
+        # y compris celles déjà acquises (calage_deja_ok toujours False côté
+        # run_orchestrator dans ce mode) — un clic accidentel gaspillerait potentiellement
+        # des heures de calage déjà faites, sans qu'aucun signal ne le laisse deviner ici
+        # (le titre de la fenêtre affiche pourtant ce nombre de combinaisons en base).
+        if not seulement_echecs:
+            deja_reussies = sum(
+                1 for h, s, m in combinaisons
+                if (etats_connus.get((h, s, m)) or {}).get("statut") == "success")
+            if deja_reussies and not messagebox.askyesno(
+                    "Nouvelle campagne — combinaisons déjà réussies",
+                    f"{deja_reussies} combinaison(s) sur {len(combinaisons)} dans cette "
+                    "sélection ont déjà un calage réussi en base. Ce bouton relance le "
+                    "calage de TOUTES les combinaisons sélectionnées, y compris "
+                    "celles-ci — le travail déjà fait sera refait.\n\n"
+                    "Pour ne relancer que ce qui manque, utilisez plutôt "
+                    "« Compléter la campagne et relancer les échecs ».\n\n"
+                    "Continuer quand même ?"):
+                return
+
         for h, s, m in combinaisons:
             iid = f"{h}|{s}|{m}"
             # État initial du tableau = dernier statut réellement connu en base (pas
