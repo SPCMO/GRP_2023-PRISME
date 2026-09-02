@@ -1290,21 +1290,64 @@ def _build_detail(frame, app):
     canvas_instants = FigureCanvasTkAgg(fig_instants, master=inn_instants)
     canvas_instants.get_tk_widget().pack(fill=tk.BOTH, expand=True, pady=(4, 0))
 
-    for j, (libelle, largeur, _anchor) in enumerate(_COLONNES_MAX):
-        tk.Label(grille_max, text=libelle, font=("TkDefaultFont", 9, "bold"), bg="#E0E0E0",
-                 relief=tk.RIDGE, borderwidth=1, width=largeur).grid(row=0, column=j, sticky="nsew")
+    # Tri hand-rolled (garde la grille de Label — voir docstring plus haut) : au clic
+    # sur un en-tête, on ne recharge PAS les données (_tracer() reste inchangé), on se
+    # contente de re-numéroter la ligne `row=` de chaque Label déjà construit selon
+    # `etat_tableau_max["lignes"]`, qui porte pour chaque ligne à la fois ses Label
+    # affichés (texte déjà formaté) et ses valeurs BRUTES triables (`"tri"`, un tuple
+    # parallèle à _COLONNES_MAX — nombre/datetime/texte selon la colonne, jamais le
+    # texte affiché lui-même pour rester correct même sur "—"/valeurs signées).
+    _CLES_TRI_MAX = ("courbe", "max", "horodatage", "dqp", "dt")
+    etat_tri_max = {"colonne": None, "croissant": True}
+    labels_entete_max = []
 
-    etat_tableau_max = {"lignes": []}  # liste de listes de Label (une sous-liste par ligne de données)
+    def _cle_tri_max(info):
+        v = info["tri"][_CLES_TRI_MAX.index(etat_tri_max["colonne"])]
+        return (True, 0) if v is None else (False, v)
+
+    def _appliquer_tri_max():
+        lignes = list(etat_tableau_max["lignes"])
+        if etat_tri_max["colonne"] is not None:
+            lignes.sort(key=_cle_tri_max)
+            if not etat_tri_max["croissant"]:
+                lignes.reverse()
+        for rang, info in enumerate(lignes, start=1):
+            for lbl in info["labels"]:
+                lbl.grid_configure(row=rang)
+        for j, (lbl_entete, libelle) in enumerate(labels_entete_max):
+            texte = libelle
+            if _CLES_TRI_MAX[j] == etat_tri_max["colonne"]:
+                texte += " ▲" if etat_tri_max["croissant"] else " ▼"
+            lbl_entete.configure(text=texte)
+
+    def _trier_max(cle):
+        if etat_tri_max["colonne"] == cle:
+            etat_tri_max["croissant"] = not etat_tri_max["croissant"]
+        else:
+            etat_tri_max["colonne"], etat_tri_max["croissant"] = cle, True
+        _appliquer_tri_max()
+
+    for j, (libelle, largeur, _anchor) in enumerate(_COLONNES_MAX):
+        lbl_entete = tk.Label(grille_max, text=libelle, font=("TkDefaultFont", 9, "bold"), bg="#E0E0E0",
+                               relief=tk.RIDGE, borderwidth=1, width=largeur, cursor="hand2")
+        lbl_entete.grid(row=0, column=j, sticky="nsew")
+        lbl_entete.bind("<Button-1>", lambda _e, c=_CLES_TRI_MAX[j]: _trier_max(c))
+        labels_entete_max.append((lbl_entete, libelle))
+
+    etat_tableau_max = {"lignes": []}  # liste de {"labels": [Label...], "tri": (valeurs brutes...)}
 
     def _vider_tableau_max():
-        for ligne in etat_tableau_max["lignes"]:
-            for lbl in ligne:
+        for info in etat_tableau_max["lignes"]:
+            for lbl in info["labels"]:
                 lbl.destroy()
         etat_tableau_max["lignes"] = []
 
-    def _ajouter_ligne_max(valeurs):
+    def _ajouter_ligne_max(valeurs, valeurs_tri):
         """Ajoute une ligne de données, retourne sa liste de Label (index 3 = cellule
-        dQP, index 4 = cellule dT — utilisé ensuite pour le surlignage ciblé)."""
+        dQP, index 4 = cellule dT — utilisé ensuite pour le surlignage ciblé).
+        `valeurs_tri` : tuple parallèle de valeurs BRUTES (nombre/datetime/texte, ou
+        None), une par colonne — sert uniquement au tri (voir _cle_tri_max), jamais à
+        l'affichage."""
         rang = len(etat_tableau_max["lignes"]) + 1  # +1 : la ligne 0 est l'en-tête
         labels_ligne = []
         for j, (_libelle, largeur, anchor) in enumerate(_COLONNES_MAX):
@@ -1312,7 +1355,7 @@ def _build_detail(frame, app):
                             width=largeur, relief=tk.FLAT, borderwidth=1)
             lbl.grid(row=rang, column=j, sticky="nsew", padx=1, pady=1)
             labels_ligne.append(lbl)
-        etat_tableau_max["lignes"].append(labels_ligne)
+        etat_tableau_max["lignes"].append({"labels": labels_ligne, "tri": valeurs_tri})
         return labels_ligne
 
     def _max_et_horodatage(points_xy):
@@ -1639,8 +1682,9 @@ def _build_detail(frame, app):
             valeur_max, date_max = _max_et_horodatage(points_obs)
             if valeur_max is not None:
                 valeur_max_obs, date_max_obs = valeur_max, date_max
-                _ajouter_ligne_max((
-                    "Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}", "0.0", "0"))
+                _ajouter_ligne_max(
+                    ("Q observé", f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}", "0.0", "0"),
+                    ("Q observé", valeur_max, date_max, 0.0, 0.0))
                 # Annotation directement sur le graphique (même principe que OPALE v2 :
                 # point marqué + valeur/horodatage dans un encart), en plus de la ligne
                 # déjà présente dans le tableau récapitulatif ci-dessous.
@@ -1712,9 +1756,10 @@ def _build_detail(frame, app):
                 valeur_max, date_max = _max_et_horodatage(points_sim)
                 if valeur_max is not None:
                     dqp_txt, dt_txt, dqp_val, dt_val = _dqp_dt_vs_obs(valeur_max, date_max)
-                    labels_ligne = _ajouter_ligne_max((
-                        libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}",
-                        dqp_txt, dt_txt))
+                    labels_ligne = _ajouter_ligne_max(
+                        (libelle, f"{valeur_max:.1f}", f"{date_max:%d/%m/%Y %H:%M}",
+                         dqp_txt, dt_txt),
+                        (libelle, valeur_max, date_max, dqp_val, dt_val))
                     lignes_resume.append((labels_ligne, abs(dqp_val) if dqp_val is not None else None,
                                            abs(dt_val) if dt_val is not None else None))
 
@@ -1737,6 +1782,11 @@ def _build_detail(frame, app):
                 if str(lbl.cget("bg")) == "white":  # ne pas écraser un surlignage dQP déjà posé
                     lbl.configure(bg=_COULEUR_LIGNE_MEILLEURE, font=("TkDefaultFont", 9, "bold"))
             meilleure_ligne[4].configure(bg=_COULEUR_CELLULE_MEILLEURE)  # colonne dT
+
+        # Réapplique le tri déjà choisi par l'utilisateur (le cas échéant) sur les
+        # lignes qui viennent d'être reconstruites pour cette crue — sans ça, changer
+        # de crue ou de combinaison réinitialiserait silencieusement l'ordre affiché.
+        _appliquer_tri_max()
 
         # Les 6 seuils de vigilance en débit (jaune/orange/rouge + leurs zones de
         # transition ZT) — même code couleur que l'onglet Configuration (une couleur par
@@ -2323,10 +2373,13 @@ def _build_variation_crues(frame, app):
     ⚠️ Le score composite est normalisé min-max SUR LE SOUS-ENSEMBLE de chaque N (voir
     modules.score.calculer_scores) : sa valeur absolue n'est donc PAS comparable d'un N
     à l'autre (0=meilleur/1=pire est relatif à cet N précis, pas une échelle fixe). Le
-    graphique trace donc le KGE MOYEN (indicateur brut, non normalisé) de la
+    graphique trace donc le KGE brut (non normalisé, agrégé selon le mode actif —
+    médiane ou moyenne, voir le sélecteur "Agrégation par crue" du bandeau) de la
     combinaison gagnante à chaque N — directement comparable d'un N à l'autre. Le
     score normalisé reste affiché dans le tableau pour référence, mais seulement pour
-    désigner QUI gagne à ce N précis, pas pour comparer les N entre eux.
+    désigner QUI gagne à ce N précis, pas pour comparer les N entre eux. Le tableau,
+    lui, affiche KGE/dQP/dTP en double (médiane ET moyenne) pour cette même
+    combinaison gagnante — même principe que Vue synthèse.
     """
     barre = tk.Frame(frame)
     barre.pack(fill=tk.X, padx=8, pady=6)
@@ -2362,16 +2415,47 @@ def _build_variation_crues(frame, app):
     inn_tab, bg_tab = make_section(frame, "Combinaison optimale par nombre de crues (N)", "gris")
     cadre_tab = tk.Frame(inn_tab, bg=bg_tab)
     cadre_tab.pack(fill=tk.BOTH, expand=True)
-    tableau = ttk.Treeview(
-        cadre_tab, columns=("n", "combinaison", "score", "kge", "dqp", "dtp"),
-        show="headings", height=6)
-    for col, libelle, largeur in (
-        ("n", "N crues", 70), ("combinaison", "Combinaison gagnante", 220),
-        ("score", "Score normalisé (à ce N)", 170),
-        ("kge", "KGE médian (brut)", 130), ("dqp", "Médiane |dQP| (brut, %)", 160),
-        ("dtp", "Médiane |dTP| (brut, pdt)", 160),
-    ):
-        tableau.heading(col, text=libelle)
+
+    # KGE/dQP/dTP affichés en DOUBLE (médiane + moyenne, côte à côte, toujours les
+    # deux) pour la combinaison gagnante à chaque N — même principe que Vue synthèse
+    # (demandé). Le GAGNANT à ce N reste déterminé par le seul sélecteur "Agrégation
+    # par crue" actif du bandeau (voir mode_actif dans _rafraichir) : ce doublement
+    # n'affiche que ses valeurs dans les 2 agrégations, il ne désigne jamais un
+    # gagnant différent. "score" reste unique (normalisé selon le mode actif
+    # uniquement — non comparable d'un N à l'autre, voir docstring de la fonction).
+    _COLONNES_TABLEAU = ("n", "combinaison", "score", "kge_med", "kge_moy",
+                          "dqp_med", "dqp_moy", "dt_med", "dt_moy")
+    _LIBELLES_TABLEAU = {
+        "n": "N crues", "combinaison": "Combinaison gagnante",
+        "score": "Score normalisé (à ce N)",
+        "kge_med": "KGE médian (brut)", "kge_moy": "KGE moyen (brut)",
+        "dqp_med": "dQP médian (brut, %)", "dqp_moy": "dQP moyen (brut, %)",
+        "dt_med": "dT médian (brut, pdt)", "dt_moy": "dT moyen (brut, pdt)",
+    }
+    tableau = ttk.Treeview(cadre_tab, columns=_COLONNES_TABLEAU, show="headings", height=6)
+    # Tri par défaut sur "n" croissant (ordre naturel déjà affiché auparavant) — pas
+    # de recalage automatique sur le mode actif ici, contrairement à Vue synthèse :
+    # la colonne "score" de CE tableau n'est jamais doublée (voir ci-dessus), donc il
+    # n'y a pas d'ambiguïté "quelle colonne suit le sélecteur".
+    etat_tri = {"colonne": "n", "croissant": True}
+
+    def _trier_tableau(col):
+        if etat_tri["colonne"] == col:
+            etat_tri["croissant"] = not etat_tri["croissant"]
+        else:
+            etat_tri["colonne"], etat_tri["croissant"] = col, True
+        _rafraichir()
+
+    def _maj_entetes_tri():
+        for col in _COLONNES_TABLEAU:
+            texte = _LIBELLES_TABLEAU[col]
+            if col == etat_tri["colonne"]:
+                texte += " ▲" if etat_tri["croissant"] else " ▼"
+            tableau.heading(col, text=texte, command=lambda c=col: _trier_tableau(c))
+
+    _maj_entetes_tri()
+    for col in _COLONNES_TABLEAU:
+        largeur = 220 if col == "combinaison" else (170 if col == "score" else 110)
         tableau.column(col, width=largeur, anchor="center" if col != "combinaison" else "w")
     ascenseur_tab = ttk.Scrollbar(cadre_tab, orient=tk.VERTICAL, command=tableau.yview)
     tableau.configure(yscrollcommand=ascenseur_tab.set)
@@ -2399,7 +2483,7 @@ def _build_variation_crues(frame, app):
             n_selectionne = int(valeurs[0])
             point = next((p for p in etat_donnees["points"] if p[0] == n_selectionne), None)
             if point is not None:
-                _n, s = point
+                _n, s, _s_alt = point
                 kge_val = s.erreurs_agregees.get("kge")
                 if kge_val is not None:
                     etat_selection["marqueur_kge"] = ax.scatter(
@@ -2442,17 +2526,29 @@ def _build_variation_crues(frame, app):
         isos_ordre = [c["iso"] for c in crues_triees]
 
         poids, asymetrie_dtp, libelle_profil = _poids_actifs(app)
-        points = []  # liste de (n, ScoreCombinaison gagnant à ce n)
+        mode_actif = _agregation_active(app)
+        mode_alt = "moyenne" if mode_actif == "mediane" else "mediane"
+        points = []  # liste de (n, ScoreCombinaison gagnant à ce n [mode actif], son pendant [mode alt])
         for n in range(3, len(isos_ordre) + 1):
             isos_n = set(isos_ordre[:n])
             lignes_n = [l for l in lignes_ok if l["crue_date"] in isos_n]
             if not lignes_n:
                 continue
-            scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp, agregation=_agregation_active(app))
+            scores_n = [s for s in calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                                     agregation=mode_actif)
                         if s.score is not None]
             if not scores_n:
                 continue
-            points.append((n, min(scores_n, key=lambda s: s.score)))
+            gagnant = min(scores_n, key=lambda s: s.score)
+            # Le gagnant reste déterminé par le mode ACTIF (comme avant) — l'autre mode
+            # n'est calculé que pour afficher, dans le tableau, ses KGE/dQP/dTP dans les
+            # 2 agrégations côte à côte (demandé, même principe que Vue synthèse) :
+            # jamais pour désigner un gagnant différent à ce même N.
+            scores_alt_n = calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                            agregation=mode_alt)
+            gagnant_alt = next((s for s in scores_alt_n if (s.horizon, s.seuil_c1, s.methode) ==
+                                 (gagnant.horizon, gagnant.seuil_c1, gagnant.methode)), None)
+            points.append((n, gagnant, gagnant_alt))
 
         if not points:
             var_statut.set("Aucun score exploitable pour construire cette analyse.")
@@ -2463,15 +2559,19 @@ def _build_variation_crues(frame, app):
         var_statut.set(f"{len(points)} valeurs de N testées (de {points[0][0]} à {points[-1][0]} "
                         f"crues sur {len(isos_ordre)} disponibles) — pondération : {libelle_profil}.")
 
-        ns = [n for n, _s in points]
-        kges = [s.erreurs_agregees.get("kge") for _n, s in points]
-        heures_horizon = [_horizon_en_minutes(s.horizon) / 60 for _n, s in points]
-        libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
+        ns = [n for n, _s, _s_alt in points]
+        kges = [s.erreurs_agregees.get("kge") for _n, s, _s_alt in points]
+        heures_horizon = [_horizon_en_minutes(s.horizon) / 60 for _n, s, _s_alt in points]
+        libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s, _s_alt in points]
 
+        # Libellé du graphique aligné sur le mode d'agrégation ACTIF (voir tableau
+        # ci-dessous qui, lui, affiche les 2 côte à côte) — le graphique ne trace
+        # jamais qu'une seule courbe, donc reste sur le sélecteur du bandeau.
+        abrege_agregation = "médian" if mode_actif == "mediane" else "moyen"
         ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3,
-                label="KGE médian (gagnant)")
+                label=f"KGE {abrege_agregation} (gagnant)")
         ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
-        ax.set_ylabel("KGE médian — combinaison gagnante (brut, non normalisé)")
+        ax.set_ylabel(f"KGE {abrege_agregation} — combinaison gagnante (brut, non normalisé)")
         ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
         ax.grid(True, alpha=0.3)
 
@@ -2507,7 +2607,7 @@ def _build_variation_crues(frame, app):
         # Étiquette forcée sur CHAQUE point (demandé) : horizon court sur une ligne,
         # "seuil/méthode" en dessous, toujours placée AU-DESSUS de la courbe (demandé —
         # la marge verticale plus généreuse en haut, ci-dessus, lui laisse la place).
-        for n, kge_val, s in zip(ns, kges, [s for _n, s in points]):
+        for n, kge_val, s in zip(ns, kges, [s for _n, s, _s_alt in points]):
             texte = f"{_libelle_horizon_court(s.horizon)}\n{s.seuil_c1:.2f}/{s.methode}"
             ax.annotate(texte, xy=(n, kge_val), xytext=(0, 8), textcoords="offset points",
                         fontsize=7, ha="center", va="bottom", color="#333333", linespacing=1.2)
@@ -2547,13 +2647,45 @@ def _build_variation_crues(frame, app):
 
         canvas.draw_idle()
 
-        for n, s in points:
+        def _fmt(valeur, decimales=2):
+            return f"{valeur:.{decimales}f}" if valeur is not None else "—"
+
+        lignes_tableau = []
+        for n, s, s_alt in points:
+            e_actif = s.erreurs_agregees
+            e_alt = s_alt.erreurs_agregees if s_alt is not None else {}
+            # Les valeurs "med"/"moy" sont assignées selon le mode ACTIF, pas l'ordre
+            # d'appel (mode_actif peut être "moyenne", auquel cas c'est e_actif qui
+            # nourrit *_moy et e_alt qui nourrit *_med) — même logique que Vue
+            # synthèse/export_excel.py pour rester cohérent dans tout l'outil.
+            e_med = e_actif if mode_actif == "mediane" else e_alt
+            e_moy = e_actif if mode_actif == "moyenne" else e_alt
+            lignes_tableau.append({
+                "n": n, "combinaison": f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}",
+                "score": s.score,
+                "kge_med": e_med.get("kge"), "kge_moy": e_moy.get("kge"),
+                "dqp_med": e_med.get("dqp"), "dqp_moy": e_moy.get("dqp"),
+                "dt_med": e_med.get("dtp"), "dt_moy": e_moy.get("dtp"),
+            })
+
+        # Tri générique par colonne (clic sur un en-tête, voir _trier_tableau) — même
+        # motif que Vue synthèse (_cle_tri) : None toujours en dernier, "combinaison"
+        # trié alphabétiquement (texte composite horizon/seuil/méthode, comme affiché).
+        def _cle_tri(ligne):
+            v = ligne.get(etat_tri["colonne"])
+            return (v is None, v if v is not None else 0)
+
+        lignes_tableau.sort(key=_cle_tri)
+        if not etat_tri["croissant"]:
+            lignes_tableau.reverse()
+
+        _maj_entetes_tri()
+        for l in lignes_tableau:
             tableau.insert("", tk.END, values=(
-                n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}",
-                f"{s.score:.4f}",
-                f"{s.erreurs_agregees.get('kge'):.3f}" if s.erreurs_agregees.get("kge") is not None else "—",
-                f"{s.erreurs_agregees.get('dqp'):.2f}" if s.erreurs_agregees.get("dqp") is not None else "—",
-                f"{s.erreurs_agregees.get('dtp'):.2f}" if s.erreurs_agregees.get("dtp") is not None else "—",
+                l["n"], l["combinaison"], f"{l['score']:.4f}",
+                _fmt(l["kge_med"], 3), _fmt(l["kge_moy"], 3),
+                _fmt(l["dqp_med"]), _fmt(l["dqp_moy"]),
+                _fmt(l["dt_med"]), _fmt(l["dt_moy"]),
             ))
 
     _rafraichir()

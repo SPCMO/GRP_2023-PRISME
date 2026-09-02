@@ -75,8 +75,9 @@ ENTETES_VUE3D = ("Horizon", "Seuil C1", "Méthode", "Score composite",
 ENTETES_CRUES = ("Crue", "Date/heure de début", "Qmax observé (m³/s)",
                   "Cumul de pluie de l'épisode (mm)")
 ENTETES_VARIATION = ("N crues (les plus fortes, Qmax décroissant)", "Combinaison gagnante",
-                      "Score normalisé (à ce N)", "KGE médian (brut)", "Médiane |dQP| (brut, %)",
-                      "Médiane |dTP| (brut, pdt)")
+                      "Score normalisé (à ce N)", "KGE médian (brut)", "KGE moyen (brut)",
+                      "dQP médian (brut, %)", "dQP moyen (brut, %)",
+                      "dT médian (brut, pdt)", "dT moyen (brut, pdt)")
 ENTETES_AFFLUENTS_CONFIG = ("Nom", "Code station", "Surface BV (km²)",
                              "Propagation P10", "Propagation P50", "Propagation P90",
                              "Fichier de débits")
@@ -705,13 +706,18 @@ def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp, agregatio
     Qmax décroissant), la combinaison gagnante du score composite sur les N crues les
     plus fortes. Calculée sur TOUTES les crues réussies, volontairement indépendamment
     de la sélection "Crues incluses dans le score" (même choix que dans le Dashboard).
-    Retourne une liste de (n, ScoreCombinaison gagnant à ce n)."""
+    Retourne une liste de (n, ScoreCombinaison gagnant à ce n [mode `agregation`], son
+    pendant dans l'AUTRE mode) — le doublement médiane/moyenne du tableau exporté
+    (KGE/dQP/dTP) suit le même principe que la Vue synthèse : le gagnant à ce N reste
+    déterminé par le seul mode `agregation` passé en paramètre, l'autre mode n'étant
+    calculé que pour afficher SES valeurs sur cette même combinaison gagnante."""
     crues_avec_qmax = [(iso, info["qmax_obs"]) for iso, info in infos_crues.items()
                          if info.get("qmax_obs") is not None]
     if len(crues_avec_qmax) < 3:
         return []
     isos_ordre = [iso for iso, _q in sorted(crues_avec_qmax, key=lambda t: t[1], reverse=True)]
 
+    mode_alt = "moyenne" if agregation == "mediane" else "mediane"
     lignes_success = [l for l in lignes if l["statut_crue"] == "success"]
     points = []
     for n in range(3, len(isos_ordre) + 1):
@@ -724,24 +730,33 @@ def _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp, agregatio
                     if s.score is not None]
         if not scores_n:
             continue
-        points.append((n, min(scores_n, key=lambda s: s.score)))
+        gagnant = min(scores_n, key=lambda s: s.score)
+        scores_alt_n = calculer_scores(lignes_n, poids=poids, asymetrie_dtp=asymetrie_dtp,
+                                        agregation=mode_alt)
+        gagnant_alt = next((s for s in scores_alt_n if (s.horizon, s.seuil_c1, s.methode) ==
+                             (gagnant.horizon, gagnant.seuil_c1, gagnant.methode)), None)
+        points.append((n, gagnant, gagnant_alt))
     return points
 
 
-def _figure_variation_crues(points):
+def _figure_variation_crues(points, agregation="mediane"):
     """Reproduit le graphique de l'onglet Dashboard "Variation selon le nb de crues" :
-    KGE médian (brut, non normalisé) de la combinaison gagnante à chaque N, fond
-    dégradé rouge/vert, lignes verticales + étiquettes aux bascules de combinaison
-    gagnante. Pas d'icône ni de sélection interactive ici (statique, pour un export)."""
-    ns = [n for n, _s in points]
-    kges = [s.erreurs_agregees.get("kge") for _n, s in points]
-    libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s in points]
+    KGE brut (non normalisé, agrégé selon `agregation`) de la combinaison gagnante à
+    chaque N, fond dégradé rouge/vert, lignes verticales + étiquettes aux bascules de
+    combinaison gagnante. Pas d'icône ni de sélection interactive ici (statique, pour
+    un export). Le tableau exporté, lui, affiche KGE/dQP/dTP en double (médiane ET
+    moyenne) — voir _feuille_variation_crues — mais ce graphique reste sur un seul
+    mode, comme son équivalent Dashboard."""
+    abrege = "médian" if agregation == "mediane" else "moyen"
+    ns = [n for n, _s, _s_alt in points]
+    kges = [s.erreurs_agregees.get("kge") for _n, s, _s_alt in points]
+    libelles_combo = [f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}" for _n, s, _s_alt in points]
 
     fig = Figure(figsize=(11, 4.6), dpi=100)
     ax = fig.add_subplot(1, 1, 1)
     ax.plot(ns, kges, color="#1F618D", lw=1.6, marker="o", markersize=3.5, zorder=3)
     ax.set_xlabel("N (crues les plus fortes retenues, Qmax décroissant)")
-    ax.set_ylabel("KGE médian — combinaison gagnante (brut, non normalisé)")
+    ax.set_ylabel(f"KGE {abrege} — combinaison gagnante (brut, non normalisé)")
     ax.set_title("Stabilité de la combinaison optimale selon le nombre de crues retenues", fontsize=9)
     ax.grid(True, alpha=0.3)
 
@@ -766,7 +781,7 @@ def _figure_variation_crues(points):
     return fig
 
 
-def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
+def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil, agregation="mediane"):
     ws.append((f"Combinaison optimale par nombre de crues (N) — pondération : {libelle_profil}",))
     ws.cell(row=ws.max_row, column=1).font = Font(bold=True, size=12)
     ws.append(("Crues classées par Qmax décroissant (les plus fortes en premier). "
@@ -789,16 +804,24 @@ def _feuille_variation_crues(ws, points, nb_crues_disponibles, libelle_profil):
     ws.append(ENTETES_VARIATION)
     for cell in ws[ws.max_row]:
         cell.font = Font(bold=True)
-    for n, s in points:
+
+    def _r(valeur, decimales):
+        return round(valeur, decimales) if valeur is not None else None
+
+    for n, s, s_alt in points:
+        e_actif = s.erreurs_agregees
+        e_alt = s_alt.erreurs_agregees if s_alt is not None else {}
+        e_med = e_actif if agregation == "mediane" else e_alt
+        e_moy = e_actif if agregation == "moyenne" else e_alt
         ws.append((
             n, f"{s.horizon}/{s.seuil_c1:.2f}/{s.methode}", round(s.score, 4),
-            round(s.erreurs_agregees.get("kge"), 3) if s.erreurs_agregees.get("kge") is not None else None,
-            round(s.erreurs_agregees.get("dqp"), 2) if s.erreurs_agregees.get("dqp") is not None else None,
-            round(s.erreurs_agregees.get("dtp"), 2) if s.erreurs_agregees.get("dtp") is not None else None,
+            _r(e_med.get("kge"), 3), _r(e_moy.get("kge"), 3),
+            _r(e_med.get("dqp"), 2), _r(e_moy.get("dqp"), 2),
+            _r(e_med.get("dtp"), 2), _r(e_moy.get("dtp"), 2),
         ))
-    _ajuster_largeurs(ws, [30, 26, 22, 18, 22, 22])
+    _ajuster_largeurs(ws, [30, 26, 22, 16, 16, 16, 16, 16, 16])
 
-    fig = _figure_variation_crues(points)
+    fig = _figure_variation_crues(points, agregation)
     img = _fig_to_image(fig)
     ws.add_image(img, f"A{ws.max_row + 2}")
 
@@ -1267,7 +1290,7 @@ def exporter(chemin_xlsx, app, db_path=None):
         points_variation = _points_variation_crues(lignes, infos_crues, poids, asymetrie_dtp,
                                                      agregation)
         _feuille_variation_crues(wb.create_sheet("Variation selon le nb de crues"),
-                                   points_variation, len(infos_crues), libelle_profil)
+                                   points_variation, len(infos_crues), libelle_profil, agregation)
 
         _feuille_analyse_affluents(wb.create_sheet("Analyse crues affl."), app, paths)
 
