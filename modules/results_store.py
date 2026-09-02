@@ -74,6 +74,17 @@ CREATE TABLE IF NOT EXISTS series_archivees (
     debit REAL,
     pluie REAL
 );
+"""
+
+# Index sur instant_label, VOLONTAIREMENT séparé du SCHEMA ci-dessus (bug latent trouvé
+# par un test ajouté suite à l'audit de code du 1er septembre 2026, finding C1) : sur
+# une base pré-27/08/2026 (avant l'ajout de instant_label), exécuter cet index dans le
+# même executescript() que SCHEMA plantait avec "no such column: instant_label" — les
+# `CREATE TABLE IF NOT EXISTS` ci-dessus n'ajoutent PAS la colonne à une table déjà
+# existante, et cet index s'exécutait AVANT que _migrer_schema_multi_instants() n'ait
+# eu la moindre chance de l'ajouter (voir init_db). Créé maintenant seulement APRÈS la
+# migration, quand la colonne est garantie présente (base neuve ou déjà migrée).
+_INDEX_SERIES_ARCHIVEES = """
 CREATE INDEX IF NOT EXISTS idx_series_archivees
     ON series_archivees(combinaison_id, crue_date, instant_label, type);
 """
@@ -243,6 +254,10 @@ def init_db(db_path=None):
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA)
         _migrer_schema_multi_instants(conn)
+        # _INDEX_SERIES_ARCHIVEES APRÈS la migration, jamais avant (voir sa docstring) :
+        # sur une base pré-27/08/2026, la colonne instant_label n'existe qu'à partir
+        # d'ici (ajoutée par _migrer_schema_multi_instants ci-dessus).
+        conn.executescript(_INDEX_SERIES_ARCHIVEES)
         conn.commit()
     finally:
         conn.close()

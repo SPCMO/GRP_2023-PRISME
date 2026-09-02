@@ -1,18 +1,36 @@
 # -*- coding: utf-8 -*-
-"""Tests unitaires — modules/run_orchestrator.py, fonctions de calcul de la matrice de
-campagne et de la logique de reprise sur échec (pas le lancement réel du calage GRP,
-qui nécessite les exécutables externes et n'est pas testable en isolation). Voir la
-feuille de route de l'audit du 25/08/2026, point code n°5."""
+"""Tests unitaires — modules/run_orchestrator.py.
 
+1. Fonctions de calcul de la matrice de campagne et de la logique de reprise sur échec
+   (feuille de route de l'audit du 25/08/2026, point code n°5).
+
+2. lancer_campagne() elle-même (audit de code du 1er septembre 2026, finding C2) — la
+   fonction la plus exécutée et la plus longue du dépôt (~300 lignes), dont les propres
+   docstrings documentent plusieurs bugs réels déjà rencontrés à cet endroit précis,
+   jusqu'ici sans AUCUN test. Le lancement réel des exécutables GRP n'est bien sûr pas
+   testable en isolation (nécessite un vrai poste avec GRP installé) — ces tests
+   mockent donc entièrement les frontières externes (modules.liste_bassins,
+   modules.grp_runner, modules.config_prevision, modules.fiche_controle_pdf,
+   modules.grp_series) pour dérouler la vraie logique d'orchestration (boucle,
+   reprise, gestion d'erreur par combinaison/crue, annulation) contre une base sqlite
+   temporaire réelle."""
+
+import os
 import sqlite3
+import threading
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
-from modules.results_store import SCHEMA
+from modules import results_store, run_orchestrator
+from modules.grp_paths import GrpPaths
+from modules.grp_runner import GrpRunError
+from modules.liste_bassins import ListeBassinsFormatError
+from modules.results_store import SCHEMA, _INDEX_SERIES_ARCHIVEES
 from modules.run_orchestrator import (
     _calage_deja_charge, _combinaisons_a_traiter, _crues_a_traiter, _recalculer_dqp_dtp,
-    generer_combinaisons,
+    generer_combinaisons, lancer_campagne,
 )
 
 
@@ -40,6 +58,7 @@ def conn():
     connexion = sqlite3.connect(":memory:")
     connexion.row_factory = sqlite3.Row
     connexion.executescript(SCHEMA)
+    connexion.executescript(_INDEX_SERIES_ARCHIVEES)
     yield connexion
     connexion.close()
 
@@ -298,3 +317,187 @@ def test_recalculer_dqp_dtp_qp_observe_nul():
     obs = _serie(15, [0, 0, 0])
     sim = [(d, v, 0.0) for d, _p, v in _serie(15, [0, 5, 10])]
     assert _recalculer_dqp_dtp(obs, sim) == (None, None)
+
+
+# -- lancer_campagne (intégration, toutes les frontières externes mockées) ----------------
+
+class _ResultatFicheFactice:
+    """Substitut de modules.fiche_controle_pdf.ResultatFicheControle — seuls les
+    attributs réellement lus par lancer_campagne (dqp/dtp/ve/kge/suspects/est_suspect)."""
+    def __init__(self, dqp=5.0, dtp=1, ve=3.0, kge=0.9, suspects=None):
+        self.dqp, self.dtp, self.ve, self.kge = dqp, dtp, ve, kge
+        self.suspects = suspects or []
+
+    @property
+    def est_suspect(self):
+        return bool(self.suspects)
+
+
+def _paths_test(tmp_path):
+    """GrpPaths pointant vers des sous-dossiers temporaires — jamais de vrai GRP
+    installé, tous les exécutables/parsers étant mockés par _mocker_frontieres_externes."""
+    return GrpPaths(
+        dossier_grp=str(tmp_path / "GRP"), dossier_donnees=str(tmp_path / "Donnees"),
+        dossier_bddtr=str(tmp_path / "BDDTR"), dossier_resultats=str(tmp_path / "Resultats"),
+        code_site="Y1612020",
+    )
+
+
+def _mocker_frontieres_externes(monkeypatch, *, calage_echoue=False, rejeu_echoue_pour=None):
+    """Mocke TOUTES les frontières externes de run_orchestrator (exécutables GRP,
+    parsing LISTE_BASSINS.DAT/PDF, séries observée/simulée) pour dérouler la vraie
+    logique d'orchestration de lancer_campagne() sans dépendre d'un poste GRP réel.
+
+    `rejeu_echoue_pour` : ensemble de crue_date.isoformat() dont le rejeu (instant de
+    référence) doit échouer — capturé via le dernier `instpr` passé à set_prevision
+    (qui vaut `crue_date` pour l'instant référence, voir lancer_campagne::_rejeu_instant),
+    seul moyen de savoir quelle crue est en cours de traitement depuis ces mocks sans
+    paramètre crue_date direct."""
+    rejeu_echoue_pour = rejeu_echoue_pour or set()
+    dernier_instpr = [None]
+
+    monkeypatch.setattr(run_orchestrator, "parse_liste_bassins", lambda chemin: (
+        [], {"Y1612020": SimpleNamespace(
+            hor1="01J00H00M", seuil_c1="5.00", methode_active="T")}))
+    monkeypatch.setattr(run_orchestrator, "set_calage_params", lambda *a, **k: None)
+    monkeypatch.setattr(run_orchestrator, "write_liste_bassins", lambda *a, **k: None)
+
+    def _run_calage(exe):
+        if calage_echoue:
+            raise GrpRunError("échec calage simulé")
+    monkeypatch.setattr(run_orchestrator, "run_calage", _run_calage)
+
+    def _set_prevision(chemin_ini, instpr):
+        dernier_instpr[0] = instpr
+    monkeypatch.setattr(run_orchestrator, "set_prevision", _set_prevision)
+
+    def _run_prevision_bat(bat, fiches_dir):
+        instpr = dernier_instpr[0]
+        cle = instpr.isoformat() if hasattr(instpr, "isoformat") else instpr
+        if cle in rejeu_echoue_pour:
+            raise GrpRunError("échec rejeu simulé")
+        return "pdf_factice.pdf"
+    monkeypatch.setattr(run_orchestrator, "run_prevision_bat", _run_prevision_bat)
+
+    monkeypatch.setattr(run_orchestrator, "extraire_resultat",
+                         lambda chemin_pdf: _ResultatFicheFactice())
+    monkeypatch.setattr(run_orchestrator.grp_series, "parser_observations", lambda d: [])
+    monkeypatch.setattr(run_orchestrator.grp_series, "parser_previsions", lambda d: [])
+    monkeypatch.setattr(run_orchestrator, "nettoyer_bddtr", lambda *a, **k: None)
+    return dernier_instpr
+
+
+def test_lancer_campagne_cas_nominal_reussi(tmp_path, monkeypatch):
+    paths = _paths_test(tmp_path)
+    _mocker_frontieres_externes(monkeypatch)
+    db_path = str(tmp_path / "base.sqlite3")
+    crue = datetime(2024, 1, 1)
+    evenements = []
+
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [crue],
+                     db_path=db_path, callback=evenements.append)
+
+    with results_store.db_session(db_path) as conn:
+        combinaisons = results_store.list_combinaisons(conn)
+        resultats = results_store.list_resultats(conn)
+    assert len(combinaisons) == 1 and combinaisons[0]["statut"] == "success"
+    assert len(resultats) == 1 and resultats[0]["statut"] == "success"
+    assert resultats[0]["dqp"] == 5.0
+    etapes = {e.etape for e in evenements}
+    assert {"calage", "rejeu"} <= etapes
+    assert all(e.statut != "failed" for e in evenements)
+
+
+def test_lancer_campagne_echec_calage_continue_avec_les_autres_combinaisons(tmp_path, monkeypatch):
+    """Comportement explicitement documenté dans lancer_campagne() : 'N'interrompt
+    jamais la boucle sur une erreur individuelle' — vérifié ici pour un échec de
+    calage, la 2e combinaison ne doit jamais être court-circuitée par l'échec de la 1ère."""
+    paths = _paths_test(tmp_path)
+    _mocker_frontieres_externes(monkeypatch)
+    appels_calage = []
+
+    def _run_calage_echoue_au_premier_appel(exe):
+        appels_calage.append(exe)
+        if len(appels_calage) == 1:
+            raise GrpRunError("échec calage simulé (1ère combinaison)")
+    monkeypatch.setattr(run_orchestrator, "run_calage", _run_calage_echoue_au_premier_appel)
+
+    db_path = str(tmp_path / "base.sqlite3")
+    lancer_campagne(paths, "00J00H15M",
+                     [("01J00H00M", 5.0, "T"), ("02J00H00M", 5.0, "T")],
+                     [datetime(2024, 1, 1)], db_path=db_path)
+
+    with results_store.db_session(db_path) as conn:
+        statuts = {(c["horizon"], c["seuil_c1"], c["methode"]): c["statut"]
+                   for c in results_store.list_combinaisons(conn)}
+    assert statuts[("01J00H00M", 5.0, "T")] == "failed"
+    assert statuts[("02J00H00M", 5.0, "T")] == "success"
+    assert len(appels_calage) == 2  # la campagne a bien continué sur la 2e combinaison
+
+
+def test_lancer_campagne_echec_rejeu_ne_touche_que_la_crue_en_echec(tmp_path, monkeypatch):
+    paths = _paths_test(tmp_path)
+    crue_ok, crue_ko = datetime(2024, 1, 1), datetime(2024, 2, 1)
+    _mocker_frontieres_externes(monkeypatch, rejeu_echoue_pour={crue_ko.isoformat()})
+
+    db_path = str(tmp_path / "base.sqlite3")
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [crue_ok, crue_ko],
+                     db_path=db_path)
+
+    with results_store.db_session(db_path) as conn:
+        combinaisons = results_store.list_combinaisons(conn)
+        resultats = {r["crue_date"]: r["statut"] for r in results_store.list_resultats(conn)}
+    assert combinaisons[0]["statut"] == "success"  # le calage, lui, a bien réussi
+    assert resultats[crue_ok.isoformat()] == "success"
+    assert resultats[crue_ko.isoformat()] == "failed"
+
+
+def test_lancer_campagne_reprise_ne_relance_pas_un_calage_deja_reussi(tmp_path, monkeypatch):
+    paths = _paths_test(tmp_path)
+    _mocker_frontieres_externes(monkeypatch)
+    appels_calage = []
+    monkeypatch.setattr(run_orchestrator, "run_calage", lambda exe: appels_calage.append(exe))
+
+    # calage_deja_ok exige aussi la présence physique de config_prevision.ini (voir
+    # lancer_campagne, garde-fou contre le bug réel du nettoyage BDTR de fin de
+    # campagne qui vide ce fichier) — créé ici pour simuler un dossier BDTR intact.
+    os.makedirs(os.path.dirname(paths.config_prevision_ini), exist_ok=True)
+    open(paths.config_prevision_ini, "w", encoding="utf-8").close()
+
+    db_path = str(tmp_path / "base.sqlite3")
+    crue1, crue2 = datetime(2024, 1, 1), datetime(2024, 2, 1)
+    results_store.init_db(db_path)
+    with results_store.db_session(db_path) as conn:
+        cid = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        results_store.upsert_resultat_crue(conn, cid, crue1, "success")
+
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [crue1, crue2],
+                     db_path=db_path, seulement_echecs=True)
+
+    assert appels_calage == []  # calage jamais relancé, déjà acquis
+    with results_store.db_session(db_path) as conn:
+        resultats = {r["crue_date"]: r["statut"] for r in results_store.list_resultats(conn)}
+    assert resultats[crue1.isoformat()] == "success"  # inchangée, non retouchée
+    assert resultats[crue2.isoformat()] == "success"  # la manquante a bien été rejouée
+
+
+def test_lancer_campagne_annulation_avant_traitement_stoppe_proprement(tmp_path, monkeypatch):
+    paths = _paths_test(tmp_path)
+    appels_calage = []
+    _mocker_frontieres_externes(monkeypatch)
+    monkeypatch.setattr(run_orchestrator, "run_calage", lambda exe: appels_calage.append(exe))
+    nettoyages = []
+    monkeypatch.setattr(run_orchestrator, "nettoyer_bddtr",
+                         lambda dossier: nettoyages.append(dossier))
+
+    annulation = threading.Event()
+    annulation.set()  # déjà annulée avant même le premier appel
+
+    db_path = str(tmp_path / "base.sqlite3")
+    evenements = []
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [datetime(2024, 1, 1)],
+                     db_path=db_path, annulation=annulation, callback=evenements.append)
+
+    assert appels_calage == []  # rien traité du tout
+    assert any(e.statut == "annule" for e in evenements)
+    assert nettoyages == [paths.dossier_bddtr]  # nettoyage final bien appelé malgré tout

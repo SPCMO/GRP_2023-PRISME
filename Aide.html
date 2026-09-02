@@ -87,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023-PRISME v3.3 — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME v3.4 — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -265,12 +265,12 @@
   <h2>Architecture</h2>
 
   <h3>Numéro de version</h3>
-  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.3</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
+  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.4</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
   <ul>
     <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement ou la fiabilité de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 ; v3.0 = recalcul automatique du dQP/dTP + score composite en médiane, 1<sup>er</sup> septembre 2026).</li>
     <li><b>MINEUR</b> incrémenté à chaque <b>lot de déploiement</b> suivant le dernier changement majeur — un même jour peut donc contenir plusieurs incréments MINEUR si plusieurs livraisons distinctes s'y succèdent.</li>
   </ul>
-  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v3.0 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique + score en médiane) → v3.1 (1<sup>er</sup> septembre, garde-fous anti-perte de données lors d'une réinstallation) → v3.2 (1<sup>er</sup> septembre, numéro de version affiché) → v3.3 (1<sup>er</sup> septembre, correctifs d'audit ergonomie — confirmation avant relance complète de campagne, retour visuel pendant l'export Excel). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
+  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v3.0 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique + score en médiane) → v3.1 (1<sup>er</sup> septembre, garde-fous anti-perte de données lors d'une réinstallation) → v3.2 (1<sup>er</sup> septembre, numéro de version affiché) → v3.3 (1<sup>er</sup> septembre, correctifs d'audit ergonomie — confirmation avant relance complète de campagne, retour visuel pendant l'export Excel) → v3.4 (1<sup>er</sup> septembre, tests d'audit de code C1/C2 — migrations sqlite, <code>lancer_campagne()</code>, avec un bug latent réel découvert et corrigé au passage). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
 
   <h3>Choix structurants</h3>
   <ul>
@@ -315,7 +315,12 @@
 </pre>
 
   <h3>Tests automatisés</h3>
-  <p>Suite pytest (<code>tests/</code>, dépendance optionnelle — voir <code>Test_pr_install.py</code>) ciblant les fonctions <b>pures</b> de <code>modules/</code> : <code>affluents.py</code> (conversions hh:mm/minutes, Qmax, volume transité, bandes de propagation), <code>score.py</code> (calcul du score composite, pondération), <code>run_orchestrator.py</code> (matrice de combinaisons, logique de reprise sur échec — testée avec une base SQLite en mémoire, même schéma que <code>results_store.py</code>). Volontairement limité aux fonctions sans dépendance Tkinter ni fichiers GRP réels : c'est là que le ratio effort/couverture est le meilleur. L'interface elle-même (<code>ui/</code>) reste validée manuellement, comme depuis le début du projet. Lancer avec <code>python -m pytest tests/</code> depuis la racine du projet.</p>
+  <p>Suite pytest (<code>tests/</code>, dépendance optionnelle — voir <code>Test_pr_install.py</code>), 75 tests : fonctions <b>pures</b> de <code>modules/</code> — <code>affluents.py</code> (conversions hh:mm/minutes, Qmax, volume transité, bandes de propagation), <code>score.py</code> (calcul du score composite, pondération) — et, depuis l'audit de code du 1<sup>er</sup> septembre 2026 (findings C1/C2), les endroits identifiés comme les plus critiques et jusque-là non couverts :</p>
+  <ul>
+    <li><code>results_store.py</code> (<code>tests/test_results_store.py</code>) : les 2 migrations de schéma/fichier (<code>_migrer_ancienne_base_partagee_si_necessaire</code>, <code>_migrer_schema_multi_instants</code> — sur une base sqlite temporaire réelle, pas en mémoire), et les fonctions qui pilotent directement l'UI (<code>duree_par_etape</code>, <code>estimer_temps_restant</code>, <code>etat_combinaisons</code>, <code>resume_couverture</code>, <code>list_combinaisons_completes</code>). Un de ces tests a révélé un <b>bug latent réel</b> (jamais déclenché en pratique) : sur une très ancienne base jamais relancée depuis le 27/08/2026, <code>init_db()</code> plantait à la création de l'index <code>idx_series_archivees</code>, exécutée avant que la migration n'ajoute la colonne qu'il référence — corrigé (index désormais créé après la migration).</li>
+    <li><code>run_orchestrator.py</code> (<code>tests/test_run_orchestrator.py</code>) : <code>lancer_campagne()</code> elle-même (~300 lignes, la fonction la plus exécutée du dépôt), jusqu'ici jamais testée — 5 tests d'intégration mockant entièrement les frontières externes (exécutables GRP, parsing PDF, séries) pour dérouler la vraie boucle d'orchestration : cas nominal, échec de calage qui n'arrête pas la campagne, échec de rejeu limité à la crue concernée, reprise qui ne relance pas un calage déjà acquis, annulation propre. Matrice de combinaisons et logique de reprise sur échec restent testées séparément (base SQLite en mémoire, même schéma que <code>results_store.py</code>).</li>
+  </ul>
+  <p>Volontairement limité aux fonctions sans dépendance Tkinter réelle : c'est là que le ratio effort/couverture est le meilleur — <code>export_excel.py</code> (le plus gros module de <code>modules/</code>) et l'interface elle-même (<code>ui/</code>) restent validés manuellement, comme depuis le début du projet (dette technique connue, non prioritaire pour l'instant). Lancer avec <code>python -m pytest tests/</code> depuis la racine du projet.</p>
 
   <h3>Pourquoi deux sources de performance différentes</h3>
   <p><code>CRITERES_PERF.DAT</code> (calage complet, exe 01+03) mesure la qualité de la simulation <b>en connaissant tout l'épisode</b>, en un seul passage pour tous les événements détectés. Le PDF <i>Fiche_controle</i> (rejeu, exe 04 + <code>.bat</code>) mesure la <b>vraie performance de prévision opérationnelle</b> à un instant donné, avec seulement les données disponibles jusque-là — un run par crue testée. Ce sont deux mesures complémentaires, pas interchangeables ; l'outil n'utilise la première que pour repérer les crues (onglet Crues), jamais comme résultat de campagne.</p>
@@ -400,17 +405,21 @@
       <button class="chg-lien" type="button" data-tout-replier>Tout replier</button>
     </div>
   </div>
-  <p class="chg-compteur" data-compteur>154 modification(s) affichée(s) sur 154 (27 majeures).</p>
+  <p class="chg-compteur" data-compteur>155 modification(s) affichée(s) sur 155 (28 majeures).</p>
 
   <div class="chg-timeline" data-timeline>
   <div class="chg-groupe chg-ouvert" data-groupe>
     <button class="chg-entete" type="button" data-toggle-groupe>
       <span class="chg-puce"></span>
       <span class="chg-date-lbl">1er septembre 2026</span>
-      <span class="chg-compte">14 modifications <span class="chg-compte-maj">· 4 majeures</span></span>
+      <span class="chg-compte">15 modifications <span class="chg-compte-maj">· 5 majeures</span></span>
       <span class="chg-chevron">▾</span>
     </button>
     <div class="chg-corps">
+      <article class="chg-item" data-nature="tag-fix" data-imp="majeur">
+        <div class="chg-meta"><span class="tag tag-fix">Correctif</span><span class="chg-imp">★ Majeur</span></div>
+        <p>Suite à l'audit de code du jour (findings C1/C2), <b>19 nouveaux tests</b> sur les zones les plus critiques et jusque-là non couvertes : migrations sqlite (<code>_migrer_ancienne_base_partagee_si_necessaire</code>, <code>_migrer_schema_multi_instants</code>) et fonctions pilotant l'UI (<code>duree_par_etape</code>, <code>estimer_temps_restant</code>, <code>etat_combinaisons</code>, <code>resume_couverture</code>, <code>list_combinaisons_completes</code>) dans <code>results_store.py</code> ; <code>lancer_campagne()</code> elle-même (~300 lignes, jamais testée) dans <code>run_orchestrator.py</code>, via 5 tests d'intégration mockant les frontières externes (GRP, PDF, séries). <b>Un bug latent réel a été révélé au passage</b> : sur une très ancienne base jamais relancée depuis le 27/08/2026 (avant l'ajout de <code>instant_label</code>), <code>init_db()</code> plantait avec "no such column: instant_label" — l'index <code>idx_series_archivees</code> était créé dans le même script que le schéma de base, avant que la migration n'ait la moindre chance d'ajouter la colonne qu'il référence. Jamais déclenché en pratique (tous les postes connus ont déjà relancé l'outil depuis le 27/08), mais aurait bloqué toute nouvelle installation reprenant une base antérieure à cette date. Corrigé : l'index est désormais créé après la migration, jamais avant. Suite complète : 75 tests passent (56 → 75). Voir Architecture &gt; "Tests automatisés" pour le détail.</p>
+      </article>
       <article class="chg-item" data-nature="tag-fix" data-imp="mineur">
         <div class="chg-meta"><span class="tag tag-fix">Correctif</span></div>
         <p>Onglet Campagne : le bouton <b>« Nouvelle campagne (tout relancer) »</b> (renommé, ex-« Lancement initial de la campagne ») relance le calage de <b>toutes</b> les combinaisons sélectionnées, y compris celles déjà réussies — sans confirmation jusqu'ici, alors que le titre de la fenêtre affiche pourtant le nombre de combinaisons déjà en base. Trouvé en audit ergonomie : une confirmation explicite est désormais demandée si des combinaisons de la sélection actuelle ont déjà un calage réussi, rappelant l'existence du bouton « Compléter la campagne et relancer les échecs » pour ne relancer que ce qui manque. Aucun changement de comportement si aucune combinaison de la sélection n'est déjà réussie (comportement inchangé pour une toute nouvelle campagne).</p>
