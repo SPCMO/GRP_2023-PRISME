@@ -33,11 +33,13 @@ logger = logging.getLogger("grp_2023.notification")
 
 SERVEUR_NTFY_PAR_DEFAUT = "https://ntfy.sh"
 
-# Priorités acceptées par l'API ntfy (en-tête HTTP "Priority") — voir
-# https://docs.ntfy.sh/publish/#message-priority. "default" et "high" sont les 2
-# seules utilisées par PRISME (fin normale / fin en échec), mais les 5 sont
-# acceptées pour rester ouvert à un réglage plus fin plus tard (config.json).
+# Priorités acceptées par l'API ntfy — voir https://docs.ntfy.sh/publish/#message-
+# priority. "default" et "high" sont les 2 seules utilisées par PRISME (fin normale /
+# fin en échec), mais les 5 sont acceptées pour rester ouvert à un réglage plus fin
+# plus tard (config.json). En publication JSON (voir envoyer_alerte_ntfy), l'API
+# attend un ENTIER 1-5, pas ces alias texte — table de correspondance ci-dessous.
 PRIORITES_NTFY = ("min", "low", "default", "high", "urgent")
+_PRIORITES_NTFY_VERS_ENTIER = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
 
 
 class NotificationError(Exception):
@@ -70,9 +72,20 @@ def generer_topic_ntfy(nom_ou_code_station):
 def envoyer_alerte_ntfy(serveur, topic, titre, message, priorite="default",
                          proxies=None, tags=None, timeout=10):
     """Envoie une notification push via un serveur ntfy (ntfy.sh par défaut, ou une
-    instance auto-hébergée compatible). `titre`/`message` en clair (UTF-8, geré nati-
-    vement par requests dans les en-têtes comme dans le corps — vérifié en conditions
-    réelles par le prototype `Alerte SMS/notify.py`, mêmes en-têtes repris ici).
+    instance auto-hébergée compatible).
+
+    Publication en JSON (`POST <serveur>/` avec {"topic", "title", "message", ...}
+    dans le CORPS de la requête, voir https://docs.ntfy.sh/publish/#publish-as-json)
+    plutôt qu'en en-têtes HTTP (Title/Priority/Tags) comme le fait le prototype
+    `Alerte SMS/notify.py` — corrige un bug réel constaté en conditions réelles : un
+    titre contenant un caractère hors Latin-1 (ex. le tiret cadratin "—", très courant
+    dans les titres générés par PRISME) fait lever une UnicodeEncodeError par la
+    bibliothèque HTTP sous-jacente (les en-têtes HTTP s'encodent par défaut en
+    Latin-1, PAS en UTF-8) — silencieusement, cette exception n'étant pas une
+    requests.RequestException, elle n'était catchée nulle part et laissait
+    l'utilisateur sans aucun message, ni succès ni échec. Le corps JSON, lui, encode
+    nativement en UTF-8 (voir `requests.post(..., json=...)`) : plus aucune
+    restriction de caractères sur titre/message/tags.
 
     Lève NotificationError si les paramètres sont invalides ou si l'envoi échoue
     (réseau, proxy, réponse HTTP non 2xx) — TOUJOURS à l'appelant de décider du
@@ -87,13 +100,13 @@ def envoyer_alerte_ntfy(serveur, topic, titre, message, priorite="default",
     if priorite not in PRIORITES_NTFY:
         raise NotificationError(
             f"Priorité ntfy inconnue : {priorite!r} (attendu parmi {PRIORITES_NTFY}).")
-    url = f"{serveur.rstrip('/')}/{topic}"
-    en_tetes = {"Title": titre, "Priority": priorite}
+    url = f"{serveur.rstrip('/')}/"
+    payload = {"topic": topic, "title": titre, "message": message,
+               "priority": _PRIORITES_NTFY_VERS_ENTIER[priorite]}
     if tags:
-        en_tetes["Tags"] = ",".join(tags)
+        payload["tags"] = list(tags)
     try:
-        reponse = requests.post(url, data=message.encode("utf-8"), headers=en_tetes,
-                                 proxies=proxies, timeout=timeout)
+        reponse = requests.post(url, json=payload, proxies=proxies, timeout=timeout)
         reponse.raise_for_status()
     except requests.RequestException as e:
         # Le topic ne doit JAMAIS apparaître dans un message d'erreur potentiellement

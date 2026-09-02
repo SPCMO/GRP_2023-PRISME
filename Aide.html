@@ -87,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023-PRISME v3.9 — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME v3.10 — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -271,12 +271,12 @@
   <h2>Architecture</h2>
 
   <h3>Numéro de version</h3>
-  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.9</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
+  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.10</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
   <ul>
     <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement ou la fiabilité de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 ; v3.0 = recalcul automatique du dQP/dTP + score composite en médiane, 1<sup>er</sup> septembre 2026).</li>
     <li><b>MINEUR</b> incrémenté à chaque <b>lot de déploiement</b> suivant le dernier changement majeur — un même jour peut donc contenir plusieurs incréments MINEUR si plusieurs livraisons distinctes s'y succèdent.</li>
   </ul>
-  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v3.0 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique + score en médiane) → v3.1 (1<sup>er</sup> septembre, garde-fous anti-perte de données lors d'une réinstallation) → v3.2 (1<sup>er</sup> septembre, numéro de version affiché) → v3.3 (1<sup>er</sup> septembre, correctifs d'audit ergonomie — confirmation avant relance complète de campagne, retour visuel pendant l'export Excel) → v3.4 (1<sup>er</sup> septembre, tests d'audit de code C1/C2 — migrations sqlite, <code>lancer_campagne()</code>, avec un bug latent réel découvert et corrigé au passage) → v3.5 (1<sup>er</sup> septembre, colonne « Sous/sur-estim. » dans le classement Vue synthèse) → v3.6 (1<sup>er</sup> septembre, suppression de combinaisons depuis "Combinaisons déjà réalisées" + propagation du rafraîchissement dans tout l'outil) → v3.7 (1<sup>er</sup> septembre, score composite médiane/moyenne paramétrable + tableau de classement doublé, triable, avec dQp/dT médians et moyens) → v3.8 (2 septembre, tri ajouté à « Maximum de chaque courbe tracée » et « Variation selon le nb de crues », colonnes de ce dernier doublées médiane/moyenne) → v3.9 (2 septembre, alerte de fin de campagne par notification push ntfy, optionnelle). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
+  <p class="muted">Historique : v1.0 (20 août 2026, mise en ligne initiale) → v2.0 (26 août 2026, isolation par station) → v2.1 (27 août, rejeu à plusieurs instants) → v2.2 (31 août, export Excel 7 feuilles) → v3.0 (1<sup>er</sup> septembre, recalcul dQP/dTP automatique + score en médiane) → v3.1 (1<sup>er</sup> septembre, garde-fous anti-perte de données lors d'une réinstallation) → v3.2 (1<sup>er</sup> septembre, numéro de version affiché) → v3.3 (1<sup>er</sup> septembre, correctifs d'audit ergonomie — confirmation avant relance complète de campagne, retour visuel pendant l'export Excel) → v3.4 (1<sup>er</sup> septembre, tests d'audit de code C1/C2 — migrations sqlite, <code>lancer_campagne()</code>, avec un bug latent réel découvert et corrigé au passage) → v3.5 (1<sup>er</sup> septembre, colonne « Sous/sur-estim. » dans le classement Vue synthèse) → v3.6 (1<sup>er</sup> septembre, suppression de combinaisons depuis "Combinaisons déjà réalisées" + propagation du rafraîchissement dans tout l'outil) → v3.7 (1<sup>er</sup> septembre, score composite médiane/moyenne paramétrable + tableau de classement doublé, triable, avec dQp/dT médians et moyens) → v3.8 (2 septembre, tri ajouté à « Maximum de chaque courbe tracée » et « Variation selon le nb de crues », colonnes de ce dernier doublées médiane/moyenne) → v3.9 (2 septembre, alerte de fin de campagne par notification push ntfy, optionnelle) → v3.10 (2 septembre, correctif — le titre de l'alerte plantait silencieusement sur un tiret cadratin, passage en publication JSON). Mise à jour manuelle de <code>config.VERSION</code> à chaque déploiement significatif — jamais recalculée automatiquement.</p>
 
   <h3>Choix structurants</h3>
   <ul>
@@ -426,17 +426,21 @@
       <button class="chg-lien" type="button" data-tout-replier>Tout replier</button>
     </div>
   </div>
-  <p class="chg-compteur" data-compteur>160 modification(s) affichée(s) sur 160 (31 majeures).</p>
+  <p class="chg-compteur" data-compteur>161 modification(s) affichée(s) sur 161 (32 majeures).</p>
 
   <div class="chg-timeline" data-timeline>
   <div class="chg-groupe chg-ouvert" data-groupe>
     <button class="chg-entete" type="button" data-toggle-groupe>
       <span class="chg-puce"></span>
       <span class="chg-date-lbl">2 septembre 2026</span>
-      <span class="chg-compte">2 modifications <span class="chg-compte-maj">· 1 majeure</span></span>
+      <span class="chg-compte">3 modifications <span class="chg-compte-maj">· 2 majeures</span></span>
       <span class="chg-chevron">▾</span>
     </button>
     <div class="chg-corps">
+      <article class="chg-item" data-nature="tag-fix" data-imp="majeur">
+        <div class="chg-meta"><span class="tag tag-fix">Correctif</span><span class="chg-imp">★ Majeur</span></div>
+        <p>Alerte ntfy (voir entrée précédente, déployée le jour même) : le bouton <b>« Envoyer une alerte de test »</b> ne renvoyait strictement rien — ni la notification, ni le moindre message d'erreur dans l'outil. Cause trouvée en conditions réelles : les titres générés par PRISME contiennent un <b>tiret cadratin</b> (« — », caractère hors de la plage Latin-1 dans laquelle les en-têtes HTTP s'encodent par défaut), ce qui fait lever une <code>UnicodeEncodeError</code> — une exception qui n'est PAS une <code>requests.RequestException</code>, donc jamais catchée ni par <code>modules/notification.py</code> ni par l'onglet Configuration : l'utilisateur restait sans aucun retour. Corrigé à la racine (pas seulement pour ce caractère précis) : <code>envoyer_alerte_ntfy</code> publie désormais en <b>JSON</b> (<code>POST &lt;serveur&gt;/</code> avec le titre/message dans le corps de la requête, voir <a href="https://docs.ntfy.sh/publish/#publish-as-json" target="_blank" rel="noopener">l'API ntfy</a>) plutôt qu'en en-têtes HTTP — le corps JSON encode nativement en UTF-8, plus aucune restriction de caractères sur le titre ou le message, quel que soit l'accent ou la ponctuation utilisée. Validé en conditions réelles avec le titre exact qui plantait (notification bien reçue). Tests mis à jour en conséquence (toujours 10, format JSON).</p>
+      </article>
       <article class="chg-item" data-nature="tag-feat" data-imp="majeur">
         <div class="chg-meta"><span class="tag tag-feat">Nouveauté</span><span class="chg-imp">★ Majeur</span></div>
         <p>Onglet <b>Configuration</b> : nouveau bandeau <b>« Alerte de fin de campagne (optionnel) »</b> — notification push sur téléphone (via <a href="https://ntfy.sh" target="_blank" rel="noopener">ntfy.sh</a>, gratuit, sans compte, indépendant de l'opérateur mobile) quand une campagne se termine, utile pour une campagne longue lancée sans surveillance. Décoché/vide par défaut : comportement strictement inchangé tant que rien n'est activé. Case à cocher, sujet (topic) ntfy généré aléatoirement et <b>propre à chaque installation</b> (<code>prisme-&lt;station&gt;-&lt;8 hex&gt;</code>, via <code>secrets.token_hex</code> — le sujet fait office de mot de passe, jamais à diffuser), bouton "Copier", icône ⓘ avec la marche à suivre complète (appli ntfy, abonnement, réglages batterie), et bouton "Envoyer une alerte de test". Nouveau module <code>modules/notification.py</code> (fonctions pures, 10 tests) ; déclenchement best-effort dans <code>ui/tab_orchestration.py</code> à la fin de campagne — normale, annulée ou en erreur fatale — sans jamais faire échouer la campagne elle-même en cas de souci réseau. Voir Architecture &gt; "Alerte de fin de campagne (ntfy)". Mis au point et testé en amont dans une session dédiée (dossier hors-dépôt "Alerte SMS/", jamais importé — seule sa logique ntfy a été reprise, pour ne pas coupler PRISME à un dossier externe).</p>

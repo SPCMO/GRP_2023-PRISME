@@ -59,23 +59,26 @@ def test_generer_topic_ntfy_station_vide_retourne_quand_meme_un_sujet_exploitabl
 def test_envoyer_alerte_ntfy_appelle_requests_post_avec_les_bons_parametres(monkeypatch):
     appels = []
 
-    def _post_factice(url, data=None, headers=None, proxies=None, timeout=None):
-        appels.append({"url": url, "data": data, "headers": headers,
-                        "proxies": proxies, "timeout": timeout})
+    def _post_factice(url, json=None, proxies=None, timeout=None):
+        appels.append({"url": url, "json": json, "proxies": proxies, "timeout": timeout})
         return _ReponseFactice(200)
 
     monkeypatch.setattr(notification.requests, "post", _post_factice)
+    # Titre avec tiret cadratin (—, U+2014) — caractère qui plantait en mode
+    # en-têtes HTTP (UnicodeEncodeError, Latin-1) avant le passage au mode JSON.
     notification.envoyer_alerte_ntfy(
-        "https://ntfy.sh", "mon-topic", titre="Titre é à ç", message="Message accentué",
-        priorite="high", proxies={"https": "http://proxy:8080"}, tags=["warning"])
+        "https://ntfy.sh", "mon-topic", titre="PRISME — Titre é à ç",
+        message="Message accentué", priorite="high",
+        proxies={"https": "http://proxy:8080"}, tags=["warning"])
 
     assert len(appels) == 1
     appel = appels[0]
-    assert appel["url"] == "https://ntfy.sh/mon-topic"
-    assert appel["data"] == "Message accentué".encode("utf-8")
-    assert appel["headers"]["Title"] == "Titre é à ç"
-    assert appel["headers"]["Priority"] == "high"
-    assert appel["headers"]["Tags"] == "warning"
+    assert appel["url"] == "https://ntfy.sh/"
+    assert appel["json"]["topic"] == "mon-topic"
+    assert appel["json"]["title"] == "PRISME — Titre é à ç"
+    assert appel["json"]["message"] == "Message accentué"
+    assert appel["json"]["priority"] == 4  # "high" -> 4, voir _PRIORITES_NTFY_VERS_ENTIER
+    assert appel["json"]["tags"] == ["warning"]
     assert appel["proxies"] == {"https": "http://proxy:8080"}
 
 
@@ -84,7 +87,7 @@ def test_envoyer_alerte_ntfy_retire_le_slash_final_du_serveur(monkeypatch):
     monkeypatch.setattr(notification.requests, "post",
                          lambda url, **k: appels.append(url) or _ReponseFactice(200))
     notification.envoyer_alerte_ntfy("https://ntfy.sh/", "topic", "T", "M")
-    assert appels[0] == "https://ntfy.sh/topic"
+    assert appels[0] == "https://ntfy.sh/"
 
 
 def test_envoyer_alerte_ntfy_sans_serveur_ou_topic_leve_erreur():
