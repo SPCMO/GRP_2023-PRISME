@@ -675,12 +675,31 @@ def _build_synthese(frame, app):
     etat_colorbar = {"cb": None}
     _dessiner_legende_boite(fig, canvas, etat_icones, ax_legende_boite)
 
+    ligne_titre_classement = tk.Frame(frame)
+    ligne_titre_classement.pack(fill=tk.X, padx=8, pady=(4, 0))
+    tk.Label(ligne_titre_classement, text="Classement des combinaisons",
+             font=("TkDefaultFont", 9, "bold")).pack(side=tk.LEFT)
+    bouton_info(
+        ligne_titre_classement, "Sous/sur-estimation",
+        "Colonne « Sous/sur-estim. » : x / y\n\n"
+        "x = nombre de crues (parmi celles incluses dans le score, voir la sélection "
+        "\"Crues dans le score\" en haut) où le débit simulé SOUS-estime le débit "
+        "observé (dQP < 0, pic simulé plus bas que le pic observé).\n\n"
+        "y = nombre de crues où il le SURestime (dQP > 0).\n\n"
+        "Les crues à dQP exactement nul, ou sans dQP disponible pour cette "
+        "combinaison, ne comptent ni dans x ni dans y — x + y peut donc être "
+        "inférieur au nombre total de crues de la colonne \"Nb crues\"."
+    ).pack(side=tk.LEFT, padx=(4, 0))
+
     cadre_classement = tk.Frame(frame)
     cadre_classement.pack(fill=tk.X, padx=8, pady=(0, 8))
-    tableau = ttk.Treeview(cadre_classement, columns=("horizon", "seuil", "methode", "score", "nb_crues"),
-                            show="headings", height=8)
+    tableau = ttk.Treeview(
+        cadre_classement,
+        columns=("horizon", "seuil", "methode", "score", "nb_crues", "sous_sur"),
+        show="headings", height=8)
     for col, libelle in (("horizon", "Horizon"), ("seuil", "Seuil C1"), ("methode", "Méthode"),
-                         ("score", "Score (0=meilleur)"), ("nb_crues", "Nb crues")):
+                         ("score", "Score (0=meilleur)"), ("nb_crues", "Nb crues"),
+                         ("sous_sur", "Sous/sur-estim.")):
         tableau.heading(col, text=libelle)
         tableau.column(col, width=120, anchor="center")
     ascenseur_tableau = ttk.Scrollbar(cadre_classement, orient=tk.VERTICAL, command=tableau.yview)
@@ -914,11 +933,23 @@ def _build_synthese(frame, app):
 
         canvas.draw_idle()
 
+        # Regroupement par combinaison des lignes crue-par-crue déjà chargées
+        # (lignes_ok), pour compter combien SOUS-estiment (dqp < 0, pic simulé plus
+        # bas que l'observé) vs SURestiment (dqp > 0) le débit — demandé, colonne
+        # "Sous/sur-estim." du tableau ci-dessous. Un seul passage sur lignes_ok
+        # plutôt qu'un filtre répété par combinaison (potentiellement des centaines).
+        lignes_par_combi = {}
+        for l in lignes_ok:
+            lignes_par_combi.setdefault((l["horizon"], l["seuil_c1"], l["methode"]), []).append(l)
+
         tableau.delete(*tableau.get_children())
         for s in scores:  # toutes les combinaisons, pas seulement les 15 meilleures -- l'ascenseur permet de tout parcourir
+            lignes_combi = lignes_par_combi.get((s.horizon, s.seuil_c1, s.methode), [])
+            nb_sous = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] < 0)
+            nb_sur = sum(1 for l in lignes_combi if l["dqp"] is not None and l["dqp"] > 0)
             tableau.insert("", tk.END, values=(s.horizon, f"{s.seuil_c1:.2f}", s.methode,
                                                 f"{s.score:.4f}" if s.score is not None else "—",
-                                                s.nb_crues))
+                                                s.nb_crues, f"{nb_sous} / {nb_sur}"))
 
     _rafraichir()
     return _rafraichir  # exposé pour que build_tab_dashboard puisse retracer au changement de pondération
