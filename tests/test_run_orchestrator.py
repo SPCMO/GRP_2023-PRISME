@@ -501,3 +501,48 @@ def test_lancer_campagne_annulation_avant_traitement_stoppe_proprement(tmp_path,
     assert appels_calage == []  # rien traité du tout
     assert any(e.statut == "annule" for e in evenements)
     assert nettoyages == [paths.dossier_bddtr]  # nettoyage final bien appelé malgré tout
+
+
+# -- Archivage de la série observée après un calage réussi (correctif 2026-09-07) --------
+
+def test_lancer_campagne_archive_la_serie_observee_apres_calage_reussi(tmp_path, monkeypatch):
+    """Corrige un bug réel : Dashboard > "Détail par crue" devenait "Crue introuvable"
+    dès qu'un calage ultérieur (autre combinaison) redétectait un jeu de crues
+    différent dans CRITERES_PERF.DAT — fichier de travail réécrit à chaque calage.
+    Vérifie que lancer_campagne archive bien, juste après un calage réussi, la série
+    observée complète de chaque crue détectée — voir
+    modules.run_orchestrator._archiver_series_observees_du_calage."""
+    paths = _paths_test(tmp_path)
+    _mocker_frontieres_externes(monkeypatch)
+    crue = datetime(2018, 10, 13)
+    evenement_factice = SimpleNamespace(date_deb=crue, num_evt=1)
+    monkeypatch.setattr(run_orchestrator, "parse_criteres_perf",
+                         lambda chemin: [evenement_factice])
+    points = [(crue, 0.0, 5.2), (crue, 1.0, 12.8)]
+    monkeypatch.setattr(run_orchestrator, "parse_evenement_serie", lambda chemin: points)
+    db_path = str(tmp_path / "base.sqlite3")
+
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [crue], db_path=db_path)
+
+    with results_store.db_session(db_path) as conn:
+        archive = results_store.charger_serie_observee_complete(conn, "00J00H15M", crue)
+    assert archive == points
+
+
+def test_lancer_campagne_criteres_perf_illisible_nempeche_pas_la_campagne(tmp_path, monkeypatch):
+    """Best-effort explicite : si CRITERES_PERF.DAT est absent/illisible juste après le
+    calage (cas déjà couvert implicitement par tous les autres tests, qui ne mockent
+    pas parse_criteres_perf — ce test le rend explicite), la campagne continue
+    normalement, rien n'est archivé, aucune exception ne remonte."""
+    paths = _paths_test(tmp_path)
+    _mocker_frontieres_externes(monkeypatch)
+    crue = datetime(2024, 1, 1)
+    db_path = str(tmp_path / "base.sqlite3")
+
+    lancer_campagne(paths, "00J00H15M", [("01J00H00M", 5.0, "T")], [crue], db_path=db_path)
+
+    with results_store.db_session(db_path) as conn:
+        combinaisons = results_store.list_combinaisons(conn)
+        archive = results_store.charger_serie_observee_complete(conn, "00J00H15M", crue)
+    assert combinaisons[0]["statut"] == "success"  # campagne non perturbée
+    assert archive == []

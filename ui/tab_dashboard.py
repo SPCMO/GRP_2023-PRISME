@@ -1514,23 +1514,30 @@ def _build_detail(frame, app):
             canvas_instants.draw_idle()
             return
 
-        try:
-            evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-        except (FileNotFoundError, CriteresPerfError):
-            var_statut_instants.set("")
-            canvas_instants.draw_idle()
-            return
-        evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
-        if evt is None:
-            var_statut_instants.set("")
-            canvas_instants.draw_idle()
-            return
-        chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
-                                     f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
-        try:
-            serie_obs = parse_evenement_serie(chemin_serie)
-        except (FileNotFoundError, CriteresPerfError):
-            serie_obs = []
+        # Même repli que _tracer() ci-dessus (voir sa docstring) : d'abord l'archive en
+        # base, indépendante du calage GRP actuellement en place, avant de retomber sur
+        # CRITERES_PERF.DAT/EVxxxx.DAT courants.
+        with results_store.db_session() as conn:
+            serie_obs = results_store.charger_serie_observee_complete(
+                conn, code_pdt, datetime.fromisoformat(crue_iso))
+        if not serie_obs:
+            try:
+                evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+            except (FileNotFoundError, CriteresPerfError):
+                var_statut_instants.set("")
+                canvas_instants.draw_idle()
+                return
+            evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
+            if evt is None:
+                var_statut_instants.set("")
+                canvas_instants.draw_idle()
+                return
+            chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                         f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+            try:
+                serie_obs = parse_evenement_serie(chemin_serie)
+            except (FileNotFoundError, CriteresPerfError):
+                serie_obs = []
 
         labels_instants = [results_store.INSTANT_REFERENCE] + [f"H-{h:g}" for h in decalages]
         libelles_instants = {results_store.INSTANT_REFERENCE: "Référence (~2j avant le pic)"}
@@ -1621,30 +1628,51 @@ def _build_detail(frame, app):
             canvas.draw_idle()
             return
 
-        # Série observée (source déjà vérifiée, voir modules.criteres_perf) : commune à
-        # toutes les combinaisons sélectionnées (ne dépend que de la crue), tracée une
-        # seule fois. On cherche l'événement dont la date de début correspond à la crue.
+        crue_date_obj = datetime.fromisoformat(crue_iso)
+
+        # Série observée : D'ABORD l'archive en base (immuable, indépendante du calage
+        # GRP actuellement en place — voir modules.results_store.
+        # charger_serie_observee_complete), repli sur CRITERES_PERF.DAT/EVxxxx.DAT
+        # ACTUELS seulement si jamais archivée (résultat d'une campagne antérieure à
+        # ce correctif). CRITERES_PERF.DAT/EVxxxx.DAT sont réécrits par CHAQUE calage,
+        # quelle que soit la combinaison — sans ce repli sur l'archive, une ancienne
+        # crue redevenait "introuvable" dès qu'un calage ultérieur (seuil/pas de temps
+        # différent) redétectait un jeu de crues différent, alors même que les
+        # résultats de l'ancienne combinaison restaient valides en base (constaté par
+        # l'utilisateur, 2026-09-07).
+        with results_store.db_session() as conn:
+            serie = results_store.charger_serie_observee_complete(conn, code_pdt, crue_date_obj)
+
+        # Événement du calage ACTUELLEMENT en place (pour le fil d'indicateurs
+        # "configuration en place" affiché plus bas) — reste dépendant de
+        # CRITERES_PERF.DAT courant par nature (voir son icône ⓘ : "indicateurs du
+        # calage complet actuellement installé dans GRP"), jamais un repli archivé.
+        # Best-effort : son absence n'empêche plus le tracé si la série, elle, a été
+        # retrouvée en base.
         try:
             evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-        except (FileNotFoundError, CriteresPerfError) as e:
-            var_indicateurs.set(f"Impossible de charger les événements : {e}")
-            canvas.draw_idle()
-            return
-
+        except (FileNotFoundError, CriteresPerfError):
+            evenements = []
         evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
-        if evt is None:
-            var_indicateurs.set("Crue introuvable dans CRITERES_PERF.DAT pour ce pas de temps.")
-            canvas.draw_idle()
-            return
 
-        num_evt_str = f"{evt.num_evt:04d}"
-        chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
-                                     f"{paths.code_site}-EV{num_evt_str}.DAT")
-        try:
-            serie = parse_evenement_serie(chemin_serie)
-        except (FileNotFoundError, CriteresPerfError) as e:
-            var_indicateurs.set(f"Série observée indisponible : {e}")
-            serie = []
+        if not serie:
+            if evt is None:
+                var_indicateurs.set(
+                    "Crue introuvable dans CRITERES_PERF.DAT pour ce pas de temps, et "
+                    "aucune série observée archivée en base pour cette date (résultat "
+                    "probablement issu d'une campagne antérieure à l'archivage "
+                    "automatique — relancez le calage d'une combinaison de cette "
+                    "grille pour la régénérer).")
+                canvas.draw_idle()
+                return
+            num_evt_str = f"{evt.num_evt:04d}"
+            chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                         f"{paths.code_site}-EV{num_evt_str}.DAT")
+            try:
+                serie = parse_evenement_serie(chemin_serie)
+            except (FileNotFoundError, CriteresPerfError) as e:
+                var_indicateurs.set(f"Série observée indisponible : {e}")
+                serie = []
 
         # dQP/dT de chaque courbe RELATIFS au pic observé (même principe que les
         # indicateurs dQP/dTP de campagne, mais calculés ici directement sur les
@@ -1830,11 +1858,21 @@ def _build_detail(frame, app):
         fig.autofmt_xdate()
         canvas.draw_idle()
 
-        texte = (
-            f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — configuration en place : "
-            f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
-            + ("  ⚠ suspect" if evt.suspects else "")
-        )
+        if evt is not None:
+            texte = (
+                f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — configuration en place : "
+                f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
+                + ("  ⚠ suspect" if evt.suspects else "")
+            )
+        else:
+            # Crue absente du calage GRP ACTUELLEMENT en place (un calage ultérieur, sur
+            # une autre combinaison, a redétecté un jeu de crues différent) — la série
+            # observée provient alors de l'archive de campagne (voir plus haut), mais
+            # les indicateurs du "calage en place" n'ont plus de sens à afficher ici.
+            texte = (f"Crue du {crue_date_obj:%d/%m/%Y %H:%M} — absente du calage GRP "
+                     "actuellement en place (un calage ultérieur a redétecté un jeu de "
+                     "crues différent) ; série observée affichée depuis l'archive de "
+                     "campagne.")
         if combis_selectionnees and not toutes_valeurs:
             texte += "  —  Aucune série simulée disponible pour la/les combinaison(s) sélectionnée(s)."
         elif not combis_selectionnees:

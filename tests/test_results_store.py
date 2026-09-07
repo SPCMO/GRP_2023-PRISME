@@ -392,3 +392,101 @@ def test_supprimer_combinaisons_liste_vide_ne_fait_rien(tmp_path):
 
     with results_store.db_session(chemin) as conn:
         assert {c["id"] for c in results_store.list_combinaisons(conn)} == {cid}
+
+
+# -- series_observees_completes ------------------------------------------------------
+# Voir modules.run_orchestrator._archiver_series_observees_du_calage : corrige un bug
+# réel (2026-09-07) où Dashboard > "Détail par crue" devenait "Crue introuvable" dès
+# qu'un calage ultérieur (autre combinaison) redétectait un jeu de crues différent
+# dans CRITERES_PERF.DAT/EVxxxx.DAT — fichiers de travail réécrits à chaque calage,
+# jamais versionnés par combinaison. La série archivée ici est INDÉPENDANTE de toute
+# combinaison (indexée par pas_de_temps + crue_date seulement).
+
+from datetime import datetime as _dt
+
+
+def test_archiver_et_charger_serie_observee_complete_aller_retour(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    points = [
+        (_dt(2018, 10, 13, 0, 0), 0.0, 5.2),
+        (_dt(2018, 10, 13, 0, 15), 1.5, 5.4),
+        (_dt(2018, 10, 13, 0, 30), 3.0, 12.8),  # pic
+    ]
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0), points)
+
+    with results_store.db_session(chemin) as conn:
+        relu = results_store.charger_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0))
+    assert relu == points
+
+
+def test_charger_serie_observee_complete_absente_retourne_liste_vide(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        assert results_store.charger_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0)) == []
+
+
+def test_archiver_serie_observee_complete_remplace_lancienne_version(tmp_path):
+    """Ré-archiver la même crue (calage relancé sur une autre combinaison qui la
+    redétecte identiquement) écrase l'ancienne version plutôt que d'accumuler des
+    doublons."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0),
+            [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)])
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0),
+            [(_dt(2018, 10, 13, 0, 0), 0.0, 5.5), (_dt(2018, 10, 13, 0, 15), 1.0, 6.0)])
+
+    with results_store.db_session(chemin) as conn:
+        relu = results_store.charger_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0))
+    assert relu == [(_dt(2018, 10, 13, 0, 0), 0.0, 5.5), (_dt(2018, 10, 13, 0, 15), 1.0, 6.0)]
+
+
+def test_serie_observee_complete_independante_de_toute_combinaison(tmp_path):
+    """Contrairement à series_archivees (indexée par combinaison_id), la série
+    observée complète est retrouvable sans passer par aucune combinaison — c'est
+    justement le point : elle doit survivre même si la combinaison qui l'a détectée en
+    premier n'existe plus/n'est plus la dernière calée."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0),
+            [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)])
+        # Une combinaison est calée puis supprimée (cascade ON DELETE) — ne doit
+        # jamais toucher series_observees_completes, qui n'y référence rien.
+        cid = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        results_store.supprimer_combinaisons(conn, [cid])
+
+    with results_store.db_session(chemin) as conn:
+        assert results_store.charger_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0)) == [
+            (_dt(2018, 10, 13, 0, 0), 0.0, 5.2)]
+
+
+def test_series_observees_completes_distinguent_les_pas_de_temps(tmp_path):
+    """Même date de crue, deux pas de temps différents (rare mais possible si l'outil
+    est utilisé sur plusieurs pas de temps pour la même station) : les deux archives
+    doivent rester indépendantes, jamais mélangées."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0), [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)])
+        results_store.archiver_serie_observee_complete(
+            conn, "00J01H00M", _dt(2018, 10, 13, 0, 0), [(_dt(2018, 10, 13, 0, 0), 0.0, 9.9)])
+
+    with results_store.db_session(chemin) as conn:
+        assert results_store.charger_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0)) == [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)]
+        assert results_store.charger_serie_observee_complete(
+            conn, "00J01H00M", _dt(2018, 10, 13, 0, 0)) == [(_dt(2018, 10, 13, 0, 0), 0.0, 9.9)]

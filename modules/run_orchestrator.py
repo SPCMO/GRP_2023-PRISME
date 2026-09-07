@@ -126,6 +126,45 @@ def _serie_observee_complete(paths, pas_de_temps, crue_date):
         return None
 
 
+def _archiver_series_observees_du_calage(paths, pas_de_temps, db_path):
+    """Archive en base la série observée COMPLÈTE (voir _serie_observee_complete
+    ci-dessus) de CHAQUE crue actuellement détectée dans CRITERES_PERF.DAT — appelée
+    juste après un calage réussi, LUI SEUL régénérant ce fichier de travail (partagé
+    par toutes les combinaisons d'une campagne, jamais versionné par combinaison).
+
+    Corrige un bug réel constaté par l'utilisateur (2026-09-07) : sans cet archivage,
+    Dashboard > "Détail par crue" redevenait "Crue introuvable" dès qu'un calage
+    ultérieur (seuil ou pas de temps différent) redétectait un jeu de crues distinct —
+    alors même que les résultats de l'ancienne combinaison restaient valides en base,
+    et que la crue restait sélectionnable dans le menu déroulant (peuplé depuis la
+    base, pas depuis ce fichier). Voir modules.results_store.
+    archiver_serie_observee_complete pour le détail du stockage.
+
+    Best-effort, jamais bloquant pour la campagne : un échec de lecture (fichier
+    absent/corrompu, ce qui peut arriver juste après le calage si GRP n'a détecté
+    aucun événement) est simplement loggué, la campagne continue normalement — même
+    principe que le reste de cet orchestrateur (jamais d'exception non capturée)."""
+    try:
+        evenements = parse_criteres_perf(paths.criteres_perf_dat(pas_de_temps))
+    except (FileNotFoundError, CriteresPerfError) as e:
+        logger.warning("Archivage des séries observées impossible (CRITERES_PERF.DAT "
+                        "illisible pour le pas de temps %s) : %s", pas_de_temps, e)
+        return
+    with results_store.db_session(db_path) as conn:
+        for evt in evenements:
+            chemin = os.path.join(paths.evenements_dir(pas_de_temps),
+                                   f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+            try:
+                serie = parse_evenement_serie(chemin)
+            except (FileNotFoundError, CriteresPerfError) as e:
+                logger.warning("Série observée illisible pour la crue du %s (%s) : %s",
+                               evt.date_deb, chemin, e)
+                continue
+            if serie:
+                results_store.archiver_serie_observee_complete(
+                    conn, pas_de_temps, evt.date_deb, serie)
+
+
 def _recalculer_dqp_dtp(serie_obs_complete, serie_sim):
     """Repli quand GRP n'a pas reporté dQP/dTP dans le PDF pour cette crue (cellule
     vide sur la page 2 — voir modules.fiche_controle_pdf) alors que le rejeu a par
@@ -365,6 +404,12 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                 with results_store.db_session(db_path) as conn:
                     results_store.set_statut_combinaison(conn, combinaison_id, "success")
                 _notifier(ProgressionEvent(horizon, seuil_c1, methode, None, "calage", "success"))
+                # Ce calage vient de régénérer CRITERES_PERF.DAT/EVxxxx.DAT — c'est le
+                # SEUL moment où ils reflètent fidèlement CETTE combinaison : on
+                # archive donc immédiatement la série observée de toutes les crues
+                # qu'il détecte, avant qu'un calage ultérieur (autre combinaison) ne
+                # les écrase (voir _archiver_series_observees_du_calage ci-dessus).
+                _archiver_series_observees_du_calage(paths, pas_de_temps, db_path)
 
         with results_store.db_session(db_path) as conn:
             crues_a_faire = _crues_a_traiter(conn, combinaison_id, crues_dates, seulement_echecs,

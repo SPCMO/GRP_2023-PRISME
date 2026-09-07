@@ -74,6 +74,27 @@ CREATE TABLE IF NOT EXISTS series_archivees (
     debit REAL,
     pluie REAL
 );
+
+-- Série observée COMPLÈTE d'une crue (avant ET après son pic, lue dans EVxxxx.DAT
+-- juste après un calage réussi) — INDÉPENDANTE de toute combinaison (la même
+-- observée sert à toutes), contrairement à series_archivees ci-dessus dont le type
+-- 'obs' ne couvre que l'amont du rejeu (jamais le pic si le rejeu est positionné
+-- avant, voir modules.run_orchestrator._serie_observee_complete). Corrige un bug réel
+-- (constaté 2026-09-07) : CRITERES_PERF.DAT/EVxxxx.DAT sont des fichiers de travail
+-- RÉÉCRITS À CHAQUE calage, quelle que soit la combinaison — sans cet archivage,
+-- Dashboard > Détail par crue redevenait "Crue introuvable" dès qu'un calage
+-- ultérieur (seuil/pas de temps différent) redétectait un jeu de crues différent,
+-- alors même que les résultats de l'ancienne combinaison restaient valides en base.
+CREATE TABLE IF NOT EXISTS series_observees_completes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pas_de_temps TEXT NOT NULL,
+    crue_date TEXT NOT NULL,
+    point_date TEXT NOT NULL,
+    debit REAL,
+    pluie REAL
+);
+CREATE INDEX IF NOT EXISTS idx_series_observees_completes
+    ON series_observees_completes(pas_de_temps, crue_date);
 """
 
 # Index sur instant_label, VOLONTAIREMENT séparé du SCHEMA ci-dessus (bug latent trouvé
@@ -757,3 +778,57 @@ def charger_serie(conn, combinaison_id, crue_date, type_serie, instant_label=INS
         (combinaison_id, crue_date_str, instant_label, type_serie),
     ).fetchall()
     return [(_datetime.fromisoformat(l["point_date"]), l["debit"], l["pluie"]) for l in lignes]
+
+
+def archiver_serie_observee_complete(conn, pas_de_temps, crue_date, points):
+    """Archive la série observée COMPLÈTE d'une crue (avant ET après son pic) —
+    indépendante de toute combinaison, voir series_observees_completes dans SCHEMA
+    pour le pourquoi. Appelée par modules.run_orchestrator juste après CHAQUE calage
+    réussi, pour toutes les crues que CE calage détecte dans CRITERES_PERF.DAT.
+
+    `points` : itérable de (datetime, pluie, debit) — même ORDRE que
+    modules.criteres_perf.parse_evenement_serie (⚠️ différent de l'ordre
+    (datetime, debit, pluie) attendu par archiver_serie/charger_serie ci-dessus,
+    attention à ne pas les confondre).
+
+    Remplace toute archive précédente pour ce (pas_de_temps, crue_date) — mise à jour
+    à chaque fois qu'un calage retrouve cette crue, mais JAMAIS supprimée d'elle-même
+    si un calage ultérieur ne la retrouve plus (c'est justement le cas que ceci doit
+    couvrir : une ancienne combinaison reste consultable même si le calage
+    actuellement en place a redétecté un jeu de crues différent)."""
+    crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+    conn.execute(
+        "DELETE FROM series_observees_completes WHERE pas_de_temps = ? AND crue_date = ?",
+        (pas_de_temps, crue_date_str),
+    )
+    conn.executemany(
+        """
+        INSERT INTO series_observees_completes (pas_de_temps, crue_date, point_date, debit, pluie)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (pas_de_temps, crue_date_str,
+             date.isoformat() if hasattr(date, "isoformat") else date, debit, pluie)
+            for date, pluie, debit in points
+        ],
+    )
+
+
+def charger_serie_observee_complete(conn, pas_de_temps, crue_date):
+    """Recharge la série observée complète archivée pour cette crue — liste de
+    (datetime, pluie, debit) (même ordre que
+    modules.criteres_perf.parse_evenement_serie, pour un usage interchangeable en
+    repli), triée chronologiquement, vide si jamais archivée pour cette crue (aucun
+    calage réussi depuis ce correctif ne l'a encore détectée)."""
+    from datetime import datetime as _datetime
+
+    crue_date_str = crue_date.isoformat() if hasattr(crue_date, "isoformat") else crue_date
+    lignes = conn.execute(
+        """
+        SELECT point_date, debit, pluie FROM series_observees_completes
+        WHERE pas_de_temps = ? AND crue_date = ?
+        ORDER BY point_date
+        """,
+        (pas_de_temps, crue_date_str),
+    ).fetchall()
+    return [(_datetime.fromisoformat(l["point_date"]), l["pluie"], l["debit"]) for l in lignes]
