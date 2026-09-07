@@ -350,8 +350,18 @@ def _config_score(app):
     """État persisté du choix de pondération (onglet Dashboard, sélecteur partagé —
     voir build_tab_dashboard). "egal" reste le comportement d'origine, jamais modifié
     par défaut (demande explicite de l'utilisateur : ne pas changer le score existant
-    sans qu'il le décide)."""
-    return app.config_data.setdefault("score", config_ponderation_par_defaut())
+    sans qu'il le décide).
+
+    "score" fait partie des clés propres à chaque station (voir modules.config_manager,
+    7 septembre 2026) : setdefault() seul ne suffit pas — modules.config_manager.
+    basculer_vers_station peut laisser ce dict VIDE (station jamais configurée sur ce
+    poste), auquel cas setdefault("score", ...) le retournerait tel quel (vide) plutôt
+    que la pondération par défaut, `setdefault` ne repeuplant jamais une clé DÉJÀ
+    présente même si elle est vide."""
+    config = app.config_data.setdefault("score", config_ponderation_par_defaut())
+    if not config:
+        config.update(config_ponderation_par_defaut())
+    return config
 
 
 def _poids_actifs(app):

@@ -43,36 +43,26 @@ def _nom_exutoire(app):
 
 
 def _config_affluents(app):
-    """Config affluents PROPRE À LA STATION exutoire actuellement configurée
-    (code_station, onglet Configuration) — clé "affluents_par_station"[code_station],
-    sur le même principe que data/runs_<code_station>.sqlite3 pour les résultats de
-    campagne (modules.results_store). Avant cette mise à jour, une unique configuration
-    "affluents" partagée par TOUTES les stations était silencieusement écrasée à chaque
-    changement de station de l'onglet Configuration (signalé par l'utilisateur :
-    rebasculer sur une station déjà étudiée obligeait à ressaisir tous ses affluents —
-    nom, code station, fichier, temps de propagation).
+    """Config affluents PROPRE À LA STATION exutoire actuellement configurée — clé
+    "affluents" à la racine de config_<code_station>.json (config par station, voir
+    modules.config_manager, 7 septembre 2026) : plus besoin d'indexer par station,
+    le FICHIER l'est déjà. Avant ce mécanisme, une unique configuration "affluents"
+    partagée par TOUTES les stations (puis, entre le 27/08 et le 7/09/2026, une clé
+    "affluents_par_station" indexée DANS l'unique config.json) était perdue/écrasée
+    à chaque changement de station — signalé par l'utilisateur : rebasculer sur une
+    station déjà étudiée obligeait à ressaisir tous ses affluents. Toute migration
+    depuis ces anciens formats est désormais gérée en amont, une fois pour toutes,
+    par modules.config_manager.load_config() — rien à migrer ici.
 
-    Migration automatique et unique, à la première ouverture de cet onglet après cette
-    mise à jour : l'ancienne configuration plate "affluents", si elle existe encore, est
-    rattachée à la station ACTIVE À CE MOMENT PRÉCIS (même logique que la migration
-    équivalente de la base sqlite, voir results_store._chemin_db_par_defaut) — à faire
-    tourner une fois pendant que la station en cours d'étude est encore celle pour
-    laquelle cette configuration a été saisie, avant de basculer sur une nouvelle
-    station."""
-    code_station = app.config_data.get("station", {}).get("code_station")
-    par_station = app.config_data.setdefault("affluents_par_station", {})
-    ancienne_config_plate = app.config_data.get("affluents")
-    if ancienne_config_plate is not None and code_station and code_station not in par_station:
-        par_station[code_station] = ancienne_config_plate
-        del app.config_data["affluents"]
-        app.persist_config()
-    if not code_station:
-        # Pas encore de station identifiée (onglet Configuration) : rien à quoi
-        # rattacher une config affluents persistée — config par défaut en mémoire
-        # seulement, sans toucher à une éventuelle ancienne config "affluents" encore
-        # en attente de migration (voir ci-dessus).
-        return affluents.config_affluents_par_defaut()
-    return par_station.setdefault(code_station, affluents.config_affluents_par_defaut())
+    modules.config_manager.basculer_vers_station peut laisser ce dict VIDE (station
+    jamais configurée sur ce poste) : setdefault() seul ne suffit pas dans ce cas,
+    il ne repeuple jamais une clé DÉJÀ présente même vide — d'où la vérification
+    explicite ci-dessous, plutôt que de laisser cet onglet planter sur un dict sans
+    sa clé "liste" attendue."""
+    config = app.config_data.setdefault("affluents", affluents.config_affluents_par_defaut())
+    if not config:
+        config.update(affluents.config_affluents_par_defaut())
+    return config
 
 
 def _liste_affluents(app):
@@ -1348,3 +1338,22 @@ def build_tab_analyse_affluents(tab_frame, app):
 
     _rafraichir_liste_affl()
     _rafraichir_crues()
+
+    def _rafraichir_affluents_complet():
+        """Recharge tous les champs de cet onglet depuis app.config_data — nécessaire
+        depuis l'introduction du config par station (voir modules.config_manager, 7
+        septembre 2026) : au changement de station, la configuration des affluents
+        (dossier d'import, liste des affluents) change en mémoire, mais les widgets
+        Tkinter ne se resynchronisent jamais tout seuls. Exposée sur
+        app.rafraichir_affluents_complet (voir main.App.on_config_changed)."""
+        var_dossier.set(_config_affluents(app).get("dossier_import", ""))
+        pdt_list_actuelle = app.config_data.get("parametrage", {}).get("pas_de_temps", [])
+        combo_pdt["values"] = [p["libelle"] for p in pdt_list_actuelle]
+        if pdt_list_actuelle and var_pdt.get() not in combo_pdt["values"]:
+            libelle_init = libelle_dernier_pdt(app, pdt_list_actuelle)
+            if libelle_init:
+                var_pdt.set(libelle_init)
+        _rafraichir_liste_affl()
+        _rafraichir_crues()
+
+    app.rafraichir_affluents_complet = _rafraichir_affluents_complet

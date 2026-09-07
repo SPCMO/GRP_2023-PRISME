@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import config as app_config
-from modules import notification, proxy_utils, results_store
+from modules import config_manager, notification, proxy_utils, results_store
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.widgets_common import (
@@ -152,6 +152,27 @@ def build_tab_config(tab_frame, app):
                 f"{nom or '?'}  (code site : {code_site or '?'} — BNBV : {bnbv or '?'} — "
                 f"surface BV : {surface_txt})")
 
+    def _rafraichir_champs_configuration():
+        """Recharge TOUS les champs de cet onglet depuis app.config_data — nécessaire
+        depuis l'introduction du config par station (voir modules.config_manager) :
+        au changement de station (bascule via config_manager.basculer_vers_station
+        ci-dessus), config_data est mis à jour EN MÉMOIRE mais les widgets, remplis
+        une seule fois à la construction de l'onglet, ne se resynchronisent pas tout
+        seuls. Exposée sur app.rafraichir_config_station (voir main.App.
+        on_config_changed) pour rester à jour sans redémarrer l'outil."""
+        for cle, var in chemins_vars.items():
+            var.set(app.config_data.get("chemins", {}).get(cle, ""))
+        var_nom_station.set(app.config_data.get("station", {}).get("nom_station", ""))
+        var_code_station.set(app.config_data.get("station", {}).get("code_station", ""))
+        if not (app.config_data.get("station", {}).get("nom_station")
+                or app.config_data.get("station", {}).get("code_bnbv")):
+            # Nouvelle station jamais identifiée sur ce poste (bascule vers un
+            # fichier station vide) — _afficher_seuils_existants() ci-dessus ne
+            # touche PAS ce libellé si nom/bnbv sont vides (voir sa docstring), il
+            # faut donc le remettre explicitement à l'état "non identifiée" ici.
+            var_resultat_station.set("Station non identifiée.")
+        _afficher_seuils_existants()
+
     def _identifier():
         try:
             code_site = code_site_depuis_station(var_code_station.get())
@@ -226,6 +247,14 @@ def build_tab_config(tab_frame, app):
         # campagne va démarrer sur une base vierge ou reprendre une base existante.
         ancien_code_station = (app.config_data.get("station", {}).get("code_station") or "").strip()
 
+        # Bascule EN MÉMOIRE vers le fichier de configuration propre à cette station
+        # (voir modules.config_manager) AVANT d'écraser quoi que ce soit ci-dessous :
+        # sauvegarde d'abord le paramétrage complet de l'ANCIENNE station (chemins,
+        # horizons/seuils/méthodes sélectionnés, crues, score, affluents — jamais
+        # perdu), puis recharge celui de la nouvelle (ou vide, si jamais configurée
+        # sur ce poste). Sans effet si la station identifiée est la même qu'avant.
+        config_manager.basculer_vers_station(app.config_data, ancien_code_station, code_station)
+
         app.config_data.setdefault("station", {})
         app.config_data["station"]["code_station"] = code_station
         app.config_data["station"]["code_site"] = code_site
@@ -236,7 +265,6 @@ def build_tab_config(tab_frame, app):
         app.config_data["seuils_q"] = {cle: seuils_q.get(cle) for cle, _, _ in LIBELLES_SEUILS_Q}
         app.persist_config()
         app.on_config_changed()
-        _afficher_seuils_existants()
 
         if code_station != ancien_code_station:
             try:
@@ -262,6 +290,7 @@ def build_tab_config(tab_frame, app):
 
     btn_identifier.config(command=_identifier)
     _afficher_seuils_existants()
+    app.rafraichir_config_station = _rafraichir_champs_configuration
 
     # ── Bloc 3 — Dossier de stockage des bases de résultats (optionnel) ──────────
     # Demandé suite à un incident réel : data/ (bases sqlite) est gitignoré (trop

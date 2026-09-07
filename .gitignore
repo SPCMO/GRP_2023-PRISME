@@ -6,7 +6,12 @@
 00_Resultats_*/
 
 # ── Configuration sensible (identifiants PHyC, chemins locaux) ─────────────
+# config/config.json : réglages partagés (identifiants PHyC, alerte ntfy).
+# config/config_<code_station>.json : un fichier par station (chemins de travail,
+# paramétrage de campagne, affluents...) depuis modules/config_manager.py (7
+# septembre 2026) — jamais versionné non plus, mêmes raisons (spécifique au poste).
 config/config.json
+config/config_*.json
 
 # ── Données et logs générés par l'outil ─────────────────────────────────────
 data/

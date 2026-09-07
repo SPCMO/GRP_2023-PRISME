@@ -280,5 +280,17 @@ def build_tab_crues(tab_frame, app):
     enregistrer_observateur_pdt(app, _pdt_change_externe)
     _rafraichir_combo_pdt()
 
+    def _rafraichir_crues_completes():
+        """Recharge tous les champs de cet onglet depuis app.config_data — nécessaire
+        depuis l'introduction du config par station (voir modules.config_manager,
+        7 septembre 2026) : au changement de station, les crues sélectionnées et le
+        réglage "Inclure aussi les événements de pluie" changent en mémoire, mais les
+        widgets Tkinter ne se resynchronisent jamais tout seuls. Exposée sur
+        app.rafraichir_crues_completes (voir main.App.on_config_changed)."""
+        var_inclure_pluie.set(app.config_data.get("crues_inclure_pluie", False))
+        _rafraichir_combo_pdt()  # relit pas_de_temps + rappelle _rafraichir() en chaîne
+
+    app.rafraichir_crues_completes = _rafraichir_crues_completes
+
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

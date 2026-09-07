@@ -144,11 +144,30 @@ class App(tk.Tk):
         )
 
     def on_config_changed(self):
-        """Notifie les onglets dépendants (Paramétrage, Crues) qu'un chemin ou la station
-        a changé — branché aux Phases 3+ lorsqu'ils liront LISTE_BASSINS.DAT /
-        CRITERES_PERF.DAT. Le titre de la fenêtre, lui, est déjà tenu à jour ici."""
+        """Notifie tout ce qui affiche des champs de configuration qu'un réglage vient
+        de changer — le titre de la fenêtre et les badges d'onglets sont déjà tenus à
+        jour ici dans tous les cas.
+
+        Depuis l'introduction du config par station (modules.config_manager, 7
+        septembre 2026), ceci couvre en particulier le cas où config_data vient
+        d'être basculé EN MÉMOIRE vers une AUTRE station (ui/tab_config.py::
+        _identifier, via config_manager.basculer_vers_station) : les widgets de
+        chaque onglet, remplis une seule fois à leur construction, ne se
+        resynchronisent pas tout seuls avec un dict Python modifié en dehors d'eux —
+        sans ces rafraîchissements explicites, rebasculer sur une station ne changerait
+        rien à l'écran tant que l'outil n'est pas redémarré (constaté avant ce
+        correctif). Même principe que on_resultats_changed() ci-dessous : chaque
+        rafraîchissement est appelé via getattr(..., None), les onglets étant tous
+        construits au démarrage (voir _build_ui)."""
         self._maj_titre()
         self.rafraichir_badges_onglets()
+        for nom_attribut in (
+            "rafraichir_config_station", "rafraichir_parametrage_complet",
+            "rafraichir_crues_completes", "rafraichir_affluents_complet",
+        ):
+            fonction = getattr(self, nom_attribut, None)
+            if fonction:
+                fonction()
 
     def on_resultats_changed(self):
         """Notifie TOUT ce qui affiche des données dérivées de la base de résultats

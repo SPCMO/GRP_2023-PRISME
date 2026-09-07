@@ -391,6 +391,38 @@ def build_tab_parametrage(tab_frame, app):
     # (couverture surestimée) jusqu'au prochain clic manuel sur ce bouton.
     app.rafraichir_couverture_parametrage = _rafraichir_couverture
 
+    def _rafraichir_parametrage_complet():
+        """Recharge TOUS les champs de cet onglet depuis app.config_data — nécessaire
+        depuis l'introduction du config par station (voir modules.config_manager,
+        7 septembre 2026) : au changement de station, config_manager.
+        basculer_vers_station MUTE `parametrage` EN PLACE (même objet Python que
+        celui capturé ci-dessus, ligne 125) — ce dict est donc déjà à jour ici, il ne
+        reste qu'à resynchroniser les WIDGETS Tkinter, qui eux ne se resynchronisent
+        jamais tout seuls avec un dict modifié en dehors d'eux. Exposée sur
+        app.rafraichir_parametrage_complet (voir main.App.on_config_changed).
+
+        ⚠️ Bug réel constaté : basculer_vers_station peut laisser `parametrage`
+        totalement VIDE (station jamais configurée sur ce poste) — sans réappliquer
+        ici les MÊMES setdefault qu'à la construction (lignes 126-131), l'accès
+        direct parametrage["pas_de_temps"] ci-dessous lève un KeyError au lieu de
+        retomber sur une liste vide."""
+        parametrage.setdefault("pas_de_temps", [])
+        parametrage.setdefault("horizons_par_pdt", {})
+        parametrage.setdefault("horizons_selectionnes", {})
+        parametrage.setdefault("seuils_calage", [])
+        parametrage.setdefault("methodes_selectionnees", [])
+        parametrage.setdefault("decalages_pic_heures", [])
+        couverture["data"] = _charger_couverture()
+        _rafraichir_combo_pdt()  # relit pas_de_temps + horizons_selectionnes du pdt actif
+        liste_seuils.rafraichir()
+        var_t.set("T" in parametrage["methodes_selectionnees"])
+        var_r.set("R" in parametrage["methodes_selectionnees"])
+        _rafraichir_methodes()
+        liste_decalages.rafraichir()
+        var_duree.set(_texte_duree(_charger_duree()))
+
+    app.rafraichir_parametrage_complet = _rafraichir_parametrage_complet
+
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)
 
