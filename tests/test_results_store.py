@@ -92,6 +92,56 @@ def test_chemin_db_par_defaut_utilise_le_dossier_pointeur(tmp_path, monkeypatch)
     assert results_store._chemin_db_par_defaut() == attendu
 
 
+# -- chemin_db_pour_station : bug réel du 8 septembre 2026 (2 instances en parallèle) ----
+# _chemin_db_par_defaut() relit config.json à CHAQUE appel — sûr en mono-instance, mais
+# risqué dès que 2 instances de l'outil tournent en parallèle sur 2 stations différentes :
+# station_active est réécrit par CHAQUE persist_config() de N'IMPORTE QUELLE instance, une
+# campagne longue peut donc se retrouver à écrire dans la base de l'AUTRE instance en plein
+# milieu ("FOREIGN KEY constraint failed", constaté en conditions réelles). Ces tests
+# vérifient que chemin_db_pour_station(code_station), elle, ne dépend JAMAIS d'une
+# relecture disque — voir ui/tab_orchestration.py::_lancer, qui la résout une seule fois
+# depuis app.config_data EN MÉMOIRE avant de démarrer une campagne.
+
+def test_chemin_db_pour_station_ignore_toute_config_sur_disque(tmp_path, monkeypatch):
+    monkeypatch.setattr(app_config, "FICHIER_POINTEUR_DATA", str(tmp_path / "pointeur_absent.txt"))
+    # Peu importe ce que config.json contiendrait sur le disque (même une AUTRE
+    # station) : chemin_db_pour_station ne le lit jamais, seul l'argument compte.
+    monkeypatch.setattr(
+        results_store.config_manager, "load_config",
+        lambda: (_ for _ in ()).throw(AssertionError(
+            "chemin_db_pour_station ne doit JAMAIS appeler load_config()")),
+    )
+    attendu = os.path.join(app_config.DATA_DIR, "runs_Y1612020001.sqlite3")
+    assert results_store.chemin_db_pour_station("Y1612020001") == attendu
+
+
+def test_chemin_db_pour_station_reste_stable_si_station_active_change_entre_temps(tmp_path, monkeypatch):
+    """Reproduit le scénario exact du bug : une campagne résout son chemin de base une
+    fois (code_station de SON instance), puis une AUTRE instance change station_active
+    sur le disque — le chemin déjà résolu ne doit pas en être affecté, contrairement à
+    _chemin_db_par_defaut() (voir test suivant)."""
+    monkeypatch.setattr(app_config, "FICHIER_POINTEUR_DATA", str(tmp_path / "pointeur_absent.txt"))
+    chemin_moussoulens = results_store.chemin_db_pour_station("Y161202001")
+
+    # L'AUTRE instance (Trébès) modifie station_active sur le disque entre-temps —
+    # simulé ici en changeant ce que load_config() renverrait désormais.
+    monkeypatch.setattr(
+        results_store.config_manager, "load_config",
+        lambda: {"station": {"code_station": "Y142203001"}},
+    )
+
+    # Le chemin déjà résolu pour Moussoulens reste inchangé (aucun appel disque) —
+    # c'est justement ce que ui/tab_orchestration.py::_lancer exploite en résolvant
+    # db_path une seule fois AVANT de lancer la campagne.
+    assert results_store.chemin_db_pour_station("Y161202001") == chemin_moussoulens
+    assert "Y161202001" in chemin_moussoulens
+    assert "Y142203001" not in chemin_moussoulens
+
+    # Alors que _chemin_db_par_defaut(), elle, SUIT le changement — c'est exactement
+    # le comportement à éviter pendant une campagne déjà en cours.
+    assert "Y142203001" in results_store._chemin_db_par_defaut()
+
+
 # -- _migrer_ancienne_base_partagee_si_necessaire ------------------------------------------
 
 def test_migration_base_partagee_renomme_vers_la_base_station(tmp_path):

@@ -236,6 +236,19 @@ def build_tab_orchestration(tab_frame, app):
             messagebox.showwarning("Campagne", "Une campagne est déjà en cours.")
             return
 
+        # Résolu UNE SEULE FOIS ici, depuis app.config_data EN MÉMOIRE (propre à cette
+        # instance) — jamais en relisant config.json à chaque écriture (comportement
+        # par défaut de results_store, db_path=None) : bug réel constaté (8 septembre
+        # 2026, deux instances de l'outil sur 2 stations différentes) — station_active
+        # (modules.config_manager) est réécrit par CHAQUE persist_config() de N'IMPORTE
+        # QUELLE instance, une campagne longue pouvait donc se retrouver en train
+        # d'écrire dans la base de l'AUTRE instance en plein milieu de son exécution
+        # ("FOREIGN KEY constraint failed"). Passé explicitement ci-dessous à TOUTE
+        # opération results_store de cette fonction ET à lancer_campagne(), qui ne le
+        # résout plus jamais elle-même.
+        code_station = (app.config_data.get("station", {}).get("code_station") or "").strip()
+        db_path = results_store.chemin_db_pour_station(code_station)
+
         paths, manquants = construire_grp_paths(
             app, exiger_dossier_grp=True, exiger_dossier_bddtr=True)
         if paths is None:
@@ -263,8 +276,8 @@ def build_tab_orchestration(tab_frame, app):
         etat["combinaisons"] = {}
         barre.config(maximum=max(etat["total_etapes"], 1), value=0)
         tableau.delete(*tableau.get_children())
-        results_store.init_db()  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
-        with results_store.db_session() as conn:
+        results_store.init_db(db_path)  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
+        with results_store.db_session(db_path) as conn:
             etats_connus = results_store.etat_combinaisons(conn)
 
         # Confirmation demandée avant un "Nouvelle campagne (tout relancer)" (jamais
@@ -326,6 +339,7 @@ def build_tab_orchestration(tab_frame, app):
             try:
                 run_orchestrator.lancer_campagne(
                     paths, code_pdt, combinaisons, crues_dates,
+                    db_path=db_path,
                     callback=lambda evt: file_evenements.put(("evt", evt)),
                     seulement_echecs=seulement_echecs,
                     annulation=etat["annulation"],

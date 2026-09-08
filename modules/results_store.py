@@ -160,14 +160,42 @@ def _chemin_db_par_defaut():
 
     Si la configuration est illisible ou que la station n'est pas encore renseignée, on
     retombe sur l'ancien nom générique `runs.sqlite3` — comportement historique,
-    jamais bloquant."""
+    jamais bloquant.
+
+    ⚠️ RELIT config.json À CHAQUE APPEL (via config_manager.load_config()) — sûr pour un
+    usage mono-instance (le seul prévu à l'origine), mais RISQUÉ dès que 2 instances de
+    l'outil tournent en parallèle sur 2 stations différentes (bug réel constaté le
+    8 septembre 2026, campagne interrompue par un "FOREIGN KEY constraint failed") :
+    station_active (modules.config_manager) est réécrit par CHAQUE persist_config() de
+    N'IMPORTE QUELLE instance — une campagne longue qui rappelle db_session(db_path=None)
+    à chaque écriture (le cas par défaut) peut donc se retrouver, en plein milieu, à
+    écrire dans la base de l'AUTRE instance si celle-ci a changé station_active
+    entre-temps. Voir chemin_db_pour_station() ci-dessous : à utiliser à la place dès que
+    le code_station est déjà connu de manière fiable (lu depuis app.config_data EN
+    MÉMOIRE, jamais depuis une relecture disque) — modules.run_orchestrator.
+    lancer_campagne() le résout ainsi UNE SEULE FOIS avant de démarrer, voir
+    ui/tab_orchestration.py::_lancer."""
     dossier = dossier_data_effectif()
-    chemin_partage = os.path.join(dossier, "runs.sqlite3")
     try:
         config_data = config_manager.load_config()
     except (FileNotFoundError, ValueError):
-        return chemin_partage
+        return chemin_db_pour_station(None, dossier)
     code_station = (config_data.get("station", {}).get("code_station") or "").strip()
+    return chemin_db_pour_station(code_station, dossier)
+
+
+def chemin_db_pour_station(code_station, dossier=None):
+    """Comme _chemin_db_par_defaut() ci-dessus, mais avec `code_station` fourni
+    EXPLICITEMENT par l'appelant plutôt que résolu en relisant config.json depuis le
+    disque — à utiliser dès que le code_station courant est déjà connu de manière
+    fiable (lu depuis app.config_data EN MÉMOIRE, propre à CE process), pour ne pas
+    risquer de résoudre le chemin d'une AUTRE station si une autre instance de l'outil
+    tourne en parallèle et modifie station_active entre-temps (voir docstring de
+    _chemin_db_par_defaut). `code_station` vide ou None retombe sur l'ancien nom
+    générique `runs.sqlite3` — comportement historique, jamais bloquant."""
+    dossier = dossier or dossier_data_effectif()
+    chemin_partage = os.path.join(dossier, "runs.sqlite3")
+    code_station = (code_station or "").strip()
     if not code_station:
         return chemin_partage
     chemin_station = os.path.join(dossier, f"runs_{code_station}.sqlite3")
