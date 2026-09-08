@@ -91,6 +91,37 @@ def _ecrire_json_atomique(data, path):
         raise
 
 
+def _parametrage_par_defaut():
+    """Lit le bloc "parametrage" du gabarit config.exemple.json (référentiel de pas de
+    temps/horizons + une sélection de départ raisonnable, ex. seuil 0.0 et méthode
+    Tangara) — utilisé pour PRÉ-REMPLIR le paramétrage d'une NOUVELLE station (jamais
+    configurée sur ce poste). Demandé explicitement (8 septembre 2026) : ressaisir le
+    catalogue entier (8 pas de temps, chacun avec sa liste d'horizons) à la main pour
+    chaque nouvelle station identifiée (ex. Quillan) était trop lourd — comportement
+    par station volontairement conservé (voir CLES_PAR_STATION), seul le POINT DE
+    DÉPART change. Repli sur un dict vide si le gabarit est absent/illisible — jamais
+    bloquant, la station reste alors simplement à configurer manuellement comme avant
+    ce complément."""
+    try:
+        with open(app_config.CONFIG_EXEMPLE_PATH, encoding="utf-8") as fh:
+            return json.load(fh).get("parametrage", {})
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+
+
+def _completer_parametrage_si_nouvelle_station(config_station):
+    """Complète EN PLACE config_station["parametrage"] avec celui du gabarit si son
+    catalogue (pas_de_temps) est encore vide — voir _parametrage_par_defaut(). Ne
+    touche à RIEN si un catalogue existe déjà, même partiellement personnalisé, pour
+    ne jamais écraser un paramétrage déjà en place. Retourne True si un complément a
+    été fait (pour que l'appelant sache s'il doit persister sur disque)."""
+    parametrage = config_station.setdefault("parametrage", {})
+    if parametrage.get("pas_de_temps"):
+        return False
+    parametrage.update(_parametrage_par_defaut())
+    return True
+
+
 def load_config(path=None):
     """Charge la configuration complète (fusion de config.json et du
     config_<code_station>.json de la station active) — le crée depuis
@@ -164,6 +195,14 @@ def load_config(path=None):
     config_station = {}
     if code_station:
         config_station = _lire_json(_chemin_config_station(code_station, dossier))
+        # Complément EN MÉMOIRE seulement (pas persisté ici) : le persister
+        # immédiatement entrerait en conflit avec la migration ci-dessus lors d'un
+        # 2e appel (le "parametrage" du gabarit, une fois écrit sur disque, ferait
+        # obstacle à la fusion d'un VRAI parametrage réapparu dans config.json —
+        # constaté par un test dédié). La sauvegarde se fait naturellement à la
+        # première interaction de l'utilisateur (persist_config()), ou sera de toute
+        # façon rejouée, idempotente, au prochain démarrage si aucune n'a eu lieu.
+        _completer_parametrage_si_nouvelle_station(config_station)
 
     return {**config_partage, **config_station}
 
@@ -224,6 +263,8 @@ def basculer_vers_station(config_data, ancien_code_station, nouveau_code_station
 
     nouvel_etat = (_lire_json(_chemin_config_station(nouveau_code_station, dossier))
                    if nouveau_code_station else {})
+    if nouveau_code_station and _completer_parametrage_si_nouvelle_station(nouvel_etat):
+        _ecrire_json_atomique(nouvel_etat, _chemin_config_station(nouveau_code_station, dossier))
 
     for cle in CLES_PAR_STATION:
         valeur_actuelle = config_data.get(cle)

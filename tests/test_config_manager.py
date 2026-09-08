@@ -249,10 +249,13 @@ def test_basculer_vers_station_sauvegarde_lancienne_et_mute_en_place(chemins):
     config_manager.basculer_vers_station(config_data, "Y1612020001", "Y1422030001",
                                            dossier=str(dossier))
 
-    # Bascule vers une station jamais configurée : tout redevient vide, mais les
-    # MÊMES objets Python (mutation en place, pas remplacement).
+    # Bascule vers une station jamais configurée : tout redevient vide (à part le
+    # catalogue de "parametrage", pré-rempli depuis le gabarit — voir le test dédié
+    # test_basculer_vers_station_pre_remplit_le_catalogue_dune_nouvelle_station ;
+    # celui du fixture "chemins" est volontairement vide, donc sans effet visible
+    # ici), mais toujours les MÊMES objets Python (mutation en place, pas remplacement).
     assert config_data["parametrage"] is ref_parametrage
-    assert config_data["parametrage"] == {}
+    assert config_data["parametrage"].get("seuils_calage") is None
     assert config_data["crues_selectionnees"] is ref_crues
     assert config_data["crues_selectionnees"] == []
 
@@ -291,9 +294,84 @@ def test_basculer_vers_station_meme_station_ne_fait_rien(chemins):
 
 
 def test_basculer_vers_station_depuis_aucune_station_ne_sauvegarde_rien(chemins):
-    """ancien_code_station vide (toute première identification) : rien à sauvegarder,
-    seulement charger (ou initialiser vide) la nouvelle."""
+    """ancien_code_station vide (toute première identification) : rien à sauvegarder
+    pour une "ancienne" station qui n'existait pas. Un fichier est tout de même créé
+    pour la NOUVELLE station — voir _completer_parametrage_si_nouvelle_station,
+    déclenché dès qu'un catalogue est à pré-remplir (sans effet concret ici, le
+    gabarit du fixture "chemins" étant volontairement vide)."""
     _chemin_json, _chemin_exemple, dossier = chemins
     config_data = {"station": {"code_station": ""}, "parametrage": {}}
     config_manager.basculer_vers_station(config_data, "", "Y1612020001", dossier=str(dossier))
-    assert list(dossier.glob("config_*.json")) == []
+    fichiers = list(dossier.glob("config_*.json"))
+    assert [f.name for f in fichiers] == ["config_Y1612020001.json"]
+
+
+def test_basculer_vers_station_pre_remplit_le_catalogue_dune_nouvelle_station(tmp_path, monkeypatch):
+    """Demandé explicitement (8 septembre 2026, incident Quillan) : une station JAMAIS
+    configurée sur ce poste ne doit plus repartir avec un catalogue pas_de_temps/
+    horizons_par_pdt totalement vide (ressaisie manuelle trop lourde, 8 pas de temps
+    à définir un par un) — le catalogue du gabarit config.exemple.json sert de point
+    de départ, modifiable ensuite comme avant. Une sélection déjà personnalisée
+    (horizons_selectionnes, seuils_calage...) n'est en revanche jamais écrasée."""
+    dossier = tmp_path / "config"
+    dossier.mkdir()
+    chemin_exemple = dossier / "config.exemple.json"
+    chemin_exemple.write_text(json.dumps({
+        "parametrage": {
+            "pas_de_temps": [{"code": "00J00H15M", "libelle": "15 min"}],
+            "horizons_par_pdt": {"00J00H15M": ["00J01H00M", "01J00H00M"]},
+            "horizons_selectionnes": {}, "seuils_calage": [0.0],
+            "methodes_selectionnees": ["T"], "decalages_pic_heures": [],
+        },
+    }), encoding="utf-8")
+    monkeypatch.setattr(app_config, "CONFIG_JSON_PATH", str(dossier / "config.json"))
+    monkeypatch.setattr(app_config, "CONFIG_EXEMPLE_PATH", str(chemin_exemple))
+
+    config_data = {"station": {"code_station": ""}}
+    config_manager.basculer_vers_station(config_data, "", "Y111201001", dossier=str(dossier))
+
+    assert config_data["parametrage"]["pas_de_temps"] == [{"code": "00J00H15M", "libelle": "15 min"}]
+    assert config_data["parametrage"]["horizons_par_pdt"] == {"00J00H15M": ["00J01H00M", "01J00H00M"]}
+    # Persisté immédiatement sur disque (pas seulement en mémoire) — contrairement à
+    # load_config(), il n'y a ici aucun risque de conflit avec une migration.
+    ecrit = json.loads((dossier / "config_Y111201001.json").read_text(encoding="utf-8"))
+    assert ecrit["parametrage"]["pas_de_temps"] == [{"code": "00J00H15M", "libelle": "15 min"}]
+
+
+def test_load_config_pre_remplit_le_catalogue_dune_nouvelle_station(tmp_path, monkeypatch):
+    """Même vérification que ci-dessus, mais au chargement initial (load_config)
+    plutôt qu'au changement de station en cours de session."""
+    dossier = tmp_path / "config"
+    dossier.mkdir()
+    chemin_json = dossier / "config.json"
+    chemin_exemple = dossier / "config.exemple.json"
+    chemin_exemple.write_text(json.dumps({"parametrage": {
+        "pas_de_temps": [{"code": "00J00H15M", "libelle": "15 min"}],
+    }}), encoding="utf-8")
+    chemin_json.write_text(json.dumps({"station_active": "Y111201001"}), encoding="utf-8")
+    monkeypatch.setattr(app_config, "CONFIG_JSON_PATH", str(chemin_json))
+    monkeypatch.setattr(app_config, "CONFIG_EXEMPLE_PATH", str(chemin_exemple))
+
+    config_data = config_manager.load_config()
+    assert config_data["parametrage"]["pas_de_temps"] == [{"code": "00J00H15M", "libelle": "15 min"}]
+    # Non persisté par load_config() lui-même (voir sa docstring/commentaire) — reste
+    # seulement en mémoire tant qu'aucune sauvegarde n'a eu lieu.
+    assert not (dossier / "config_Y111201001.json").exists()
+
+
+def test_completer_parametrage_ne_touche_pas_un_catalogue_deja_personnalise(tmp_path, monkeypatch):
+    """Un catalogue déjà présent (même minimal) n'est JAMAIS écrasé par celui du
+    gabarit — condition explicite de _completer_parametrage_si_nouvelle_station."""
+    dossier = tmp_path / "config"
+    dossier.mkdir()
+    chemin_exemple = dossier / "config.exemple.json"
+    chemin_exemple.write_text(json.dumps({"parametrage": {
+        "pas_de_temps": [{"code": "00J00H15M", "libelle": "15 min"}],
+    }}), encoding="utf-8")
+    monkeypatch.setattr(app_config, "CONFIG_JSON_PATH", str(dossier / "config.json"))
+    monkeypatch.setattr(app_config, "CONFIG_EXEMPLE_PATH", str(chemin_exemple))
+
+    config_station = {"parametrage": {"pas_de_temps": [{"code": "01J00H00M", "libelle": "1 j (perso)"}]}}
+    a_complete = config_manager._completer_parametrage_si_nouvelle_station(config_station)
+    assert a_complete is False
+    assert config_station["parametrage"]["pas_de_temps"] == [{"code": "01J00H00M", "libelle": "1 j (perso)"}]
