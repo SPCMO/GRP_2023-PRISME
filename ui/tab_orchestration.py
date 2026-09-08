@@ -793,5 +793,13 @@ def build_tab_orchestration(tab_frame, app):
     enregistrer_observateur_pdt(app, _pdt_change_externe)
     _rafraichir_combo_pdt()
 
+    # Exposée sur app.rafraichir_campagne_pdt (voir main.App.on_config_changed) —
+    # trou de couverture réel constaté (8 septembre 2026) : au changement de station
+    # (config par station, voir modules.config_manager), les 4 autres onglets
+    # concernés avaient bien leur rafraîchissement automatique, mais pas celui-ci —
+    # le combo "Pas de temps de calage" de l'onglet Campagne restait vide/périmé
+    # jusqu'à un redémarrage complet de l'outil.
+    app.rafraichir_campagne_pdt = _rafraichir_combo_pdt
+
     # ── Bouton Enregistrer ───────────────────────────────────────────────────────
     bouton_enregistrer(frm, app).pack(fill=tk.X, padx=12, pady=14)

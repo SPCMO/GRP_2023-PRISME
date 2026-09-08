@@ -164,6 +164,7 @@ class App(tk.Tk):
         for nom_attribut in (
             "rafraichir_config_station", "rafraichir_parametrage_complet",
             "rafraichir_crues_completes", "rafraichir_affluents_complet",
+            "rafraichir_campagne_pdt",
         ):
             fonction = getattr(self, nom_attribut, None)
             if fonction:
