@@ -203,6 +203,41 @@ class App(tk.Tk):
             if fonction:
                 fonction()
 
+    def _au_changement_onglet_principal(self, _evt=None):
+        """Rafraîchit les données affichées par l'onglet PRINCIPAL vers lequel on
+        vient de naviguer (Crues et Dashboard) — demandé explicitement : ces deux
+        onglets ne se rafraîchissent normalement qu'à des déclencheurs précis
+        (bouton "Rafraîchir", fin de campagne, suppression de combinaisons...), donc
+        revenir dessus après un changement survenu ailleurs (nouvelle combinaison
+        calée depuis l'onglet Campagne, notamment) pouvait laisser affichées des
+        crues/résultats obsolètes sans aucun signal, jusqu'au prochain déclencheur
+        sans rapport avec le fait d'avoir changé d'onglet.
+
+        Configuration/Paramétrage/Campagne/Analyse crues affl. ne sont volontairement
+        pas concernés : ils se rafraîchissent déjà à chaque événement pertinent via
+        on_config_changed/on_resultats_changed, un rafraîchissement de plus au simple
+        clic d'onglet n'y changerait rien.
+
+        Dashboard : les 5 vues sont toutes rafraîchies (pas seulement le sous-onglet
+        actuellement affiché) — même logique que on_resultats_changed, puisque le
+        binding <<NotebookTabChanged>> du sous-notebook de Dashboard (voir
+        ui/tab_dashboard.py) ne se déclenche que sur un changement de SOUS-onglet,
+        jamais en arrivant depuis un autre onglet principal."""
+        onglet = self.notebook.select()
+        if onglet == str(self.tab_crues):
+            fonction = getattr(self, "rafraichir_crues_completes", None)
+            if fonction:
+                fonction()
+        elif onglet == str(self.tab_dashboard):
+            for nom_attribut in (
+                "rafraichir_dashboard_synthese", "rafraichir_dashboard_detail",
+                "rafraichir_dashboard_sensibilite", "rafraichir_dashboard_vue3d",
+                "rafraichir_dashboard_variation_crues",
+            ):
+                fonction = getattr(self, nom_attribut, None)
+                if fonction:
+                    fonction()
+
     def rafraichir_badges_onglets(self):
         """Signale l'état d'avancement du workflow directement sur les libellés
         d'onglets (demandé) — sans ça, rien n'indique si Configuration est complète ou
@@ -286,6 +321,16 @@ class App(tk.Tk):
         build_tab_orchestration(self.tab_orchestration, self)
         build_tab_dashboard(self.tab_dashboard, self)
         self.rafraichir_badges_onglets()
+
+        # Lié après la construction des onglets (pas avant) : le handler s'appuie sur
+        # les attributs rafraichir_* posés par build_tab_crues/build_tab_dashboard
+        # ci-dessus — les lier plus tôt les trouverait absents lors d'un premier
+        # changement d'onglet précoce (peu probable en pratique, mais sans intérêt à
+        # risquer). Notebook PRINCIPAL uniquement (self.notebook) — à ne pas confondre
+        # avec le sous-notebook interne à Dashboard, lié séparément (voir
+        # ui/tab_dashboard.py) et déjà couvert par _au_changement_onglet_principal
+        # pour son propre rafraîchissement complet des 5 vues.
+        notebook.bind("<<NotebookTabChanged>>", self._au_changement_onglet_principal)
 
 
 if __name__ == "__main__":
