@@ -842,6 +842,22 @@ def archiver_serie_observee_complete(conn, pas_de_temps, crue_date, points):
     )
 
 
+def lister_dates_crues_archivees(conn, pas_de_temps):
+    """Dates (ISO) des crues archivées dans series_observees_completes pour ce pas de
+    temps, triées — utilisée par ui/tab_analyse_affluents.py pour peupler son
+    sélecteur de crue INDÉPENDAMMENT de CRITERES_PERF.DAT actuel (même besoin que
+    Dashboard > Détail par crue, voir series_observees_completes dans SCHEMA), mais
+    sans passer par resultats_crues : cet onglet ne dépend d'aucune combinaison de
+    calage (voir docstring de ui/tab_analyse_affluents.py), la seule question posée
+    ici est « une série observée complète a-t-elle déjà été archivée pour cette date,
+    quel que soit le calage qui l'a détectée ? »."""
+    lignes = conn.execute(
+        "SELECT DISTINCT crue_date FROM series_observees_completes WHERE pas_de_temps = ?",
+        (pas_de_temps,),
+    ).fetchall()
+    return sorted(l["crue_date"] for l in lignes)
+
+
 def charger_serie_observee_complete(conn, pas_de_temps, crue_date):
     """Recharge la série observée complète archivée pour cette crue — liste de
     (datetime, pluie, debit) (même ordre que

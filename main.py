@@ -185,6 +185,12 @@ class App(tk.Tk):
         silencieusement obsolètes jusqu'au prochain déclencheur sans rapport (clic sur
         un bouton, changement de sous-onglet, redémarrage de l'outil).
 
+        Analyse crues affl. ajoutée le 8 septembre 2026 (trou de couverture du même
+        type que celui de "Campagne" corrigé la veille) : cet onglet affiche lui aussi
+        des données dérivées de la base (séries observées archivées, voir
+        modules.results_store.series_observees_completes) sans jamais s'être
+        rafraîchi automatiquement quand elles changent ailleurs.
+
         Chaque rafraîchissement est appelé via getattr(..., None) : les onglets sont
         tous construits au démarrage (voir _build_ui), donc ces attributs existent
         toujours en pratique au moment où cette méthode peut être appelée (fenêtre
@@ -197,7 +203,7 @@ class App(tk.Tk):
             "rafraichir_tableau_campagne", "rafraichir_couverture_parametrage",
             "rafraichir_dashboard_synthese", "rafraichir_dashboard_detail",
             "rafraichir_dashboard_sensibilite", "rafraichir_dashboard_vue3d",
-            "rafraichir_dashboard_variation_crues",
+            "rafraichir_dashboard_variation_crues", "rafraichir_affluents_complet",
         ):
             fonction = getattr(self, nom_attribut, None)
             if fonction:
@@ -205,16 +211,23 @@ class App(tk.Tk):
 
     def _au_changement_onglet_principal(self, _evt=None):
         """Rafraîchit les données affichées par l'onglet PRINCIPAL vers lequel on
-        vient de naviguer (Crues et Dashboard) — demandé explicitement : ces deux
-        onglets ne se rafraîchissent normalement qu'à des déclencheurs précis
-        (bouton "Rafraîchir", fin de campagne, suppression de combinaisons...), donc
+        vient de naviguer (Crues, Dashboard, Analyse crues affl.) — demandé
+        explicitement : ces onglets ne se rafraîchissent normalement qu'à des
+        déclencheurs précis (bouton "Rafraîchir", changement de station...), donc
         revenir dessus après un changement survenu ailleurs (nouvelle combinaison
         calée depuis l'onglet Campagne, notamment) pouvait laisser affichées des
         crues/résultats obsolètes sans aucun signal, jusqu'au prochain déclencheur
         sans rapport avec le fait d'avoir changé d'onglet.
 
-        Configuration/Paramétrage/Campagne/Analyse crues affl. ne sont volontairement
-        pas concernés : ils se rafraîchissent déjà à chaque événement pertinent via
+        Analyse crues affl. ajouté le 8 septembre 2026 : contrairement à ce
+        qu'affirmait la première version de cette méthode (7 septembre), cet onglet
+        n'est PAS déjà tenu à jour à chaque campagne — seul on_config_changed (station)
+        le rafraîchit, jamais on_resultats_changed (nouvelle combinaison), constaté
+        via un cas réel où l'onglet restait bloqué sur "Crue introuvable" en y
+        ajoutant un affluent, en pleine campagne Quillan.
+
+        Configuration/Paramétrage/Campagne ne sont volontairement pas concernés : ils
+        se rafraîchissent déjà à chaque événement pertinent via
         on_config_changed/on_resultats_changed, un rafraîchissement de plus au simple
         clic d'onglet n'y changerait rien.
 
@@ -237,6 +250,10 @@ class App(tk.Tk):
                 fonction = getattr(self, nom_attribut, None)
                 if fonction:
                     fonction()
+        elif onglet == str(self.tab_analyse_affluents):
+            fonction = getattr(self, "rafraichir_affluents_complet", None)
+            if fonction:
+                fonction()
 
     def rafraichir_badges_onglets(self):
         """Signale l'état d'avancement du workflow directement sur les libellés

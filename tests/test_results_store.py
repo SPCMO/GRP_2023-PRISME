@@ -540,3 +540,32 @@ def test_series_observees_completes_distinguent_les_pas_de_temps(tmp_path):
             conn, "00J00H15M", _dt(2018, 10, 13, 0, 0)) == [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)]
         assert results_store.charger_serie_observee_complete(
             conn, "00J01H00M", _dt(2018, 10, 13, 0, 0)) == [(_dt(2018, 10, 13, 0, 0), 0.0, 9.9)]
+
+
+def test_lister_dates_crues_archivees_triees_et_filtrees_par_pas_de_temps(tmp_path):
+    """Utilisée par ui/tab_analyse_affluents.py pour peupler son sélecteur de crue
+    indépendamment de CRITERES_PERF.DAT (bug réel constaté le 8 septembre 2026 :
+    « Crue introuvable » et aucun affluent affiché après une nouvelle combinaison
+    calée pour un pas de temps déjà utilisé sur cet onglet) — triée, et ne renvoie
+    que les dates du pas de temps demandé."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 20, 0, 0), [(_dt(2018, 10, 20, 0, 0), 0.0, 3.0)])
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0), [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2)])
+        # Autre pas de temps — ne doit jamais apparaître dans le résultat ci-dessous.
+        results_store.archiver_serie_observee_complete(
+            conn, "00J01H00M", _dt(2019, 1, 1, 0, 0), [(_dt(2019, 1, 1, 0, 0), 0.0, 9.9)])
+
+    with results_store.db_session(chemin) as conn:
+        dates = results_store.lister_dates_crues_archivees(conn, "00J00H15M")
+    assert dates == [_dt(2018, 10, 13, 0, 0).isoformat(), _dt(2018, 10, 20, 0, 0).isoformat()]
+
+
+def test_lister_dates_crues_archivees_vide_si_rien_archive(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        assert results_store.lister_dates_crues_archivees(conn, "00J00H15M") == []

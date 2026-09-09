@@ -18,7 +18,7 @@ from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from modules import affluents
+from modules import affluents, results_store
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import construire_grp_paths
 from modules.phyc_client import PhycAuthError, PhycClient
@@ -770,16 +770,39 @@ def build_tab_analyse_affluents(tab_frame, app):
     def _rafraichir_crues(*_evt):
         paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
-        entrees = []
+
+        # Numérotation "#N" reprise de CRITERES_PERF.DAT SI ce pas de temps y figure
+        # encore (fichier de travail réécrit à CHAQUE calage, quelle que soit la
+        # combinaison) — mais la LISTE des dates proposées ne dépend plus de lui
+        # seul : toute date déjà archivée (results_store.series_observees_completes,
+        # remplie après CHAQUE calage réussi) reste proposée même si un calage
+        # ultérieur a redétecté un jeu de crues différent, exactement comme Dashboard
+        # > Détail par crue (voir "Série observée archivée en base", 7 septembre
+        # 2026) — corrige un bug réel constaté sur cet onglet (8 septembre 2026) :
+        # « Crue introuvable dans CRITERES_PERF.DAT » et aucun affluent affiché après
+        # une nouvelle combinaison calée pour un pas de temps déjà utilisé ici.
+        numeros_par_date = {}
         if paths is not None and code_pdt:
             try:
                 evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-                entrees = [(e.num_evt, e.date_deb.isoformat())
-                           for e in evenements if e.typ_evt == "Q"]
+                numeros_par_date = {e.date_deb.isoformat(): e.num_evt
+                                     for e in evenements if e.typ_evt == "Q"}
             except (FileNotFoundError, CriteresPerfError):
-                entrees = []
+                numeros_par_date = {}
+
+        dates_archivees = []
+        if code_pdt:
+            try:
+                with results_store.db_session() as conn:
+                    dates_archivees = results_store.lister_dates_crues_archivees(conn, code_pdt)
+            except Exception:
+                dates_archivees = []  # base absente/verrouillée — repli sur CRITERES_PERF.DAT seul
+
+        isos = set(numeros_par_date) | set(dates_archivees)
+        entrees = [(numeros_par_date.get(iso), iso) for iso in isos]
         entrees.sort(key=lambda t: (t[0] is None, t[0]))
-        libelles = [f"#{n} - {datetime.fromisoformat(iso):%d/%m/%Y}" for n, iso in entrees]
+        libelles = [f"#{n} - {datetime.fromisoformat(iso):%d/%m/%Y}" if n is not None
+                    else f"? - {datetime.fromisoformat(iso):%d/%m/%Y}" for n, iso in entrees]
         combo_crue["values"] = libelles
         combo_crue._valeurs = entrees
         if libelles and var_crue.get() not in libelles:
@@ -837,25 +860,69 @@ def build_tab_analyse_affluents(tab_frame, app):
             canvas.draw_idle()
             return
 
+        crue_date_obj = datetime.fromisoformat(crue_iso)
+
+        # Série observée de l'exutoire : D'ABORD l'archive en base (indépendante du
+        # calage GRP actuellement en place — voir modules.results_store.
+        # charger_serie_observee_complete), repli sur CRITERES_PERF.DAT/EVxxxx.DAT
+        # ACTUELS seulement si jamais archivée (résultat d'une campagne antérieure au
+        # 7 septembre 2026). Même repli, pour la même raison, que Dashboard > Détail
+        # par crue (voir "Série observée archivée en base" dans Aide.html) : ces 2
+        # fichiers sont des fichiers de travail réécrits par CHAQUE calage, quelle
+        # que soit la combinaison — sans ce repli, une ancienne crue redevenait
+        # "introuvable" (et cet onglet totalement vide, aucun affluent affiché) dès
+        # qu'un calage ultérieur (seuil/pas de temps différent) redétectait un jeu de
+        # crues différent, alors même que les débits observés restaient valides en
+        # base. Corrige un bug réel constaté sur CET onglet (8 septembre 2026).
+        try:
+            with results_store.db_session() as conn:
+                serie_exutoire = results_store.charger_serie_observee_complete(
+                    conn, code_pdt, crue_date_obj)
+        except Exception:
+            serie_exutoire = []  # base absente/verrouillée — repli sur les fichiers ci-dessous
+
+        # Événement CRITERES_PERF.DAT correspondant, si ce pas de temps le connaît
+        # encore — best-effort, INDÉPENDANT du succès de l'archive ci-dessus. Sert
+        # uniquement à l'affichage ("Crue #N") et, ci-dessous, à borner la fenêtre de
+        # lecture des fichiers de débits affluents (evt.date_deb/date_fin) : ne
+        # conditionne plus si la crue est affichable, ce rôle revient désormais à
+        # serie_exutoire (résolue juste au-dessus, archive ou repli fichiers).
         try:
             evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-        except (FileNotFoundError, CriteresPerfError) as e:
-            var_statut.set(f"Impossible de charger les événements : {e}")
-            canvas.draw_idle()
-            return
+        except (FileNotFoundError, CriteresPerfError):
+            evenements = []
         evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
-        if evt is None:
-            var_statut.set("Crue introuvable dans CRITERES_PERF.DAT pour ce pas de temps.")
-            canvas.draw_idle()
-            return
 
-        chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
-                                     f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
-        try:
-            serie_exutoire = parse_evenement_serie(chemin_serie)
-        except (FileNotFoundError, CriteresPerfError) as e:
-            var_statut.set(f"Série observée de l'exutoire indisponible : {e}")
-            serie_exutoire = []
+        if not serie_exutoire:
+            if evt is None:
+                var_statut.set(
+                    "Crue introuvable dans CRITERES_PERF.DAT pour ce pas de temps, et "
+                    "aucune série observée archivée en base pour cette date (résultat "
+                    "probablement issu d'une campagne antérieure à l'archivage "
+                    "automatique — relancez le calage d'une combinaison de cette "
+                    "grille pour la régénérer).")
+                canvas.draw_idle()
+                return
+            chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                         f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+            try:
+                serie_exutoire = parse_evenement_serie(chemin_serie)
+            except (FileNotFoundError, CriteresPerfError) as e:
+                var_statut.set(f"Série observée de l'exutoire indisponible : {e}")
+                serie_exutoire = []
+
+        # Fenêtre temporelle de la crue (bornes de lecture des débits affluents,
+        # ligne ~1000 plus bas) et numéro d'affichage : repris de l'événement
+        # CRITERES_PERF.DAT s'il a été retrouvé, sinon dérivés directement des bornes
+        # de la série exutoire elle-même (couvre déjà toute la fenêtre de la crue,
+        # avant ET après le pic — voir results_store.archiver_serie_observee_complete)
+        # plutôt que de renoncer à l'affluent faute de correspondance CRITERES_PERF.
+        if evt is not None:
+            date_deb_crue, date_fin_crue = evt.date_deb, evt.date_fin
+        elif serie_exutoire:
+            date_deb_crue, date_fin_crue = serie_exutoire[0][0], serie_exutoire[-1][0]
+        else:
+            date_deb_crue, date_fin_crue = crue_date_obj, crue_date_obj
 
         lignes_bilan = []
         qmax_exutoire, volume_exutoire, date_qmax_exutoire = None, None, None
@@ -936,7 +1003,7 @@ def build_tab_analyse_affluents(tab_frame, app):
                 continue
             try:
                 serie_a, nb_lignes_ignorees = affluents.charger_serie_affluent(
-                    a.fichier, evt.date_deb, evt.date_fin)
+                    a.fichier, date_deb_crue, date_fin_crue)
             except (FileNotFoundError, ValueError) as e:
                 var_statut.set(f"{a.nom} : {e}")
                 continue
@@ -1288,8 +1355,12 @@ def build_tab_analyse_affluents(tab_frame, app):
                 f"{pct_qmax:.1f} %" if pct_qmax is not None else "—",
             ), tags=(couleur,))
 
+        # "#N" seulement si l'événement est encore dans CRITERES_PERF.DAT (evt non
+        # None) — sinon "?" (crue affichée depuis l'archive de base seule, voir
+        # ci-dessus), même convention que le sélecteur de crue (combo_crue).
+        numero_crue = f"#{evt.num_evt}" if evt is not None else "?"
         message_statut = (
-            f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — {len(affluents_traces)} "
+            f"Crue {numero_crue} ({date_deb_crue:%d/%m/%Y %H:%M}) — {len(affluents_traces)} "
             f"affluent(s) tracé(s) sur {len(liste_affl)} configuré(s).")
         if avertissements_lignes_mal_formees:
             message_statut += "  ⚠ " + " ; ".join(avertissements_lignes_mal_formees)
