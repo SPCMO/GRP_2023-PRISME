@@ -172,10 +172,16 @@ class App(tk.Tk):
 
     def on_resultats_changed(self):
         """Notifie TOUT ce qui affiche des données dérivées de la base de résultats
-        (data/runs_<code_station>.sqlite3) qu'elles viennent de changer en dehors
-        d'une campagne — pour l'instant uniquement après une suppression manuelle de
-        combinaisons (fenêtre "Combinaisons déjà réalisées", onglet Campagne > bouton
-        Supprimer), mais conçue pour tout futur cas similaire.
+        (data/runs_<code_station>.sqlite3) qu'elles viennent de changer — à l'origine
+        pour une suppression manuelle de combinaisons (fenêtre "Combinaisons déjà
+        réalisées", onglet Campagne > bouton Supprimer), mais conçue pour tout futur
+        cas similaire, y compris — depuis le 11 septembre 2026 — PENDANT une campagne
+        en cours (voir ui/tab_orchestration.py::_traiter_evenement, appelée à chaque
+        changement de combinaison, et sur l'événement "fin") : rafraichir_tableau_
+        campagne s'auto-neutralise déjà pendant une campagne active ("le poll live
+        fait foi", voir sa docstring), donc cette méthode reste sans risque dans ce
+        contexte — seuls Dashboard/Analyse crues affl./badges y sont réellement
+        rafraîchis.
 
         Demandé explicitement ("il y a des refresh partout... ou ce sera impacté") :
         avant cette méthode, seul le tableau de la fenêtre "Combinaisons déjà

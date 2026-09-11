@@ -601,6 +601,21 @@ def build_tab_orchestration(tab_frame, app):
             # de mesurer combien de temps le calage lui-même a pris.
             _log(f"--- Nouvelle combinaison : {evt.horizon}/{evt.seuil_c1}/{evt.methode} "
                  "(calage en cours) ---")
+            # Les combinaisons étant traitées SÉQUENTIELLEMENT, la précédente (s'il y en
+            # a une) vient de terminer TOUS ses rejeux à l'instant où celle-ci démarre —
+            # c'est donc le bon moment pour rafraîchir Dashboard/Analyse crues affl.
+            # Corrige un bug réel constaté (11 septembre 2026, campagne Quillan en
+            # cours) : Vue synthèse affichait "Aucun résultat réussi en base" alors que
+            # la base en contenait déjà des centaines (vérifié) — ces onglets ne se
+            # rafraîchissaient jusqu'ici JAMAIS pendant une campagne, seulement au
+            # changement d'onglet (v3.16) ou après une suppression manuelle
+            # (on_resultats_changed), jamais pendant une campagne longue restée ouverte
+            # sur Dashboard depuis avant que les premiers résultats n'existent.
+            # app.on_resultats_changed() est sans risque ici : rafraichir_tableau_
+            # campagne s'auto-neutralise pendant une campagne en cours (voir sa
+            # docstring, "le poll live fait déjà foi") — seuls Dashboard/Analyse crues
+            # affl./badges sont réellement rafraîchis par cet appel.
+            app.on_resultats_changed()
         if evt.etape == "calage":
             tag = evt.statut if evt.statut in ("running", "success", "failed") else ""
             vals = list(tableau.item(iid, "values")) if tableau.exists(iid) else [evt.horizon, f"{evt.seuil_c1:.2f}", evt.methode, "pending", 0, 0]
@@ -718,10 +733,14 @@ def build_tab_orchestration(tab_frame, app):
                     btn_lancer.config(state="normal")
                     btn_reprise.config(state="normal")
                     btn_annuler.config(state="disabled")
-                    # Badge du libellé d'onglet (demandé) — reflète les nouveaux
-                    # résultats dès la fin du run, sans attendre un changement de
-                    # config sans rapport pour se mettre à jour.
-                    app.rafraichir_badges_onglets()
+                    # Rafraîchissement complet (badges + Dashboard + Analyse crues
+                    # affl. + tableau, voir on_resultats_changed et son nouvel appel
+                    # ci-dessus à chaque changement de combinaison) : sans lui, la
+                    # DERNIÈRE combinaison de la campagne — dont les rejeux se
+                    # terminent ICI, jamais suivis d'un "calage running" suivant —
+                    # resterait absente de l'affichage jusqu'au prochain déclencheur
+                    # sans rapport.
+                    app.on_resultats_changed()
                     _envoyer_alerte_fin_campagne()
         except queue.Empty:
             pass
