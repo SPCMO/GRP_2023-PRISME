@@ -33,9 +33,9 @@ from modules.score import (
 )
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    PALETTE_COURBES, bouton_info, enregistrer_observateur_pdt, icone_info_axe,
-    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
-    sauvegarder_dernier_pdt,
+    PALETTE_COURBES, bouton_info, chemin_db_station, db_session_station,
+    enregistrer_observateur_pdt, icone_info_axe, libelle_dernier_pdt, make_label,
+    make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
 )
 
 # Couleur de la courbe Q observé (Détail par crue) — bleu net, distinct des couleurs
@@ -340,7 +340,7 @@ def _charger_resultats(app):
     """Retourne la liste des lignes (dict) results_store.list_resultats_avec_combinaison,
     ou [] avec un message d'erreur explicite si la base n'est pas accessible."""
     try:
-        with results_store.db_session() as conn:
+        with db_session_station(app) as conn:
             return [dict(r) for r in results_store.list_resultats_avec_combinaison(conn)], None
     except Exception as e:
         return [], f"Impossible de lire les résultats : {e}"
@@ -858,7 +858,7 @@ def _build_synthese(frame, app):
         app.config(cursor="watch")
         app.update_idletasks()
         try:
-            export_excel.exporter(chemin, app)
+            export_excel.exporter(chemin, app, db_path=chemin_db_station(app))
         except Exception as e:
             messagebox.showerror("Export Excel", str(e))
             return
@@ -1245,7 +1245,7 @@ def _build_detail(frame, app):
                 continue
             valeurs.extend(p[2] for p in serie if p[2] is not None)
         try:
-            with results_store.db_session() as conn:
+            with db_session_station(app) as conn:
                 max_sim = results_store.max_debit_simule(conn)
             if max_sim is not None:
                 valeurs.append(max_sim)
@@ -1527,7 +1527,7 @@ def _build_detail(frame, app):
         # Même repli que _tracer() ci-dessus (voir sa docstring) : d'abord l'archive en
         # base, indépendante du calage GRP actuellement en place, avant de retomber sur
         # CRITERES_PERF.DAT/EVxxxx.DAT courants.
-        with results_store.db_session() as conn:
+        with db_session_station(app) as conn:
             serie_obs = results_store.charger_serie_observee_complete(
                 conn, code_pdt, datetime.fromisoformat(crue_iso))
         if not serie_obs:
@@ -1558,7 +1558,7 @@ def _build_detail(frame, app):
         # calculée sur l'ensemble des instants plutôt que panneau par panneau.
         series_par_instant = {}
         toutes_valeurs = [p[2] for p in serie_obs if p[2] is not None]
-        with results_store.db_session() as conn:
+        with db_session_station(app) as conn:
             for label in labels_instants:
                 series_par_instant[label] = []
                 for h, s, m, combinaison_id in combis_selectionnees:
@@ -1650,7 +1650,7 @@ def _build_detail(frame, app):
         # différent) redétectait un jeu de crues différent, alors même que les
         # résultats de l'ancienne combinaison restaient valides en base (constaté par
         # l'utilisateur, 2026-09-07).
-        with results_store.db_session() as conn:
+        with db_session_station(app) as conn:
             serie = results_store.charger_serie_observee_complete(conn, code_pdt, crue_date_obj)
 
         # Événement du calage ACTUELLEMENT en place (pour le fil d'indicateurs
@@ -1775,7 +1775,7 @@ def _build_detail(frame, app):
         selection = liste_combis.curselection()
         combis_selectionnees = [combis[i] for i in selection] if combis else []
         lignes_resume = []  # (item_id, |dqp|, |dt|) — pour repérer la courbe la plus proche de l'observé
-        with results_store.db_session() as conn:
+        with db_session_station(app) as conn:
             for i, (h, s, m, combinaison_id) in enumerate(combis_selectionnees):
                 serie_sim = results_store.charger_serie(conn, combinaison_id, crue_iso, "sim")
                 if not serie_sim:

@@ -25,9 +25,9 @@ from modules.phyc_client import PhycAuthError, PhycClient
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.tab_config import LIBELLES_SEUILS_Q
 from ui.widgets_common import (
-    PALETTE_COURBES, eclaircir_couleur, enregistrer_observateur_pdt, icone_info_axe,
-    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
-    sauvegarder_dernier_pdt,
+    PALETTE_COURBES, db_session_station, eclaircir_couleur, enregistrer_observateur_pdt,
+    icone_info_axe, libelle_dernier_pdt, make_label, make_row, make_scrollable_tab,
+    make_section, sauvegarder_dernier_pdt,
 )
 
 _COULEUR_OBS = "#1B4F72"
@@ -793,7 +793,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         dates_archivees = []
         if code_pdt:
             try:
-                with results_store.db_session() as conn:
+                with db_session_station(app) as conn:
                     dates_archivees = results_store.lister_dates_crues_archivees(conn, code_pdt)
             except Exception:
                 dates_archivees = []  # base absente/verrouillée — repli sur CRITERES_PERF.DAT seul
@@ -875,7 +875,7 @@ def build_tab_analyse_affluents(tab_frame, app):
         # crues différent, alors même que les débits observés restaient valides en
         # base. Corrige un bug réel constaté sur CET onglet (8 septembre 2026).
         try:
-            with results_store.db_session() as conn:
+            with db_session_station(app) as conn:
                 serie_exutoire = results_store.charger_serie_observee_complete(
                     conn, code_pdt, crue_date_obj)
         except Exception:

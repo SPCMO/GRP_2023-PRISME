@@ -16,9 +16,9 @@ from tkinter import messagebox, simpledialog, ttk
 
 from modules import results_store
 from ui.widgets_common import (
-    bouton_enregistrer, build_liste_reordonnable, enregistrer_observateur_pdt,
-    libelle_dernier_pdt, make_label, make_row, make_scrollable_tab, make_section,
-    sauvegarder_dernier_pdt,
+    bouton_enregistrer, build_liste_reordonnable, db_session_station,
+    enregistrer_observateur_pdt, init_db_station, libelle_dernier_pdt, make_label,
+    make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
 )
 
 _MOTIF_DUREE_GRP = re.compile(r"^\d{2}J\d{2}H\d{2}M$")
@@ -54,28 +54,28 @@ def _texte_badge(info):
     return f"  [{info['complets']}/{info['tentes']}]"
 
 
-def _charger_couverture():
+def _charger_couverture(app):
     """Relit l'état actuel des combinaisons déjà tentées en base — voir
     results_store.resume_couverture. Ne lève jamais : une base absente ou illisible
     donne juste une couverture vide (aucun badge affiché), pas une erreur bloquante
     dans un onglet qui n'a normalement rien à voir avec les campagnes déjà lancées."""
     try:
-        results_store.init_db()
-        with results_store.db_session() as conn:
+        init_db_station(app)
+        with db_session_station(app) as conn:
             return results_store.resume_couverture(conn)
     except Exception:
         return {"horizons": {}, "seuils": {}, "methodes": {}}
 
 
-def _charger_duree():
+def _charger_duree(app):
     """Relit la durée médiane observée, décomposée par étape (calage / rejeu d'une
     crue) et par méthode — voir results_store.duree_par_etape. Plus précis que
     l'ancienne durée "par combinaison" (qui mélangeait calage et nombre variable de
     crues) : permet d'afficher séparément le coût fixe du calage et le coût marginal
     de chaque crue supplémentaire. Ne lève jamais, comme _charger_couverture ci-dessus."""
     try:
-        results_store.init_db()
-        with results_store.db_session() as conn:
+        init_db_station(app)
+        with db_session_station(app) as conn:
             return results_store.duree_par_etape(conn)
     except Exception:
         return {"calage": {"T": {"minutes": None, "nb_mesures": 0}, "R": {"minutes": None, "nb_mesures": 0}},
@@ -134,12 +134,12 @@ def build_tab_parametrage(tab_frame, app):
              fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
         anchor="w", padx=14, pady=(6, 0))
 
-    var_duree = tk.StringVar(value=_texte_duree(_charger_duree()))
+    var_duree = tk.StringVar(value=_texte_duree(_charger_duree(app)))
     tk.Label(frm, textvariable=var_duree, wraplength=820, justify=tk.LEFT,
              fg="#555555", font=("TkDefaultFont", 8, "italic")).pack(
         anchor="w", padx=14, pady=(2, 0))
 
-    couverture = {"data": _charger_couverture()}
+    couverture = {"data": _charger_couverture(app)}
 
     # ── Pas de temps + horizons ──────────────────────────────────────────────────
     inn, bg = make_section(frm, "Horizons de calage à tester", "vert")
@@ -377,11 +377,11 @@ def build_tab_parametrage(tab_frame, app):
 
     # ── Rafraîchissement combiné de la couverture (bouton en haut à droite) ───────
     def _rafraichir_couverture():
-        couverture["data"] = _charger_couverture()
+        couverture["data"] = _charger_couverture(app)
         _rafraichir_horizons()
         liste_seuils.rafraichir()
         _rafraichir_methodes()
-        var_duree.set(_texte_duree(_charger_duree()))
+        var_duree.set(_texte_duree(_charger_duree(app)))
         var_derniere_actualisation.set(f"actualisé à {datetime.now():%H:%M:%S}")
 
     # Exposée sur app.rafraichir_couverture_parametrage (voir main.App.
@@ -412,14 +412,14 @@ def build_tab_parametrage(tab_frame, app):
         parametrage.setdefault("seuils_calage", [])
         parametrage.setdefault("methodes_selectionnees", [])
         parametrage.setdefault("decalages_pic_heures", [])
-        couverture["data"] = _charger_couverture()
+        couverture["data"] = _charger_couverture(app)
         _rafraichir_combo_pdt()  # relit pas_de_temps + horizons_selectionnes du pdt actif
         liste_seuils.rafraichir()
         var_t.set("T" in parametrage["methodes_selectionnees"])
         var_r.set("R" in parametrage["methodes_selectionnees"])
         _rafraichir_methodes()
         liste_decalages.rafraichir()
-        var_duree.set(_texte_duree(_charger_duree()))
+        var_duree.set(_texte_duree(_charger_duree(app)))
 
     app.rafraichir_parametrage_complet = _rafraichir_parametrage_complet
 

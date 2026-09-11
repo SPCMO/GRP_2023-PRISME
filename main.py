@@ -27,7 +27,7 @@ from ui.tab_crues import build_tab_crues
 from ui.tab_dashboard import build_tab_dashboard
 from ui.tab_orchestration import build_tab_orchestration
 from ui.tab_parametrage import build_tab_parametrage
-from ui.widgets_common import init_styles
+from ui.widgets_common import db_session_station, init_db_station, init_styles
 
 TITRE_BASE = f"GRP_2023-PRISME v{app_config.VERSION} — Campagnes de calage GRP"
 
@@ -98,8 +98,8 @@ class App(tk.Tk):
         nom_station = self.config_data.get("station", {}).get("nom_station", "").strip()
         titre = f"{TITRE_BASE} ({nom_station})" if nom_station else TITRE_BASE
         try:
-            results_store.init_db()
-            with results_store.db_session() as conn:
+            init_db_station(self)
+            with db_session_station(self) as conn:
                 nb_combinaisons = results_store.compter_combinaisons(conn)
             titre += f" — {nb_combinaisons} combinaison(s) en base"
         except Exception:
@@ -275,8 +275,8 @@ class App(tk.Tk):
 
         nb_combinaisons_ok = 0
         try:
-            results_store.init_db()  # sans effet si la base existe déjà
-            with results_store.db_session() as conn:
+            init_db_station(self)  # sans effet si la base existe déjà
+            with db_session_station(self) as conn:
                 nb_combinaisons_ok = len(results_store.list_combinaisons_completes(conn))
         except Exception:
             pass  # badge informatif seulement — jamais bloquant si la base est absente/verrouillée

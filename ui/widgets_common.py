@@ -6,7 +6,10 @@ onglets sur plusieurs fichiers (ui/tab_*.py) plutôt qu'un unique main.py monoli
 """
 
 import tkinter as tk
+from contextlib import contextmanager
 from tkinter import messagebox, ttk
+
+from modules import results_store
 
 # Palette couleurs sections UI — (texte, fond), mêmes teintes qu'OPALE v2 pour rester
 # visuellement cohérent entre les outils du SPCMO.
@@ -30,6 +33,55 @@ PALETTE_COURBES = (
     "#CC5500", "#1D6A39", "#7B241C", "#7D3C98", "#117864", "#B7950B",
     "#2874A6", "#A93226", "#5D6D7E", "#943126",
 )
+
+
+def _code_station_actif(app):
+    """Code station de CETTE instance, lu EN MÉMOIRE depuis app.config_data — jamais
+    relu depuis config/config.json (voir init_db_station/db_session_station
+    ci-dessous)."""
+    return app.config_data.get("station", {}).get("code_station", "")
+
+
+def chemin_db_station(app):
+    """Chemin de la base de résultats de la station ACTIVE DE CETTE INSTANCE
+    (app.config_data EN MÉMOIRE, jamais relu depuis config/config.json — voir
+    results_store.chemin_db_pour_station). Fonction de base pour init_db_station/
+    db_session_station ci-dessous, et pour tout appel qui a besoin du chemin brut
+    plutôt que d'une connexion déjà ouverte (ex. export_excel.exporter(db_path=...)).
+
+    Corrige un bug réel constaté (11 septembre 2026, campagne Quillan en cours,
+    Moussoulens ouvert en parallèle) : Dashboard affichait "Aucun résultat réussi
+    en base" alors que la campagne Quillan en produisait déjà des centaines — la
+    base elle-même n'était pas en cause (vérifiée directement, résultats bien
+    présents), mais results_store._chemin_db_par_defaut() (utilisé par TOUT le
+    reste de l'outil hors campagne, voir sa docstring) relit station_active dans
+    le config.json PARTAGÉ à chaque appel : la fenêtre Moussoulens, simplement
+    ouverte en parallèle, y avait entre-temps réécrit son propre code_station —
+    Dashboard lisait donc silencieusement la base DE MOUSSOULENS depuis la
+    fenêtre Quillan, sans le moindre message d'erreur (une requête sur une base
+    valide, juste la mauvaise). Seule la campagne elle-même était déjà protégée
+    de ce risque (results_store.chemin_db_pour_station, correctif du
+    8 septembre) — ce correctif-ci généralise la même protection à TOUT le
+    reste de l'outil qui lit/écrit la base de résultats depuis ui/."""
+    return results_store.chemin_db_pour_station(_code_station_actif(app))
+
+
+def init_db_station(app):
+    """Comme modules.results_store.init_db(), mais résout la base de la station
+    ACTIVE DE CETTE INSTANCE — voir chemin_db_station() ci-dessus pour le pourquoi.
+    À utiliser PARTOUT dans ui/ à la place de results_store.init_db() sans
+    argument."""
+    results_store.init_db(chemin_db_station(app))
+
+
+@contextmanager
+def db_session_station(app):
+    """Comme modules.results_store.db_session(), mais résout la base de la station
+    ACTIVE DE CETTE INSTANCE — voir chemin_db_station() ci-dessus pour le pourquoi.
+    À utiliser PARTOUT dans ui/ à la place de results_store.db_session() sans
+    argument."""
+    with results_store.db_session(chemin_db_station(app)) as conn:
+        yield conn
 
 
 def eclaircir_couleur(couleur_hex, facteur=0.5):

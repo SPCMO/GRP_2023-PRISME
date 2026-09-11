@@ -23,8 +23,9 @@ from modules import notification, proxy_utils, results_store, run_orchestrator, 
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
 from ui.widgets_common import (
-    bouton_enregistrer, bouton_info, enregistrer_observateur_pdt, libelle_dernier_pdt,
-    make_label, make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
+    bouton_enregistrer, bouton_info, db_session_station, enregistrer_observateur_pdt,
+    init_db_station, libelle_dernier_pdt, make_label, make_row, make_scrollable_tab,
+    make_section, sauvegarder_dernier_pdt,
 )
 
 COLONNES_TABLEAU = ("horizon", "seuil", "methode", "statut", "crues_ok", "crues_ko")
@@ -187,8 +188,8 @@ def build_tab_orchestration(tab_frame, app):
         decalages_pic_heures = app.config_data.get("parametrage", {}).get(
             "decalages_pic_heures", [])
         try:
-            results_store.init_db()
-            with results_store.db_session() as conn:
+            init_db_station(app)
+            with db_session_station(app) as conn:
                 mesures = results_store.duree_par_etape(conn)
                 minutes, restantes, total, incertain = results_store.estimer_temps_restant(
                     conn, combinaisons, crues_dates, mesures)
@@ -391,8 +392,8 @@ def build_tab_orchestration(tab_frame, app):
         validée (commit) avant le prochain événement, donc une lecture concurrente ne
         voit jamais un état à moitié écrit ; sqlite3 patiente automatiquement (5s par
         défaut) si elle tombe pile sur l'instant d'un commit."""
-        results_store.init_db()  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
-        with results_store.db_session() as conn:
+        init_db_station(app)  # sans effet si la base existe déjà (CREATE TABLE IF NOT EXISTS)
+        with db_session_station(app) as conn:
             completes = results_store.list_combinaisons_completes(conn)
             cles_completes = {(l["horizon"], l["seuil_c1"], l["methode"]) for l in completes}
             dates_maj = {(l["horizon"], l["seuil_c1"], l["methode"]): l["date_maj"]
@@ -541,8 +542,8 @@ def build_tab_orchestration(tab_frame, app):
                     f"{libelles}\n\nContinuer ?"):
                 return
             try:
-                results_store.init_db()
-                with results_store.db_session() as conn:
+                init_db_station(app)
+                with db_session_station(app) as conn:
                     ids = []
                     for h, s_txt, m, *_ in lignes:
                         row = conn.execute(
@@ -765,8 +766,8 @@ def build_tab_orchestration(tab_frame, app):
         if etat["thread"] and etat["thread"].is_alive():
             return  # jamais pendant une campagne en cours — le poll live fait déjà foi
         try:
-            results_store.init_db()
-            with results_store.db_session() as conn:
+            init_db_station(app)
+            with db_session_station(app) as conn:
                 etats_connus = results_store.etat_combinaisons(conn)
         except Exception:
             return  # best-effort, comme les autres rafraîchissements de cet onglet

@@ -13,7 +13,8 @@ from modules import config_manager, notification, proxy_utils, results_store
 from modules.phyc_client import PhycClient, PhycAuthError
 from modules.station_codes import CodeStationError, code_site_depuis_station
 from ui.widgets_common import (
-    bouton_enregistrer, bouton_info, make_label, make_row, make_scrollable_tab, make_section,
+    bouton_enregistrer, bouton_info, db_session_station, init_db_station, make_label,
+    make_row, make_scrollable_tab, make_section,
 )
 
 # Libellés affichés à l'utilisateur pour chaque couleur de seuil de vigilance PHyC (débit),
@@ -268,8 +269,8 @@ def build_tab_config(tab_frame, app):
 
         if code_station != ancien_code_station:
             try:
-                results_store.init_db()
-                with results_store.db_session() as conn:
+                init_db_station(app)
+                with db_session_station(app) as conn:
                     nb_combinaisons = results_store.compter_combinaisons(conn)
             except Exception:
                 nb_combinaisons = None  # signal secondaire seulement — ne pas gêner l'identification qui a réussi
