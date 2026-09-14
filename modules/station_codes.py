@@ -20,6 +20,7 @@ Le code site s'obtient en retirant les 2 derniers chiffres du code station.
 import re
 
 _MOTIF_CODE_STATION = re.compile(r"^[A-Za-z]\d{9}$")
+_MOTIF_CODE_SITE = re.compile(r"^[A-Za-z]\d{7}$")
 
 
 class CodeStationError(ValueError):
@@ -44,3 +45,30 @@ def code_site_depuis_station(code_station):
     """Dérive le code site (8 caractères) depuis un code station (10 caractères) — le
     code station est validé au passage (voir valider_code_station)."""
     return valider_code_station(code_station)[:-2]
+
+
+def code_station_par_defaut_depuis_site(code_site):
+    """Dérive un code station "par défaut" (10 caractères) depuis un code site (8
+    caractères) en lui ajoutant le suffixe "01" — demandé explicitement pour le
+    bandeau "Rechercher un code site" de l'onglet Configuration (voir
+    ui.tab_config.py et modules.index_bv_phyc), qui ne connaît que le code SITE d'un
+    bassin versant (issu de bv_phyc.csv), jamais le code STATION précis attendu par
+    l'outil.
+
+    "01" n'est qu'un point de départ RAISONNABLE, pas une garantie : un même site
+    peut regrouper plusieurs stations distinctes (ex. Y161201001/Y161202001/
+    Y161203001 partagent tous le code site Y1612020) — l'utilisateur reste libre de
+    corriger les 2 derniers chiffres après le pré-remplissage si la station visée
+    n'est pas la "01" de ce site. Inverse de code_site_depuis_station() ci-dessus,
+    qui RETIRE ces 2 chiffres plutôt que de les ajouter.
+
+    Lève CodeStationError si code_site n'a pas le format attendu (1 lettre + 7
+    chiffres) — même exception que valider_code_station, pour un traitement uniforme
+    côté appelant."""
+    code_site = (code_site or "").strip().upper()
+    if not _MOTIF_CODE_SITE.match(code_site):
+        raise CodeStationError(
+            f"Code site {code_site!r} invalide — format attendu : 1 lettre suivie de "
+            "7 chiffres (ex. Y1612020)."
+        )
+    return f"{code_site}01"

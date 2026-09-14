@@ -37,6 +37,7 @@ modules/                 # logique métier PURE — ne dépend JAMAIS de ui/ (r�
   grp_paths.py              # résolution des chemins dérivés des 4 dossiers de travail
   grp_runner.py             # lancement des exécutables GRP (calage exe04, rejeu .bat)
   grp_series.py             # séries observée/simulée d'un rejeu
+  index_bv_phyc.py          # recherche locale de BV PHyC (vendu depuis Index_BV_PHyC), + bv_phyc.csv
   journalisation.py         # config logging (console + fichier), anti-gel console
   liste_bassins.py          # parseur/écrivain LISTE_BASSINS.DAT
   phyc_client.py            # client SOAP PHyC
@@ -44,7 +45,7 @@ modules/                 # logique métier PURE — ne dépend JAMAIS de ui/ (r�
   results_store.py          # persistance SQLite (par station)
   run_orchestrator.py       # orchestrateur de campagne (boucle + reprise sur échec)
   score.py                  # score composite de performance
-  station_codes.py          # dérivation code_site depuis code_station
+  station_codes.py          # conversions code_station <-> code_site (les 2 sens)
 ui/                      # Tkinter — un fichier par onglet + helpers partagés
   tab_config.py / tab_parametrage.py / tab_crues.py / tab_orchestration.py /
   tab_dashboard.py / tab_analyse_affluents.py / widgets_common.py

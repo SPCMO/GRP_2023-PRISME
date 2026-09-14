@@ -10,8 +10,11 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 import config as app_config
 from modules import config_manager, notification, proxy_utils, results_store
+from modules.index_bv_phyc import IndexBV
 from modules.phyc_client import PhycClient, PhycAuthError
-from modules.station_codes import CodeStationError, code_site_depuis_station
+from modules.station_codes import (
+    CodeStationError, code_site_depuis_station, code_station_par_defaut_depuis_site,
+)
 from ui.widgets_common import (
     bouton_enregistrer, bouton_info, db_session_station, init_db_station, make_label,
     make_row, make_scrollable_tab, make_section,
@@ -93,13 +96,119 @@ def build_tab_config(tab_frame, app):
 
     ent_nom.bind("<FocusOut>", _valider_nom_station)
 
+    # Créée ICI (avant le bloc 1bis ci-dessous, qui doit pouvoir la préremplir) plutôt
+    # qu'au moment de construire son propre champ de saisie dans le bloc 2 : les deux
+    # blocs partagent la même variable, jamais recréée deux fois.
+    var_code_station = tk.StringVar(
+        value=app.config_data.get("station", {}).get("code_station", ""))
+
+    # ── Bloc 1bis — Rechercher un code site (PHyC, recherche 100 % locale) ──────
+    # Repris de l'outil "Conv AntJ1 horaire..." (brique Index_BV_PHyC, vendue ici —
+    # voir modules/index_bv_phyc.py et modules/bv_phyc.csv) — demandé explicitement :
+    # retrouver un code station sans le connaître par cœur, en cherchant par nom de
+    # bassin versant plutôt que d'aller le chercher dans un autre outil. Recherche
+    # locale dans un bordereau d'environ 65 bassins versants SPCMO, aucune connexion
+    # PHyC nécessaire (contrairement au bloc 2 ci-dessous, qui lui interroge PHyC en
+    # direct une fois le code station connu).
+    inn1b, bg1b = make_section(frm, "Rechercher un code site (PHyC)", "violet")
+
+    tk.Label(
+        inn1b, justify=tk.LEFT, fg="#666666", bg=bg1b, font=("TkDefaultFont", 8),
+        text="Recherche locale (aucune connexion PHyC nécessaire) parmi les bassins "
+             "versants du bordereau SPCMO. Cliquer sur un résultat pré-remplit le "
+             "code station ci-dessous — code site + « 01 » : à corriger si la "
+             "station recherchée n'est pas la « 01 » de ce site (un même site peut "
+             "regrouper plusieurs stations).",
+        wraplength=760,
+    ).pack(anchor="w", pady=(0, 6))
+
+    try:
+        _index_bv = IndexBV()
+        _erreur_index_bv = None
+    except Exception as e:  # noqa: BLE001 — best-effort, voir _rechercher_bv ci-dessous
+        _index_bv = None
+        _erreur_index_bv = str(e)
+
+    r = make_row(inn1b, bg1b)
+    make_label(r, "Nom du bassin versant :", bg1b, width=30)
+    var_recherche_bv = tk.StringVar(value="")
+    entree_recherche_bv = ttk.Entry(r, textvariable=var_recherche_bv, width=30)
+    entree_recherche_bv.pack(side=tk.LEFT, padx=(2, 4))
+    ttk.Button(r, text="Rechercher", command=lambda: _rechercher_bv()).pack(side=tk.LEFT)
+
+    cadre_resultats_bv = tk.Frame(inn1b, bg=bg1b)
+    cadre_resultats_bv.pack(fill=tk.X, pady=(6, 0))
+    arbre_resultats_bv = ttk.Treeview(
+        cadre_resultats_bv, columns=("nom", "code_site", "code_bnbv", "surface"),
+        show="headings", height=4)
+    arbre_resultats_bv.heading("nom", text="Nom du BV")
+    arbre_resultats_bv.heading("code_site", text="Code site")
+    arbre_resultats_bv.heading("code_bnbv", text="Code BNBV")
+    arbre_resultats_bv.heading("surface", text="Surface (km²)")
+    arbre_resultats_bv.column("nom", width=340, anchor="w")
+    arbre_resultats_bv.column("code_site", width=90, anchor="w")
+    arbre_resultats_bv.column("code_bnbv", width=90, anchor="w")
+    arbre_resultats_bv.column("surface", width=100, anchor="e")
+    defilement_bv = ttk.Scrollbar(cadre_resultats_bv, orient="vertical",
+                                   command=arbre_resultats_bv.yview)
+    arbre_resultats_bv.configure(yscrollcommand=defilement_bv.set)
+    arbre_resultats_bv.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    defilement_bv.pack(side=tk.LEFT, fill=tk.Y)
+
+    var_statut_recherche_bv = tk.StringVar(value="")
+    tk.Label(inn1b, textvariable=var_statut_recherche_bv, bg=bg1b,
+             font=("TkDefaultFont", 8, "italic")).pack(anchor="w", pady=(4, 0))
+
+    def _rechercher_bv(_evt=None):
+        for item in arbre_resultats_bv.get_children():
+            arbre_resultats_bv.delete(item)
+        if _index_bv is None:
+            var_statut_recherche_bv.set(
+                f"Index de recherche indisponible : {_erreur_index_bv}")
+            return
+        terme = var_recherche_bv.get().strip()
+        if not terme:
+            var_statut_recherche_bv.set("")
+            return
+        resultats = _index_bv.rechercher(terme)
+        if not resultats:
+            var_statut_recherche_bv.set(f"Recherche « {terme} » : aucun résultat.")
+            return
+        for r_bv in resultats:
+            surface = f"{r_bv['surface_km2']:.1f}" if r_bv["surface_km2"] is not None else "?"
+            arbre_resultats_bv.insert(
+                "", tk.END,
+                values=(r_bv["nom_bv"], r_bv["code_site"], r_bv["code_bnbv"], surface))
+        var_statut_recherche_bv.set(f"Recherche « {terme} » : {len(resultats)} résultat(s).")
+
+    entree_recherche_bv.bind("<Return>", _rechercher_bv)
+
+    def _selectionner_resultat_bv(_evt=None):
+        """Clic sur une LIGNE de résultat (pas seulement la cellule "Code site" —
+        cliquer n'importe où sur la ligne sélectionne le même résultat, plus naturel
+        qu'une zone de clic restreinte à une seule colonne) : pré-remplit le champ
+        "Code station" ci-dessous avec code_site + "01", demandé explicitement.
+        N'écrase jamais rien de force : l'utilisateur reste libre de modifier le
+        champ ensuite (ex. corriger le suffixe "01" si ce n'est pas la bonne
+        station), et rien n'est sauvegardé tant que "Identifier via PHyC" n'a pas
+        été cliqué."""
+        selection = arbre_resultats_bv.selection()
+        if not selection:
+            return
+        code_site = arbre_resultats_bv.item(selection[0], "values")[1]
+        try:
+            var_code_station.set(code_station_par_defaut_depuis_site(code_site))
+        except CodeStationError:
+            pass  # ne devrait jamais arriver (code_site vient de bv_phyc.csv, déjà
+                  # validé côté modules.index_bv_phyc) — best-effort, jamais bloquant
+
+    arbre_resultats_bv.bind("<<TreeviewSelect>>", _selectionner_resultat_bv)
+
     # ── Bloc 2 — Identification station via PHyC ────────────────────────────────
     inn2, bg2 = make_section(frm, "Identification station (PHyC)", "gris")
 
     r = make_row(inn2, bg2)
     make_label(r, "Code station (ex. Y161202001) :", bg2, width=30)
-    var_code_station = tk.StringVar(
-        value=app.config_data.get("station", {}).get("code_station", ""))
     ttk.Entry(r, textvariable=var_code_station, width=16).pack(side=tk.LEFT, padx=(2, 4))
     btn_identifier = ttk.Button(r, text="Identifier via PHyC")
     btn_identifier.pack(side=tk.LEFT)
