@@ -1,0 +1,31 @@
+{
+  "version": "3.21",
+  "changelog": [
+    {"version": "3.21", "resume": "Vérification non bloquante de version au démarrage — bandeau si une version plus récente est déployée, avec le détail des nouveautés depuis votre version."},
+    {"version": "3.20", "resume": "Nouveau bandeau \"Rechercher un code site (PHyC)\" dans Configuration — recherche locale par nom de bassin versant, un clic pré-remplit le code station."},
+    {"version": "3.19", "resume": "Correctif de fond — tout l'outil lit désormais la base de résultats de la station EN MÉMOIRE de chaque fenêtre plutôt que de relire station_active depuis le config.json partagé à chaque requête."},
+    {"version": "3.18", "resume": "Dashboard et Analyse crues affl. se rafraîchissent désormais AUSSI pendant une campagne en cours, pas seulement au changement d'onglet."},
+    {"version": "3.17", "resume": "Analyse crues affl. lit désormais la série observée archivée en base (comme Dashboard > Détail par crue) — corrige un onglet totalement vide après une nouvelle combinaison calée."},
+    {"version": "3.16", "resume": "Les onglets Crues et Dashboard se rafraîchissent désormais automatiquement à chaque fois qu'on y navigue."},
+    {"version": "3.15", "resume": "Le catalogue pas de temps/horizons d'une toute nouvelle station est désormais pré-rempli depuis le gabarit, au lieu de repartir totalement vide."},
+    {"version": "3.14", "resume": "Correctif — l'onglet Campagne ne se réaffichait pas au changement de station, contrairement aux 4 autres onglets concernés."},
+    {"version": "3.13", "resume": "Correctif — le chemin de la base de résultats n'est plus re-résolu à chaque écriture pendant une campagne, pour permettre 2 instances de l'outil en parallèle sur 2 stations différentes."},
+    {"version": "3.12", "resume": "Configuration propre à chaque station — un fichier config_<code_station>.json par station, plus de perte de paramétrage en rebasculant d'un bassin à l'autre."},
+    {"version": "3.11", "resume": "Correctif — série observée archivée en base pour \"Détail par crue\", ne dépend plus de CRITERES_PERF.DAT courant."},
+    {"version": "3.10", "resume": "Correctif — le titre de l'alerte de fin de campagne plantait silencieusement sur un tiret cadratin, passage en publication JSON."},
+    {"version": "3.9", "resume": "Alerte de fin de campagne par notification push ntfy, optionnelle."},
+    {"version": "3.8", "resume": "Tri ajouté à \"Maximum de chaque courbe tracée\" et \"Variation selon le nb de crues\", colonnes de ce dernier doublées médiane/moyenne."},
+    {"version": "3.7", "resume": "Score composite médiane/moyenne paramétrable + tableau de classement doublé, triable, avec dQp/dT médians et moyens."},
+    {"version": "3.6", "resume": "Suppression de combinaisons depuis \"Combinaisons déjà réalisées\" + propagation du rafraîchissement dans tout l'outil."},
+    {"version": "3.5", "resume": "Colonne « Sous/sur-estim. » dans le classement Vue synthèse."},
+    {"version": "3.4", "resume": "Tests d'audit de code C1/C2 — migrations sqlite, lancer_campagne(), avec un bug latent réel découvert et corrigé au passage."},
+    {"version": "3.3", "resume": "Correctifs d'audit ergonomie — confirmation avant relance complète de campagne, retour visuel pendant l'export Excel."},
+    {"version": "3.2", "resume": "Numéro de version affiché dans le titre de la fenêtre."},
+    {"version": "3.1", "resume": "Garde-fous anti-perte de données lors d'une réinstallation."},
+    {"version": "3.0", "resume": "Recalcul automatique du dQP/dTP + score composite en médiane."},
+    {"version": "2.2", "resume": "Export Excel 7 feuilles."},
+    {"version": "2.1", "resume": "Rejeu à plusieurs instants avant le pic."},
+    {"version": "2.0", "resume": "Isolation des bases de résultats par station."},
+    {"version": "1.0", "resume": "Mise en ligne initiale."}
+  ]
+}

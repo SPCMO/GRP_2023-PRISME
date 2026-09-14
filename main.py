@@ -11,6 +11,7 @@ l'architecture de l'outil.
 
 import os
 import sys
+import threading
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
@@ -21,6 +22,7 @@ import config as app_config
 from modules import config_manager, results_store
 from modules.grp_paths import construire_grp_paths
 from modules.journalisation import configurer_logging, journaliser_exception_tkinter
+from modules.verif_version import verifier_version_disponible
 from ui.tab_analyse_affluents import build_tab_analyse_affluents
 from ui.tab_config import build_tab_config
 from ui.tab_crues import build_tab_crues
@@ -302,10 +304,76 @@ class App(tk.Tk):
             return
         webbrowser.open(f"file:///{chemin.replace(os.sep, '/')}")
 
+    def _construire_banniere_version(self):
+        """Bandeau discret annonçant qu'une version plus récente de l'outil est
+        déployée (voir modules/verif_version.py) — construit ici mais jamais
+        empaqueté par défaut (ne prend aucune place à l'écran) : seulement affiché
+        si _verifier_version_disponible_en_arriere_plan() trouve effectivement une
+        version plus récente sur le partage réseau. Volontairement PAS une fenêtre
+        modale (contrairement à "Voir le détail" ci-dessous, qui n'apparaît que sur
+        clic explicite) : ce signal ne doit jamais interrompre ni retarder le
+        travail en cours, un simple clic sur "✕" le referme sans rien redemander
+        tant que la fenêtre reste ouverte."""
+        self._banniere_version = tk.Frame(self, bg="#FCF3CF")
+        self._var_resume_banniere_version = tk.StringVar(value="")
+        tk.Label(
+            self._banniere_version, textvariable=self._var_resume_banniere_version,
+            bg="#FCF3CF", fg="#7D6608", font=("TkDefaultFont", 9, "bold"),
+        ).pack(side=tk.LEFT, padx=(10, 6), pady=6)
+        self._btn_detail_banniere_version = tk.Button(
+            self._banniere_version, text="Voir le détail", relief=tk.FLAT,
+            bg="#FCF3CF", fg="#7D6608", font=("TkDefaultFont", 9, "underline"),
+            cursor="hand2", bd=0, command=self._afficher_detail_verif_version,
+        )
+        self._btn_detail_banniere_version.pack(side=tk.LEFT)
+        tk.Button(
+            self._banniere_version, text="✕", command=self._banniere_version.pack_forget,
+            bg="#FCF3CF", fg="#7D6608", relief=tk.FLAT, font=("TkDefaultFont", 9, "bold"),
+            cursor="hand2", bd=0,
+        ).pack(side=tk.RIGHT, padx=(0, 10))
+
+    def _verifier_version_disponible_en_arriere_plan(self):
+        """Exécutée dans un THREAD SÉPARÉ (voir son appelant, _build_ui) : la
+        lecture de VERSION.json sur le partage réseau SPCMO peut prendre plusieurs
+        secondes si le réseau est lent/indisponible — jamais sur le thread Tkinter
+        principal, qui gèlerait toute l'interface pendant ce temps (même règle que
+        les téléchargements BDImage/PHyC des autres outils). modules.verif_version.
+        verifier_version_disponible() ne lève jamais (best-effort, voir sa
+        docstring) : ce thread ne peut donc jamais planter l'outil ni afficher la
+        moindre erreur — un réseau indisponible se traduit simplement par
+        l'absence de bandeau, comme si la vérification n'avait pas eu lieu."""
+        resultat = verifier_version_disponible(
+            app_config.VERSION, app_config.CHEMIN_VERSION_JSON_RESEAU)
+        if resultat.nouvelle_version_disponible:
+            # .after(0, ...) : re-bascule sur le thread Tkinter principal avant de
+            # toucher le moindre widget — jamais directement depuis ce thread.
+            self.after(0, lambda: self._afficher_banniere_version(resultat))
+
+    def _afficher_banniere_version(self, resultat):
+        self._resultat_verif_version = resultat  # gardé pour "Voir le détail"
+        premiere_ligne = resultat.message.split("\n", 1)[0]
+        self._var_resume_banniere_version.set(f"🆕 {premiere_ligne}")
+        # Nombre de nouveautés seulement si le détail apporte quelque chose de plus
+        # que la seule première ligne (sinon "Voir le détail" n'aurait rien à montrer).
+        self._btn_detail_banniere_version.configure(
+            state="normal" if resultat.nouveautes else "disabled")
+        self._banniere_version.pack(side=tk.TOP, fill=tk.X, before=self.notebook)
+
+    def _afficher_detail_verif_version(self):
+        """Fenêtre d'info (messagebox, donc modale) ouverte UNIQUEMENT sur clic
+        explicite de "Voir le détail" — jamais affichée automatiquement, donc sans
+        jamais interrompre le travail en cours (voir _construire_banniere_version).
+        Liste TOUTES les nouveautés entre la version locale et la version déployée
+        (demandé explicitement), pas seulement la toute dernière — utile en
+        particulier pour un poste resté sur une version ancienne depuis longtemps."""
+        messagebox.showinfo("Nouvelle version disponible", self._resultat_verif_version.message)
+
     def _build_ui(self):
         notebook = ttk.Notebook(self)
         notebook.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         self.notebook = notebook
+
+        self._construire_banniere_version()
 
         self.tab_config = ttk.Frame(notebook)
         self.tab_parametrage = ttk.Frame(notebook)
@@ -354,6 +422,15 @@ class App(tk.Tk):
         # ui/tab_dashboard.py) et déjà couvert par _au_changement_onglet_principal
         # pour son propre rafraîchissement complet des 5 vues.
         notebook.bind("<<NotebookTabChanged>>", self._au_changement_onglet_principal)
+
+        # Vérification de version (voir modules/verif_version.py) — lancée en tout
+        # dernier, après que l'interface complète est déjà construite et affichée,
+        # pour ne jamais retarder d'une fraction de seconde le premier affichage de
+        # la fenêtre à cause d'un accès réseau (voir aussi son propre thread séparé,
+        # ci-dessus, pour ne jamais geler l'interface une fois affichée non plus).
+        threading.Thread(
+            target=self._verifier_version_disponible_en_arriere_plan, daemon=True
+        ).start()
 
 
 if __name__ == "__main__":

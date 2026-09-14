@@ -16,7 +16,7 @@ import os
 # version n'est qu'un repère macro, pas un décompte exhaustif du changelog). À
 # incrémenter manuellement ici lors du prochain déploiement significatif — jamais
 # recalculé automatiquement.
-VERSION = "3.20"
+VERSION = "3.21"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_JSON_PATH = os.path.join(BASE_DIR, "config", "config.json")
@@ -45,3 +45,17 @@ FICHIER_POINTEUR_DATA = os.path.join(DOSSIER_CONFIG_UTILISATEUR, "data_emplaceme
 # fonctionne aussi sur le poste des collègues sans configuration préalable. Une variable
 # d'environnement HTTPS_PROXY, si définie, reste prioritaire (voir modules/proxy_utils.py).
 PROXY_RIE = "http://pfrie-std.proxy.e2.rie.gouv.fr:8080"
+
+# Chemin réseau du manifeste de version déployée (VERSION.json, publié à côté de
+# Aide.html à chaque déploiement — voir modules/verif_version.py et
+# main.py::App._verifier_version_disponible_en_arriere_plan). MÊME dossier réseau que
+# la copie de déploiement de l'outil (voir la commande PowerShell du skill
+# deploy-grp2023-prisme) : ce fichier y est copié automatiquement comme tout autre
+# fichier suivi par git, aucune étape de déploiement séparée à retenir. Vérification
+# purement informative et non bloquante — un chemin réseau inaccessible ne doit jamais
+# empêcher l'outil de démarrer (voir modules/verif_version.py, jamais d'exception).
+CHEMIN_VERSION_JSON_RESEAU = (
+    r"\\oc-spc-11.dreal-oc.ad.e2.rie.gouv.fr\SUIVI\Pole_prevision"
+    r"\40_Modèles Opérationnels\40_Modeles_GRP\02_calage\scripts"
+    r"\GRP_2023-PRISME\VERSION.json"
+)

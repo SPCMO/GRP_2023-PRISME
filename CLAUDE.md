@@ -46,12 +46,16 @@ modules/                 # logique métier PURE — ne dépend JAMAIS de ui/ (r�
   run_orchestrator.py       # orchestrateur de campagne (boucle + reprise sur échec)
   score.py                  # score composite de performance
   station_codes.py          # conversions code_station <-> code_site (les 2 sens)
+  verif_version.py          # vérification non bloquante de version (vendu depuis Verif_Version_Outils)
 ui/                      # Tkinter — un fichier par onglet + helpers partagés
   tab_config.py / tab_parametrage.py / tab_crues.py / tab_orchestration.py /
   tab_dashboard.py / tab_analyse_affluents.py / widgets_common.py
 tests/                   # pytest — fonctions PURES de modules/ uniquement
 config/config.json       # config locale réelle (gitignorée, contient des identifiants)
 config/config.exemple.json  # gabarit versionné, à copier en config.json
+VERSION.json             # manifeste {version, changelog} — publié à côté de Aide.html à
+                          # chaque déploiement (voir modules/verif_version.py), à tenir à
+                          # jour manuellement à chaque incrément de config.VERSION
 ```
 
 ## Conventions de nommage et de style
