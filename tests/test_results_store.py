@@ -569,3 +569,30 @@ def test_lister_dates_crues_archivees_vide_si_rien_archive(tmp_path):
     results_store.init_db(chemin)
     with results_store.db_session(chemin) as conn:
         assert results_store.lister_dates_crues_archivees(conn, "00J00H15M") == []
+
+
+def test_max_debit_observe_archive_toutes_crues_du_pas_de_temps(tmp_path):
+    """Base de l'échelle Y « toutes les crues de la campagne » (Dashboard > Détail par
+    crue) : maximum sur TOUTES les crues archivées du pas de temps demandé, jamais
+    celles d'un autre pas de temps."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0),
+            [(_dt(2018, 10, 13, 0, 0), 0.0, 5.2), (_dt(2018, 10, 13, 0, 15), 0.0, 120.0)])
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2019, 1, 1, 0, 0), [(_dt(2019, 1, 1, 0, 0), 0.0, 340.5)])
+        # Autre pas de temps — ne doit jamais remonter dans le maximum ci-dessus.
+        results_store.archiver_serie_observee_complete(
+            conn, "00J01H00M", _dt(2018, 10, 13, 0, 0), [(_dt(2018, 10, 13, 0, 0), 0.0, 9999.0)])
+
+    with results_store.db_session(chemin) as conn:
+        assert results_store.max_debit_observe_archive(conn, "00J00H15M") == 340.5
+
+
+def test_max_debit_observe_archive_none_si_rien_archive(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        assert results_store.max_debit_observe_archive(conn, "00J00H15M") is None

@@ -42,6 +42,11 @@ from ui.widgets_common import (
 # de PALETTE_COURBES pour ne jamais être confondu avec une courbe simulée.
 _COULEUR_OBS = "#1B4F72"
 
+# Marge au-dessus du Qmax de référence pour l'échelle Y de Détail par crue (les 2 modes
+# du bouton radio « Échelle du débit ») — +15 %, demandé explicitement (21 septembre
+# 2026) ; l'échelle « toutes les crues » était auparavant à +10 %.
+_MARGE_ECHELLE_Y = 1.15
+
 # Question posée indépendamment par 2 utilisateurs sur la même ligne ("Crue #N (...) —
 # configuration en place : dQP ... KGE ...") : ce n'est PAS l'une des combinaisons
 # testées par la campagne, mais la performance du calage ACTUELLEMENT installé dans
@@ -1156,6 +1161,25 @@ def _build_detail(frame, app):
     ttk.Checkbutton(r2, text="Afficher les seuils de vigilance", variable=var_vigilance,
                      command=lambda: _tracer()).pack(side=tk.LEFT, padx=(12, 0), anchor="n")
 
+    # Échelle de l'axe des débits (demandé, 21 septembre 2026) : deux modes, tous deux
+    # avec une marge de +15 % (_MARGE_ECHELLE_Y) au-dessus du Qmax de référence.
+    # "globale" = Qmax de TOUTES les crues de la campagne — échelle commune, pour
+    # comparer directement l'amplitude d'un épisode à l'autre (comportement d'origine,
+    # gardé par défaut) ; "crue" = Qmax de la seule crue affichée — plus lisible pour
+    # une petite crue, écrasée sinon par l'échelle d'un gros épisode. Pas persistée :
+    # revient sur "globale" à chaque lancement de l'outil.
+    var_echelle_y = tk.StringVar(value="globale")
+    cadre_echelle_y = tk.Frame(r2, bg=bg)
+    cadre_echelle_y.pack(side=tk.LEFT, padx=(16, 0), anchor="n")
+    tk.Label(cadre_echelle_y, text="Échelle du débit :", bg=bg,
+             font=("TkDefaultFont", 9, "bold")).pack(anchor="w")
+    ttk.Radiobutton(cadre_echelle_y, text="Toutes les crues (Qmax + 15 %)",
+                     variable=var_echelle_y, value="globale",
+                     command=lambda: _tracer()).pack(anchor="w")
+    ttk.Radiobutton(cadre_echelle_y, text="Crue affichée (Qmax + 15 %)",
+                     variable=var_echelle_y, value="crue",
+                     command=lambda: _tracer()).pack(anchor="w")
+
     ligne_indicateurs = tk.Frame(frame)
     ligne_indicateurs.pack(fill=tk.X, padx=10, pady=(4, 0))
     var_indicateurs = tk.StringVar(value="")
@@ -1225,12 +1249,22 @@ def _build_detail(frame, app):
     canvas.mpl_connect("motion_notify_event", _survol_courbes)
 
     def _calculer_y_max_global(paths, code_pdt):
-        """Qmax le plus élevé (observé ou simulé) toutes crues confondues pour ce pas
-        de temps, +10% — donne une échelle Y COMMUNE à toutes les crues (demandé
-        explicitement) plutôt qu'une échelle qui se réajuste à chaque changement de
-        crue, pour pouvoir comparer directement l'amplitude d'un épisode à l'autre.
-        Best-effort : une crue dont la série observée est illisible est simplement
-        ignorée pour ce calcul, jamais une erreur bloquante."""
+        """Qmax le plus élevé (observé ou simulé) toutes crues de la campagne
+        confondues pour ce pas de temps, +15 % (_MARGE_ECHELLE_Y) — donne une échelle Y
+        COMMUNE à toutes les crues (demandé explicitement) plutôt qu'une échelle qui se
+        réajuste à chaque changement de crue, pour pouvoir comparer directement
+        l'amplitude d'un épisode à l'autre. Voir aussi le bouton radio « Échelle du
+        débit » (var_echelle_y) qui permet de basculer vers l'échelle de la seule crue
+        affichée. Marge passée de +10 % à +15 % le 21 septembre 2026, pour s'aligner sur
+        celle de l'échelle « crue affichée » ci-dessous.
+
+        « Toutes les crues » = celles du calage GRP actuellement en place
+        (CRITERES_PERF.DAT/EVxxxx.DAT) ET toutes celles archivées en base
+        (series_observees_completes) : ces fichiers de travail sont réécrits à chaque
+        calage, une ancienne crue archivée peut donc en avoir disparu (voir
+        Architecture > "Série observée archivée en base") alors qu'elle fait bien partie
+        de la campagne. Best-effort : une crue dont la série observée est illisible est
+        simplement ignorée pour ce calcul, jamais une erreur bloquante."""
         valeurs = []
         try:
             evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
@@ -1247,11 +1281,11 @@ def _build_detail(frame, app):
         try:
             with db_session_station(app) as conn:
                 max_sim = results_store.max_debit_simule(conn)
-            if max_sim is not None:
-                valeurs.append(max_sim)
+                max_obs_archive = results_store.max_debit_observe_archive(conn, code_pdt)
+            valeurs.extend(v for v in (max_sim, max_obs_archive) if v is not None)
         except Exception:
             pass
-        return max(valeurs) * 1.1 if valeurs else None
+        return max(valeurs) * _MARGE_ECHELLE_Y if valeurs else None
 
     # ── Récapitulatif max/horodatage par courbe tracée ────────────────────────────
     # Grille de Label (pas un ttk.Treeview) : demandé de colorer une CELLULE isolée
@@ -1833,12 +1867,20 @@ def _build_detail(frame, app):
         # "Afficher les seuils de vigilance" (demandé) pour les masquer temporairement
         # sans perdre l'échelle Y commune, qui reste calculée dans tous les cas.
         seuils = app.config_data.get("seuils_q", {})
-        # Échelle Y COMMUNE à toutes les crues (Qmax observé+simulé de l'ensemble des
-        # crues, +10%, calculé une fois par _rafraichir_crues) plutôt que réajustée à
-        # chaque crue affichée — demandé explicitement pour comparer directement
-        # l'amplitude d'un épisode à l'autre. Repli sur le max de CETTE crue si le
-        # calcul global a échoué (ex. aucune série simulée archivée pour l'instant).
-        y_max = etat_y_max["global"] or max(toutes_valeurs, default=None)
+        # Échelle Y selon le bouton radio « Échelle du débit » (var_echelle_y) :
+        #  - "globale" (défaut, comportement d'origine) : COMMUNE à toutes les crues
+        #    (Qmax observé+simulé de l'ensemble des crues de la campagne, +15 %, calculé
+        #    une fois par _rafraichir_crues) plutôt que réajustée à chaque crue
+        #    affichée — demandé explicitement pour comparer directement l'amplitude d'un
+        #    épisode à l'autre. Repli sur le max de CETTE crue si le calcul global a
+        #    échoué (ex. aucune série archivée pour l'instant) ;
+        #  - "crue" : Qmax de la seule crue affichée (observé + combinaisons tracées),
+        #    +15 % — lecture plus fine d'une petite crue.
+        y_max_crue = max(toutes_valeurs) * _MARGE_ECHELLE_Y if toutes_valeurs else None
+        if var_echelle_y.get() == "crue":
+            y_max = y_max_crue
+        else:
+            y_max = etat_y_max["global"] or y_max_crue
         if y_max is not None:
             ax.set_ylim(0, y_max)
         if var_vigilance.get():

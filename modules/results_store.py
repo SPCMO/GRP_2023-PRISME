@@ -609,6 +609,21 @@ def max_debit_simule(conn):
     return row["m"] if row and row["m"] is not None else None
 
 
+def max_debit_observe_archive(conn, pas_de_temps):
+    """Débit observé maximal, toutes crues archivées confondues (table
+    series_observees_completes) pour ce pas de temps — utilisé par Dashboard > Détail
+    par crue pour l'échelle Y « toutes les crues de la campagne » (voir
+    ui/tab_dashboard.py). Contrairement à une lecture des EVxxxx.DAT du calage
+    actuellement en place, l'archive contient AUSSI les crues qu'un calage ultérieur
+    n'a plus redétectées (voir series_observees_completes dans SCHEMA). None si rien
+    n'est encore archivé pour ce pas de temps."""
+    row = conn.execute(
+        "SELECT MAX(debit) AS m FROM series_observees_completes WHERE pas_de_temps = ?",
+        (pas_de_temps,),
+    ).fetchone()
+    return row["m"] if row and row["m"] is not None else None
+
+
 def compter_combinaisons(conn):
     """Nombre total de combinaisons enregistrées (tous statuts confondus) dans la base
     actuellement résolue — utilisé pour signaler à l'utilisateur, au moment où il
