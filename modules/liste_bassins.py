@@ -148,6 +148,34 @@ def parse_liste_bassins(path, encoding=ENCODING):
     return lignes_brutes, bassins
 
 
+def lire_nj(path, code_site=None, encoding=ENCODING):
+    """Valeur du champ NJ (durée de la fenêtre d'événement, en JOURS) de LISTE_BASSINS.DAT
+    pour le bassin `code_site` (ex. "Y1232010") — ou, si `code_site` est None, pour le
+    premier bassin du fichier. Retourne None si le fichier ou le bassin est introuvable,
+    ou si NJ n'est pas un entier : jamais une exception (information de contrôle, ne doit
+    pas pouvoir bloquer un lancement de campagne).
+
+    NJ pilote la durée de la fenêtre des événements détectés par GRP dans
+    CRITERES_PERF.DAT (NJ=2 -> 48 h, NJ=3 -> 72 h, pic centré) : en changer entre deux
+    campagnes décale la date de début (date_deb) de chaque crue — voir
+    modules/appariement_crues.py. modules.run_orchestrator ne modifie JAMAIS ce champ
+    (set_calage_params ne touche que HOR1/HOR2/SeuilC1/SeuilC2/ST/SR/AT/AR)."""
+    try:
+        _lignes, bassins = parse_liste_bassins(path, encoding=encoding)
+    except (FileNotFoundError, OSError, ListeBassinsFormatError):
+        return None
+    if code_site is None:
+        ligne = next(iter(bassins.values()), None)
+    else:
+        ligne = bassins.get(code_site)
+    if ligne is None:
+        return None
+    try:
+        return int(ligne.bruts["nj"].strip())
+    except (KeyError, ValueError):
+        return None
+
+
 def _reformater_champ(valeur_brute_origine, nouvelle_valeur, alignement="droite"):
     """Reformate `nouvelle_valeur` (chaîne) à la largeur du champ d'origine, avec le même
     alignement — pour ne pas modifier la largeur totale de la ligne (le parseur GRP

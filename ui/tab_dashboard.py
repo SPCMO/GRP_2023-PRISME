@@ -24,7 +24,7 @@ from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — nécessaire pour projection="3d"
 
-from modules import export_excel, results_store
+from modules import appariement_crues, export_excel, results_store
 from modules.criteres_perf import CriteresPerfError, parse_evenement_serie, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
 from modules.score import (
@@ -402,36 +402,101 @@ def _filtrer_lignes_score(app, lignes_ok):
     return filtrer_par_crues(lignes_ok, _crues_incluses_score(app))
 
 
+def _metadonnees_crues(app, dates_iso, codes_pdt=None, avec_cumul_pluie=False):
+    """Numéro d'événement (#N), type (Q/P), Qmax et cumul de pluie de chaque crue
+    `dates_iso` (dates de début, ISO) — {iso: {"num_evt", "typ_evt", "qmax",
+    "cumul_pluie"}}, chaque champ à None si introuvable.
+
+    Trois sources, dans l'ordre :
+      1. le CRITERES_PERF.DAT ACTUEL, par date de début exacte (comportement d'origine) ;
+      2. sinon l'ARCHIVE en base (series_observees_completes) : Qmax et cumul de pluie de
+         cette date précise, et — en rapprochant le PIC de la crue de celui des événements
+         du CRITERES_PERF.DAT actuel (modules.appariement_crues) — son numéro et son type ;
+      3. sinon tout reste à None (affiché « ? » / « — »).
+    Pourquoi : CRITERES_PERF.DAT est réécrit à CHAQUE calage, et la date de début d'une
+    crue y dépend de la durée de fenêtre d'événement (champ NJ de LISTE_BASSINS.DAT) :
+    après un changement de NJ, aucune date de la base n'y figurait plus et tout le
+    sélecteur de crues du score s'affichait en « ? » et tirets (constaté, 24 septembre
+    2026, Carcassonne_PV), alors que les résultats en base étaient intacts.
+    Best-effort : aucune erreur de lecture ne remonte."""
+    resultat = {iso: {"num_evt": None, "typ_evt": None, "qmax": None, "cumul_pluie": None}
+                for iso in dates_iso}
+    restants = set(dates_iso)
+    if not restants:
+        return resultat
+    paths, _manquants = construire_grp_paths(app)
+    if codes_pdt is None:
+        codes_pdt = [p["code"] for p in app.config_data.get("parametrage", {}).get(
+            "pas_de_temps", [])]
+
+    evenements_par_pdt = {}
+    if paths is not None:
+        for code_pdt in codes_pdt:
+            try:
+                evenements_par_pdt[code_pdt] = parse_criteres_perf(
+                    paths.criteres_perf_dat(code_pdt))
+            except (FileNotFoundError, CriteresPerfError):
+                continue
+
+    # 1. Date de début exacte dans le CRITERES_PERF.DAT actuel.
+    for code_pdt, evenements in evenements_par_pdt.items():
+        for e in evenements:
+            iso = e.date_deb.isoformat()
+            if iso not in restants:
+                continue
+            cumul_pluie = None
+            if avec_cumul_pluie:
+                try:
+                    chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
+                                                 f"{paths.code_site}-EV{e.num_evt:04d}.DAT")
+                    serie = parse_evenement_serie(chemin_serie)
+                    if serie:
+                        cumul_pluie = sum(p[1] for p in serie)  # déjà en mm/pas de temps, somme brute
+                except (FileNotFoundError, CriteresPerfError):
+                    pass
+            resultat[iso] = {"num_evt": e.num_evt, "typ_evt": e.typ_evt, "qmax": e.qmax,
+                             "cumul_pluie": cumul_pluie}
+            restants.discard(iso)
+
+    # 2. Archive en base + rapprochement par le pic.
+    if restants:
+        try:
+            with db_session_station(app) as conn:
+                for code_pdt in codes_pdt:
+                    if not restants:
+                        break
+                    resume = results_store.resume_series_observees_archivees(conn, code_pdt)
+                    for iso in list(restants):
+                        m = resume.get(iso)
+                        if m is None:
+                            continue
+                        evt = appariement_crues.evenement_par_pic(
+                            m["pic_date"], evenements_par_pdt.get(code_pdt, []))
+                        resultat[iso] = {
+                            "num_evt": evt.num_evt if evt is not None else None,
+                            "typ_evt": evt.typ_evt if evt is not None else None,
+                            "qmax": m["qmax"], "cumul_pluie": m["cumul_pluie"]}
+                        restants.discard(iso)
+        except Exception:
+            pass
+    return resultat
+
+
 def _lister_crues_pour_score(app):
     """Liste (iso, libelle) de toutes les crues ayant au moins un résultat réussi en
     base, triées par n° d'événement (CRITERES_PERF.DAT, "#N - date") puis par date pour
     celles non numérotées — même principe de libellé que Dashboard > Détail par crue.
-    Alimente le sélecteur de crues du score (voir _ouvrir_selecteur_crues_score)."""
+    Alimente le sélecteur de crues du score (voir _ouvrir_selecteur_crues_score). Le
+    numéro d'une crue dont la date n'existe plus dans le CRITERES_PERF.DAT actuel est
+    retrouvé par son pic (voir _metadonnees_crues)."""
     lignes, _erreur = _charger_resultats(app)
     dates_disponibles = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
     if not dates_disponibles:
         return []
-
-    entrees = []
-    restants = set(dates_disponibles)
-    paths, _manquants = construire_grp_paths(app)
-    if paths is not None:
-        for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
-            if not restants:
-                break
-            try:
-                evenements = parse_criteres_perf(paths.criteres_perf_dat(pdt["code"]))
-            except (FileNotFoundError, CriteresPerfError):
-                continue
-            for e in evenements:
-                iso = e.date_deb.isoformat()
-                if iso in restants:
-                    entrees.append((e.num_evt, iso, e.date_deb))
-                    restants.discard(iso)
-    for iso in sorted(restants):
-        entrees.append((None, iso, datetime.fromisoformat(iso)))
-    entrees.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0))
-
+    meta = _metadonnees_crues(app, dates_disponibles)
+    entrees = [(meta[iso]["num_evt"], iso, datetime.fromisoformat(iso))
+               for iso in dates_disponibles]
+    entrees.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0, t[1]))
     return [(iso, f"{f'#{num}' if num is not None else '?'} - {d:%d/%m/%Y %H:%M}")
             for num, iso, d in entrees]
 
@@ -463,56 +528,26 @@ def _lister_crues_details_pour_score(app):
     de vigilance max atteint et le cumul de pluie de l'épisode (mm, somme brute — voir
     modules.export_excel pour la même donnée/le même calcul côté export) — alimente les
     colonnes du sélecteur de crues du score (demandé). Retourne une liste de dicts
-    {iso, libelle, typ_evt, qmax, vigilance, cumul_pluie}, à None si l'événement n'a pas
-    pu être retrouvé dans CRITERES_PERF.DAT (best-effort, jamais bloquant)."""
+    {iso, libelle, typ_evt, qmax, vigilance, cumul_pluie}, à None pour ce qui n'a pas pu
+    être retrouvé (best-effort, jamais bloquant) — voir _metadonnees_crues : le
+    CRITERES_PERF.DAT actuel, sinon l'archive en base rapprochée par le pic."""
     lignes, _erreur = _charger_resultats(app)
     dates_disponibles = sorted({l["crue_date"] for l in lignes if l["statut_crue"] == "success"})
     if not dates_disponibles:
         return []
-
-    entrees = []
-    restants = set(dates_disponibles)
-    paths, _manquants = construire_grp_paths(app)
-    if paths is not None:
-        for pdt in app.config_data.get("parametrage", {}).get("pas_de_temps", []):
-            if not restants:
-                break
-            code_pdt = pdt["code"]
-            try:
-                evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-            except (FileNotFoundError, CriteresPerfError):
-                continue
-            for e in evenements:
-                iso = e.date_deb.isoformat()
-                if iso not in restants:
-                    continue
-                cumul_pluie = None
-                try:
-                    chemin_serie = os.path.join(paths.evenements_dir(code_pdt),
-                                                 f"{paths.code_site}-EV{e.num_evt:04d}.DAT")
-                    serie = parse_evenement_serie(chemin_serie)
-                    if serie:
-                        cumul_pluie = sum(p[1] for p in serie)  # déjà en mm/pas de temps, somme brute
-                except (FileNotFoundError, CriteresPerfError):
-                    pass
-                entrees.append({"num_evt": e.num_evt, "iso": iso, "date_deb": e.date_deb,
-                                  "typ_evt": e.typ_evt, "qmax": e.qmax, "cumul_pluie": cumul_pluie})
-                restants.discard(iso)
-    for iso in sorted(restants):
-        d = datetime.fromisoformat(iso)
-        entrees.append({"num_evt": None, "iso": iso, "date_deb": d,
-                          "typ_evt": None, "qmax": None, "cumul_pluie": None})
-    entrees.sort(key=lambda e: (e["num_evt"] is None, e["num_evt"] or 0))
+    meta = _metadonnees_crues(app, dates_disponibles, avec_cumul_pluie=True)
+    entrees = [(meta[iso], iso, datetime.fromisoformat(iso)) for iso in dates_disponibles]
+    entrees.sort(key=lambda t: (t[0]["num_evt"] is None, t[0]["num_evt"] or 0, t[1]))
 
     seuils_q = app.config_data.get("seuils_q", {})
     resultat = []
-    for e in entrees:
-        prefixe = f"#{e['num_evt']}" if e["num_evt"] is not None else "?"
+    for m, iso, d in entrees:
+        prefixe = f"#{m['num_evt']}" if m["num_evt"] is not None else "?"
         resultat.append({
-            "iso": e["iso"], "libelle": f"{prefixe} - {e['date_deb']:%d/%m/%Y %H:%M}",
-            "typ_evt": e["typ_evt"], "qmax": e["qmax"],
-            "vigilance": _niveau_vigilance(e["qmax"], seuils_q),
-            "cumul_pluie": e["cumul_pluie"],
+            "iso": iso, "libelle": f"{prefixe} - {d:%d/%m/%Y %H:%M}",
+            "typ_evt": m["typ_evt"], "qmax": m["qmax"],
+            "vigilance": _niveau_vigilance(m["qmax"], seuils_q),
+            "cumul_pluie": m["cumul_pluie"],
         })
     return resultat
 
@@ -1441,22 +1476,15 @@ def _build_detail(frame, app):
         # toute crue en base mais absente de ce fichier (pas de temps différent au
         # moment du rejeu, etc.) reste affichée, juste sans numéro ("? - date"), plutôt
         # que d'être masquée silencieusement.
+        # Le numéro d'une crue dont la date n'existe plus dans le CRITERES_PERF.DAT actuel
+        # (durée de fenêtre d'événement NJ changée entre 2 campagnes, par ex.) est
+        # retrouvé par son pic — voir _metadonnees_crues.
         paths, _manquants = construire_grp_paths(app)
         code_pdt = _pas_de_temps_courant()
-        entrees = []
-        if paths is not None and code_pdt:
-            try:
-                evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-                for e in evenements:
-                    iso = e.date_deb.isoformat()
-                    if iso in dates_disponibles:
-                        entrees.append((e.num_evt, iso))
-            except (FileNotFoundError, CriteresPerfError):
-                pass
-        isos_numerotes = {iso for _n, iso in entrees}
-        for iso in sorted(dates_disponibles - isos_numerotes):
-            entrees.append((None, iso))
-        entrees.sort(key=lambda t: (t[0] is None, t[0]))
+        meta = _metadonnees_crues(
+            app, dates_disponibles, codes_pdt=[code_pdt] if code_pdt else [])
+        entrees = [(meta[iso]["num_evt"], iso) for iso in dates_disponibles]
+        entrees.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0, t[1]))
 
         libelles = []
         for num_evt, iso in entrees:
@@ -1698,6 +1726,7 @@ def _build_detail(frame, app):
         except (FileNotFoundError, CriteresPerfError):
             evenements = []
         evt = next((e for e in evenements if e.date_deb.isoformat() == crue_iso), None)
+        evt_par_pic = False
 
         if not serie:
             if evt is None:
@@ -1910,11 +1939,24 @@ def _build_detail(frame, app):
         fig.autofmt_xdate()
         canvas.draw_idle()
 
+        # Même crue retrouvée par son PIC quand sa date de début n'existe plus dans le
+        # calage en place (fenêtre d'événement NJ différente, voir modules/
+        # appariement_crues.py) — sans ça, « absente du calage GRP actuellement en place »
+        # alors qu'elle y figure bien, juste sous une autre date de début.
+        if evt is None and serie:
+            metriques_pic = appariement_crues.pic_et_metriques(serie)
+            if metriques_pic is not None:
+                evt = appariement_crues.evenement_par_pic(
+                    metriques_pic["pic_date"], evenements)
+                evt_par_pic = evt is not None
+
         if evt is not None:
             texte = (
                 f"Crue #{evt.num_evt} ({evt.date_deb:%d/%m/%Y %H:%M}) — configuration en place : "
                 f"dQP {evt.dqp}%  dTP {evt.dtp}  VE {evt.ve}%  KGE {evt.kge}"
                 + ("  ⚠ suspect" if evt.suspects else "")
+                + ("  (même pic, fenêtre d'événement différente de celle de la campagne)"
+                   if evt_par_pic else "")
             )
         else:
             # Crue absente du calage GRP ACTUELLEMENT en place (un calage ultérieur, sur

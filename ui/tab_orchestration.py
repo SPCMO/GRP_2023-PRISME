@@ -19,13 +19,16 @@ from datetime import datetime
 from tkinter import messagebox, scrolledtext, ttk
 
 import config as app_config
-from modules import notification, proxy_utils, results_store, run_orchestrator, score
+from modules import (
+    appariement_crues, notification, proxy_utils, results_store, run_orchestrator, score,
+)
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf
 from modules.grp_paths import construire_grp_paths
+from modules.liste_bassins import lire_nj
 from ui.widgets_common import (
-    bouton_enregistrer, bouton_info, db_session_station, enregistrer_observateur_pdt,
-    init_db_station, libelle_dernier_pdt, make_label, make_row, make_scrollable_tab,
-    make_section, sauvegarder_dernier_pdt,
+    bouton_enregistrer, bouton_info, chemin_db_station, db_session_station,
+    enregistrer_observateur_pdt, init_db_station, libelle_dernier_pdt, make_label,
+    make_row, make_scrollable_tab, make_section, sauvegarder_dernier_pdt,
 )
 
 COLONNES_TABLEAU = ("horizon", "seuil", "methode", "statut", "crues_ok", "crues_ko")
@@ -156,21 +159,40 @@ def build_tab_orchestration(tab_frame, app):
         crues_dates = [datetime.fromisoformat(iso) for iso in crues_iso]
         return (code_pdt, combinaisons, crues_dates), None
 
-    def _dates_qmax_pour_crues(paths, code_pdt, crues_dates):
-        """Associe chaque date de crue sélectionnée (date_deb, la clé habituelle) à
-        l'horodatage réel de son pic (DateQmax de CRITERES_PERF.DAT) — nécessaire pour
-        positionner les instants de rejeu supplémentaires avant le pic (voir
-        Paramétrage > "Instants de rejeu supplémentaires"). Best-effort : une crue
-        absente du fichier (ne devrait pas arriver, sélectionnée depuis ce même
-        fichier dans l'onglet Crues) est simplement absente du dict retourné plutôt
-        qu'une erreur bloquante — modules.run_orchestrator ignore alors ses instants
-        supplémentaires pour cette crue avec un avertissement logué."""
+    def _reconcilier_crues(paths, code_pdt, crues_dates, db_path):
+        """Rapproche les crues sélectionnées (dates de début du CRITERES_PERF.DAT
+        ACTUEL) de celles DÉJÀ calées en base, par l'heure de leur pic — voir
+        modules.appariement_crues pour le pourquoi : la date de début d'une crue dépend
+        de la durée de fenêtre d'événement (champ NJ de LISTE_BASSINS.DAT), pas son pic.
+        Sans ça, passer NJ de 2 à 3 entre deux campagnes faisait apparaître chaque crue
+        sous une nouvelle date : résultats déjà calés non retrouvés (donc à refaire —
+        des heures de calage), crues comptées en double (constaté, 24 septembre 2026).
+
+        Retourne (bilan, pics_selection, connues) — bilan : BilanReconciliation ;
+        pics_selection : {date_deb sélectionnée: pic} tirés du CRITERES_PERF.DAT actuel
+        (aussi utilisés pour les instants de rejeu avant le pic) ; connues : {date_deb
+        en base: pic}. Best-effort : lecture impossible (fichier absent, base illisible)
+        = aucune reconnaissance, comportement identique à celui d'avant ce mécanisme."""
+        pics_selection = {}
         try:
             evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
+            par_debut = {evt.date_deb: evt.date_qmax for evt in evenements}
+            pics_selection = {d: par_debut[d] for d in crues_dates if d in par_debut}
         except (FileNotFoundError, CriteresPerfError):
-            return {}
-        par_debut = {evt.date_deb: evt.date_qmax for evt in evenements}
-        return {d: par_debut[d] for d in crues_dates if d in par_debut}
+            pass
+        connues = {}
+        try:
+            with results_store.db_session(db_path) as conn:
+                avec_resultats = results_store.dates_avec_resultats(conn)
+                resume = results_store.resume_series_observees_archivees(conn, code_pdt)
+            for iso in avec_resultats:
+                metriques = resume.get(iso)
+                if metriques is not None:
+                    connues[datetime.fromisoformat(iso)] = metriques["pic_date"]
+        except Exception:
+            connues = {}
+        bilan = appariement_crues.reconcilier_selection(crues_dates, pics_selection, connues)
+        return bilan, pics_selection, connues
 
     def _estimer_temps():
         """Estime le temps restant pour amener la sélection actuelle (onglets
@@ -189,6 +211,14 @@ def build_tab_orchestration(tab_frame, app):
             "decalages_pic_heures", [])
         try:
             init_db_station(app)
+            # Même reconnaissance des crues déjà calées que le vrai lancement (voir
+            # _reconcilier_crues) : sans elle, l'estimation compterait comme « à
+            # refaire » des crues déjà en base sous une autre date de début.
+            paths_estim, _manquants = construire_grp_paths(app)
+            if paths_estim is not None:
+                bilan_estim, _pics, _connues = _reconcilier_crues(
+                    paths_estim, _code_pdt, crues_dates, chemin_db_station(app))
+                crues_dates = bilan_estim.dates_effectives
             with db_session_station(app) as conn:
                 mesures = results_store.duree_par_etape(conn)
                 minutes, restantes, total, incertain = results_store.estimer_temps_restant(
@@ -261,6 +291,7 @@ def build_tab_orchestration(tab_frame, app):
             messagebox.showerror("Campagne", erreur)
             return
         code_pdt, combinaisons, crues_dates = matrice
+        _dates_selection_origine = list(crues_dates)
 
         # Instants de rejeu supplémentaires avant le pic (voir Paramétrage) —
         # purement additifs, volontairement PAS comptés dans total_etapes/barre de
@@ -269,8 +300,75 @@ def build_tab_orchestration(tab_frame, app):
         # campagne principale, comme avant l'ajout de cette fonctionnalité.
         decalages_pic_heures = app.config_data.get("parametrage", {}).get(
             "decalages_pic_heures", [])
-        dates_qmax = (_dates_qmax_pour_crues(paths, code_pdt, crues_dates)
-                       if decalages_pic_heures else {})
+
+        # ── Vérification des crues sélectionnées avant tout lancement ──────────────
+        # (demandé, 24 septembre 2026, après un incident réel : NJ passé de 2 à 3 entre
+        # deux campagnes de la même station, toutes les dates de début de crue ayant
+        # alors glissé de 12 h.) Trois contrôles, regroupés en UNE seule question :
+        #  1. crues sélectionnées reconnues comme DÉJÀ CALÉES sous une autre date de début
+        #     (même pic) — leur date en base est reprise, rien n'est perdu ni dupliqué ;
+        #  2. crues sélectionnées absentes à la fois de la base et du CRITERES_PERF.DAT
+        #     actuel — dQP/dTP non recalculables, instants avant le pic ignorés pour elles ;
+        #  3. champ NJ de LISTE_BASSINS.DAT différent de celui du dernier lancement.
+        results_store.init_db(db_path)
+        bilan, pics_selection, connues = _reconcilier_crues(paths, code_pdt, crues_dates, db_path)
+        nj_courant = lire_nj(paths.liste_bassins_dat, paths.code_site)
+        with results_store.db_session(db_path) as conn:
+            nj_precedent_txt = results_store.lire_meta(conn, "nj_dernier_lancement")
+        try:
+            nj_precedent = int(nj_precedent_txt) if nj_precedent_txt is not None else None
+        except ValueError:
+            nj_precedent = None
+
+        def _liste_courte(dates, n=4):
+            txt = ", ".join(f"{d:%d/%m/%Y %H:%M}" for d in dates[:n])
+            return txt + (f" … (+{len(dates) - n})" if len(dates) > n else "")
+
+        avertissements = []
+        if nj_precedent is not None and nj_courant is not None and nj_precedent != nj_courant:
+            avertissements.append(
+                f"• NJ (durée de la fenêtre d'événement, LISTE_BASSINS.DAT) est passé de "
+                f"{nj_precedent} à {nj_courant} depuis le dernier lancement : GRP redécoupe "
+                "chaque crue avec une autre date de début, alors que le pic, lui, ne bouge "
+                "pas. PRISME reconnaît les crues déjà calées par leur pic (ci-dessous).")
+        if bilan.remplacements:
+            avertissements.append(
+                f"• {len(bilan.remplacements)} crue(s) sélectionnée(s) sont DÉJÀ CALÉES en "
+                "base sous une autre date de début (même pic). La campagne reprend les "
+                "dates déjà en base : vos résultats sont conservés et complétés, ni perdus "
+                "ni dupliqués.")
+        if bilan.nouvelles and (bilan.remplacements or bilan.deja_connues):
+            avertissements.append(
+                f"• {len(bilan.nouvelles)} crue(s) sont NOUVELLES (jamais calées) : "
+                f"{_liste_courte(bilan.nouvelles)}. Rejouées à leur date de début actuelle "
+                "— décalée de celle des crues déjà calées (le rejeu ne part pas exactement "
+                "au même écart avant le pic) ; la comparaison entre combinaisons, elle, "
+                "reste juste, chaque crue étant rejouée au même instant pour toutes.")
+        if bilan.sans_pic:
+            avertissements.append(
+                f"• {len(bilan.sans_pic)} crue(s) sélectionnée(s) ne sont ni en base ni "
+                f"dans le CRITERES_PERF.DAT actuel : {_liste_courte(bilan.sans_pic)}. Leur "
+                "pic est inconnu : dQP/dTP non recalculables si le PDF ne les fournit pas, "
+                "et instants avant le pic ignorés pour elles.")
+        if avertissements and not messagebox.askyesno(
+                "Campagne — vérification des crues",
+                "\n\n".join(avertissements) + "\n\nLancer la campagne ?"):
+            return
+
+        crues_dates = bilan.dates_effectives
+        if nj_courant is not None:
+            with results_store.db_session(db_path) as conn:
+                results_store.ecrire_meta(conn, "nj_dernier_lancement", nj_courant)
+
+        # Pic de chaque crue EFFECTIVE (pour les instants de rejeu avant le pic) : celui
+        # du CRITERES_PERF.DAT actuel pour la date sélectionnée d'origine, sinon celui
+        # connu en base pour la date reprise.
+        pics_effectifs = {}
+        for d_origine, d_effective in zip(_dates_selection_origine, bilan.dates_effectives):
+            pic = pics_selection.get(d_origine) or connues.get(d_effective)
+            if pic is not None:
+                pics_effectifs[d_effective] = pic
+        dates_qmax = pics_effectifs if decalages_pic_heures else {}
 
         etat["total_etapes"] = len(combinaisons) + len(combinaisons) * len(crues_dates)
         etat["etapes_faites"] = 0
@@ -324,6 +422,13 @@ def build_tab_orchestration(tab_frame, app):
         _log(f"--- Campagne lancée : {len(combinaisons)} combinaison(s) × "
              f"{len(crues_dates)} crue(s) — pas de temps {code_pdt} "
              f"{'(reprise échecs)' if seulement_echecs else ''} ---")
+        if nj_courant is not None:
+            _log(f"--- NJ (fenêtre d'événement, LISTE_BASSINS.DAT) = {nj_courant} jour(s) ---")
+        if bilan.remplacements or bilan.nouvelles or bilan.sans_pic:
+            _log(f"--- Crues : {len(bilan.deja_connues) + len(bilan.remplacements)} déjà calée(s) "
+                 f"en base ({len(bilan.remplacements)} reconnue(s) par leur pic sous une autre "
+                 f"date de début), {len(bilan.nouvelles)} nouvelle(s), "
+                 f"{len(bilan.sans_pic)} sans pic connu ---")
         if decalages_pic_heures:
             nb_qmax_connus = len(dates_qmax)
             _log(f"--- + instants supplémentaires avant le pic : "

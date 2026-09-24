@@ -99,7 +99,7 @@ def _combinaisons_a_traiter(conn, combinaisons, crues_dates, seulement_echecs,
     return a_traiter
 
 
-def _serie_observee_complete(paths, pas_de_temps, crue_date):
+def _serie_observee_complete(paths, pas_de_temps, crue_date, db_path=None):
     """Série observée COMPLÈTE de la crue (toute la fenêtre détectée par GRP, avant ET
     après son pic), pour recalculer dQP/dTP en repli quand le PDF ne les a pas reportés
     (voir _recalculer_dqp_dtp ci-dessous) — À NE JAMAIS CONFONDRE avec la série archivée
@@ -109,21 +109,36 @@ def _serie_observee_complete(paths, pas_de_temps, crue_date):
     comparant les deux, un premier essai de recalcul basé dessus donnait des dQP
     complètement aberrants (des centaines de %) faute de couvrir le bon intervalle.
 
-    Best-effort : None si l'événement ou son fichier EVxxxx.DAT est introuvable —
-    jamais une erreur bloquante pour un simple repli de calcul."""
+    Repli sur l'ARCHIVE en base (results_store.charger_serie_observee_complete) quand la
+    date de la crue n'existe plus dans le CRITERES_PERF.DAT actuel — cas d'une crue
+    rejouée sous une date de début issue d'une autre durée de fenêtre d'événement (champ
+    NJ de LISTE_BASSINS.DAT changé entre deux campagnes, voir modules/
+    appariement_crues.py) : sans ce repli, dQP/dTP restaient manquants et « non
+    recalculables » pour toutes ces crues (constaté : 7 lignes sur 864 après une
+    campagne de 15 h). L'archive de cette date exacte a été écrite par un calage
+    antérieur, pendant lequel la crue existait encore sous cette date.
+
+    Best-effort : None si l'événement ou son fichier EVxxxx.DAT est introuvable, et
+    qu'aucune archive n'existe pour cette date — jamais une erreur bloquante pour un
+    simple repli de calcul."""
     try:
         evenements = parse_criteres_perf(paths.criteres_perf_dat(pas_de_temps))
     except (FileNotFoundError, CriteresPerfError):
-        return None
+        evenements = []
     evt = next((e for e in evenements if e.date_deb == crue_date), None)
-    if evt is None:
-        return None
-    chemin = os.path.join(paths.evenements_dir(pas_de_temps),
-                           f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+    if evt is not None:
+        chemin = os.path.join(paths.evenements_dir(pas_de_temps),
+                               f"{paths.code_site}-EV{evt.num_evt:04d}.DAT")
+        try:
+            return parse_evenement_serie(chemin)
+        except (FileNotFoundError, CriteresPerfError):
+            pass  # repli sur l'archive ci-dessous
     try:
-        return parse_evenement_serie(chemin)
-    except (FileNotFoundError, CriteresPerfError):
+        with results_store.db_session(db_path) as conn:
+            serie = results_store.charger_serie_observee_complete(conn, pas_de_temps, crue_date)
+    except Exception:
         return None
+    return serie or None
 
 
 def _archiver_series_observees_du_calage(paths, pas_de_temps, db_path):
@@ -469,7 +484,8 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
             dqp, dtp = resultat.dqp, resultat.dtp
             recalcules = []
             if (dqp is None or dtp is None) and sim:
-                serie_obs_complete = _serie_observee_complete(paths, pas_de_temps, crue_date)
+                serie_obs_complete = _serie_observee_complete(
+                    paths, pas_de_temps, crue_date, db_path)
                 if serie_obs_complete:
                     dqp_calc, dtp_calc = _recalculer_dqp_dtp(serie_obs_complete, sim)
                     if dqp is None and dqp_calc is not None:

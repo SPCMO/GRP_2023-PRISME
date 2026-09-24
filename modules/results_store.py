@@ -95,6 +95,19 @@ CREATE TABLE IF NOT EXISTS series_observees_completes (
 );
 CREATE INDEX IF NOT EXISTS idx_series_observees_completes
     ON series_observees_completes(pas_de_temps, crue_date);
+
+-- Petites valeurs clé/valeur propres à la station (une base par station), sans lien avec
+-- une combinaison — pour l'instant uniquement 'nj_dernier_lancement' : la valeur du champ
+-- NJ (durée de la fenêtre d'événement, en jours) de LISTE_BASSINS.DAT lors du dernier
+-- lancement de campagne, pour signaler un changement d'un lancement à l'autre (voir
+-- modules/appariement_crues.py et ui/tab_orchestration.py::_lancer). Créée par
+-- CREATE TABLE IF NOT EXISTS : une base existante l'acquiert au prochain init_db(),
+-- sans aucune migration ni perte.
+CREATE TABLE IF NOT EXISTS meta (
+    cle TEXT PRIMARY KEY,
+    valeur TEXT NOT NULL,
+    date_maj TEXT NOT NULL
+);
 """
 
 # Index sur instant_label, VOLONTAIREMENT séparé du SCHEMA ci-dessus (bug latent trouvé
@@ -854,6 +867,62 @@ def archiver_serie_observee_complete(conn, pas_de_temps, crue_date, points):
              date.isoformat() if hasattr(date, "isoformat") else date, debit, pluie)
             for date, pluie, debit in points
         ],
+    )
+
+
+def resume_series_observees_archivees(conn, pas_de_temps):
+    """Pour chaque crue archivée de ce pas de temps (series_observees_completes) : son
+    pic, son Qmax, son cumul de pluie et ses bornes — {date_iso: dict, voir
+    modules.appariement_crues.pic_et_metriques}. Permet de reconnaître une crue par
+    l'heure de son pic (qui, lui, ne change pas quand la durée de fenêtre d'événement NJ
+    change) et d'afficher son Qmax/cumul de pluie SANS dépendre du CRITERES_PERF.DAT du
+    calage en place, réécrit à chaque calage (voir modules.appariement_crues)."""
+    from datetime import datetime as _datetime
+
+    from modules import appariement_crues
+
+    lignes = conn.execute(
+        """
+        SELECT crue_date, point_date, pluie, debit FROM series_observees_completes
+        WHERE pas_de_temps = ? ORDER BY crue_date, point_date
+        """,
+        (pas_de_temps,),
+    ).fetchall()
+    par_crue = {}
+    for l in lignes:
+        par_crue.setdefault(l["crue_date"], []).append(
+            (_datetime.fromisoformat(l["point_date"]), l["pluie"], l["debit"]))
+    resume = {}
+    for crue_date, points in par_crue.items():
+        metriques = appariement_crues.pic_et_metriques(points)
+        if metriques is not None:
+            resume[crue_date] = metriques
+    return resume
+
+
+def dates_avec_resultats(conn):
+    """Dates de crue (ISO) ayant au moins une ligne de résultat de référence en base,
+    quel que soit son statut — ce sont les crues auxquelles sont RATTACHÉS les résultats
+    déjà calés, à ne jamais réindexer (voir modules.appariement_crues)."""
+    return {r["crue_date"] for r in conn.execute(
+        "SELECT DISTINCT crue_date FROM resultats_crues WHERE instant_label = 'reference'"
+    ).fetchall()}
+
+
+def lire_meta(conn, cle):
+    """Valeur (str) de la clé `cle` de la table meta, None si absente."""
+    row = conn.execute("SELECT valeur FROM meta WHERE cle = ?", (cle,)).fetchone()
+    return row["valeur"] if row else None
+
+
+def ecrire_meta(conn, cle, valeur):
+    """Enregistre (ou remplace) la clé `cle` de la table meta."""
+    conn.execute(
+        """
+        INSERT INTO meta (cle, valeur, date_maj) VALUES (?, ?, ?)
+        ON CONFLICT(cle) DO UPDATE SET valeur = excluded.valeur, date_maj = excluded.date_maj
+        """,
+        (cle, str(valeur), _horodatage()),
     )
 
 

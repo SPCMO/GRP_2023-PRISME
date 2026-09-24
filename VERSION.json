@@ -1,6 +1,10 @@
 {
-  "version": "3.22",
+  "version": "3.23",
   "changelog": [
+    {
+      "version": "3.23",
+      "resume": "Changer NJ (fenêtre d'événement) entre deux campagnes ne fait plus perdre ni dédoubler les résultats déjà calés : les crues sont reconnues par l'heure de leur pic ; le lancement d'une campagne vérifie les crues sélectionnées et signale un changement de NJ ; le sélecteur de crues du score retrouve numéro, type, Qmax et pluie."
+    },
     {
       "version": "3.22",
       "resume": "Dashboard > Détail par crue : bouton radio « Échelle du débit » pour basculer entre le Qmax + 15 % de toutes les crues de la campagne et celui de la seule crue affichée."

@@ -29,6 +29,7 @@ modules/                 # logique métier PURE — ne dépend JAMAIS de ui/ (r�
                           # explicitement affirmée dans plusieurs docstrings du
                           # projet, ex. export_excel.py, affluents.py)
   affluents.py              # modèle + calculs stations affluentes
+  appariement_crues.py      # reconnaît une même crue par l'heure de son pic (NJ changé -> date_deb décalée)
   config_manager.py         # chargement/sauvegarde atomique de config.json
   config_prevision.py       # édition ciblée de config_prevision.ini
   criteres_perf.py          # lecture CRITERES_PERF.DAT / SELECTION_EVT.DAT / EVxxxx.DAT

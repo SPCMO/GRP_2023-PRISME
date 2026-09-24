@@ -546,3 +546,71 @@ def test_lancer_campagne_criteres_perf_illisible_nempeche_pas_la_campagne(tmp_pa
         archive = results_store.charger_serie_observee_complete(conn, "00J00H15M", crue)
     assert combinaisons[0]["statut"] == "success"  # campagne non perturbée
     assert archive == []
+
+
+# -- lire_nj : NJ = durée de la fenêtre d'événement (jours) de LISTE_BASSINS.DAT ------------
+# Incident réel du 24 septembre 2026 : NJ passé de 2 à 3 entre deux campagnes, décalant de
+# 12 h la date de début de chaque crue (voir modules/appariement_crues.py). PRISME ne
+# modifie jamais NJ : set_calage_params ne touche que HOR1/HOR2/SeuilC1/SeuilC2/ST/SR/AT/AR.
+
+def test_lire_nj_lit_le_champ_nj_du_bassin(tmp_path):
+    from modules.liste_bassins import lire_nj
+    chemin = _ecrire_liste_bassins(tmp_path)  # ligne d'exemple : NJ = 4
+    assert lire_nj(chemin, "Y1612020") == 4
+    assert lire_nj(chemin) == 4  # sans code_site : premier bassin du fichier
+
+
+def test_lire_nj_none_si_fichier_ou_bassin_introuvable_sans_exception(tmp_path):
+    from modules.liste_bassins import lire_nj
+    assert lire_nj(str(tmp_path / "absent.DAT")) is None
+    assert lire_nj(_ecrire_liste_bassins(tmp_path), "Y9999999") is None
+
+
+def test_set_calage_params_ne_modifie_jamais_nj():
+    """Garde-fou : NJ est réglé à la main par l'utilisateur dans LISTE_BASSINS.DAT, jamais
+    par l'orchestrateur — un changement de NJ entre deux lancements ne peut donc venir
+    que de l'utilisateur (c'est ce que le lancement de campagne signale)."""
+    from modules.liste_bassins import parse_liste_bassins, set_calage_params
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        chemin = os.path.join(d, "LISTE_BASSINS.DAT")
+        with open(chemin, "w", encoding="cp1252", newline="") as f:
+            f.write(_LIGNE_LISTE_BASSINS_EXEMPLE)
+        _lignes, bassins = parse_liste_bassins(chemin)
+        ligne = bassins["Y1612020"]
+        avant = ligne.bruts["nj"]
+        set_calage_params(ligne, "01J12H00M", 15.0, "R")
+        assert ligne.bruts["nj"] == avant
+
+
+# -- _serie_observee_complete : repli sur l'archive quand la date n'est plus dans CRITERES_PERF.DAT --
+
+class _PathsSansCriteres:
+    """Aucun CRITERES_PERF.DAT : simule une crue dont la date de début n'existe plus dans le
+    fichier du calage en place (fenêtre d'événement NJ différente)."""
+
+    def __init__(self, tmp_path):
+        self._tmp = tmp_path
+        self.code_site = "Y1232010"
+
+    def criteres_perf_dat(self, _pdt):
+        return str(self._tmp / "absent" / "CRITERES_PERF.DAT")
+
+    def evenements_dir(self, _pdt):
+        return str(self._tmp / "absent")
+
+
+def test_serie_observee_complete_repli_sur_larchive_si_date_absente_du_fichier(tmp_path):
+    from modules.run_orchestrator import _serie_observee_complete
+    chemin_db = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin_db)
+    serie = [(datetime(2018, 10, 13, 0, 0), 0.0, 5.2), (datetime(2018, 10, 13, 0, 15), 1.0, 300.0)]
+    with results_store.db_session(chemin_db) as c:
+        results_store.archiver_serie_observee_complete(
+            c, "00J00H15M", datetime(2018, 10, 13, 0, 0), serie)
+    paths = _PathsSansCriteres(tmp_path)
+    assert _serie_observee_complete(
+        paths, "00J00H15M", datetime(2018, 10, 13, 0, 0), chemin_db) == serie
+    # Date jamais archivée ni dans le fichier : None (jamais d'exception).
+    assert _serie_observee_complete(
+        paths, "00J00H15M", datetime(2019, 1, 1, 0, 0), chemin_db) is None

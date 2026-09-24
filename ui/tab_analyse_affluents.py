@@ -18,7 +18,7 @@ from matplotlib import dates as mdates
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 
-from modules import affluents, results_store
+from modules import affluents, appariement_crues, results_store
 from modules.criteres_perf import CriteresPerfError, parse_criteres_perf, parse_evenement_serie
 from modules.grp_paths import construire_grp_paths
 from modules.phyc_client import PhycAuthError, PhycClient
@@ -782,25 +782,44 @@ def build_tab_analyse_affluents(tab_frame, app):
         # « Crue introuvable dans CRITERES_PERF.DAT » et aucun affluent affiché après
         # une nouvelle combinaison calée pour un pas de temps déjà utilisé ici.
         numeros_par_date = {}
+        evenements_q = []
         if paths is not None and code_pdt:
             try:
                 evenements = parse_criteres_perf(paths.criteres_perf_dat(code_pdt))
-                numeros_par_date = {e.date_deb.isoformat(): e.num_evt
-                                     for e in evenements if e.typ_evt == "Q"}
+                evenements_q = [e for e in evenements if e.typ_evt == "Q"]
+                numeros_par_date = {e.date_deb.isoformat(): e.num_evt for e in evenements_q}
             except (FileNotFoundError, CriteresPerfError):
                 numeros_par_date = {}
 
+        # Dates archivées PROPOSÉES EN PLUS des événements du fichier actuel — sans les
+        # doublons : une même crue peut être archivée sous 2 dates de début différentes
+        # quand la durée de fenêtre d'événement (champ NJ de LISTE_BASSINS.DAT) a changé
+        # entre deux calages (48 h -> 72 h : début décalé de 12 h, MÊME pic — voir
+        # modules/appariement_crues.py) ; sans dédoublonnage, chaque crue apparaissait
+        # deux fois dans ce sélecteur (constaté : 48 entrées pour 24 crues réelles). Une
+        # date archivée dont le pic est celui d'un événement actuel (ou d'une date
+        # archivée déjà retenue) est écartée.
         dates_archivees = []
         if code_pdt:
             try:
                 with db_session_station(app) as conn:
-                    dates_archivees = results_store.lister_dates_crues_archivees(conn, code_pdt)
+                    archive = results_store.resume_series_observees_archivees(conn, code_pdt)
             except Exception:
-                dates_archivees = []  # base absente/verrouillée — repli sur CRITERES_PERF.DAT seul
+                archive = {}  # base absente/verrouillée — repli sur CRITERES_PERF.DAT seul
+            pics_deja_representes = [e.date_qmax for e in evenements_q]
+            for iso in sorted(archive):
+                if iso in numeros_par_date:
+                    continue
+                pic = archive[iso]["pic_date"]
+                if any(abs(pic - p) <= appariement_crues.TOLERANCE_PIC
+                       for p in pics_deja_representes):
+                    continue
+                dates_archivees.append(iso)
+                pics_deja_representes.append(pic)
 
         isos = set(numeros_par_date) | set(dates_archivees)
         entrees = [(numeros_par_date.get(iso), iso) for iso in isos]
-        entrees.sort(key=lambda t: (t[0] is None, t[0]))
+        entrees.sort(key=lambda t: (t[0] is None, t[0] if t[0] is not None else 0, t[1]))
         libelles = [f"#{n} - {datetime.fromisoformat(iso):%d/%m/%Y}" if n is not None
                     else f"? - {datetime.fromisoformat(iso):%d/%m/%Y}" for n, iso in entrees]
         combo_crue["values"] = libelles

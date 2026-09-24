@@ -596,3 +596,65 @@ def test_max_debit_observe_archive_none_si_rien_archive(tmp_path):
     results_store.init_db(chemin)
     with results_store.db_session(chemin) as conn:
         assert results_store.max_debit_observe_archive(conn, "00J00H15M") is None
+
+
+# -- Reconnaissance des crues par leur pic (changement de NJ) : lectures de base ------------
+
+def test_resume_series_observees_archivees_pic_qmax_cumul_et_bornes(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.archiver_serie_observee_complete(
+            conn, "00J00H15M", _dt(2018, 10, 13, 0, 0),
+            [(_dt(2018, 10, 13, 0, 0), 1.0, 5.0), (_dt(2018, 10, 13, 0, 15), 2.0, 120.0),
+             (_dt(2018, 10, 13, 0, 30), 0.5, 60.0)])
+        # Autre pas de temps : jamais mélangé.
+        results_store.archiver_serie_observee_complete(
+            conn, "00J01H00M", _dt(2018, 10, 13, 0, 0), [(_dt(2018, 10, 13, 0, 0), 0.0, 999.0)])
+    with results_store.db_session(chemin) as conn:
+        resume = results_store.resume_series_observees_archivees(conn, "00J00H15M")
+    m = resume[_dt(2018, 10, 13, 0, 0).isoformat()]
+    assert m["pic_date"] == _dt(2018, 10, 13, 0, 15)
+    assert m["qmax"] == 120.0
+    assert m["cumul_pluie"] == 3.5
+    assert m["debut"] == _dt(2018, 10, 13, 0, 0) and m["fin"] == _dt(2018, 10, 13, 0, 30)
+    assert len(resume) == 1
+
+
+def test_dates_avec_resultats_toutes_les_crues_de_reference_quel_que_soit_le_statut(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        cid = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        conn.execute(
+            "INSERT INTO resultats_crues (combinaison_id, crue_date, instant_label, statut, date_maj)"
+            " VALUES (?, '2018-10-13T00:00:00', 'reference', 'success', 'x'),"
+            "        (?, '2019-01-01T00:00:00', 'reference', 'failed', 'x'),"
+            "        (?, '2020-01-01T00:00:00', 'H-24', 'success', 'x')", (cid, cid, cid))
+        assert results_store.dates_avec_resultats(conn) == {
+            "2018-10-13T00:00:00", "2019-01-01T00:00:00"}  # jamais un instant supplémentaire
+
+
+def test_meta_ecrire_lire_et_remplacer(tmp_path):
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        assert results_store.lire_meta(conn, "nj_dernier_lancement") is None
+        results_store.ecrire_meta(conn, "nj_dernier_lancement", 2)
+        assert results_store.lire_meta(conn, "nj_dernier_lancement") == "2"
+        results_store.ecrire_meta(conn, "nj_dernier_lancement", 3)
+        assert results_store.lire_meta(conn, "nj_dernier_lancement") == "3"
+
+
+def test_init_db_ajoute_la_table_meta_a_une_base_existante_sans_rien_perdre(tmp_path):
+    """Une base créée AVANT l'ajout de la table meta l'acquiert au prochain init_db(),
+    sans migration ni perte (CREATE TABLE IF NOT EXISTS)."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        conn.execute("DROP TABLE meta")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        assert results_store.lire_meta(conn, "x") is None
+        assert results_store.compter_combinaisons(conn) == 1
