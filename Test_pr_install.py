@@ -76,6 +76,15 @@ def check_python():
     vstr = f"{v.major}.{v.minor}.{v.micro}"
     print(f"  Version détectée : Python {vstr}")
 
+    # Postes gérés : le PATH contient souvent le python.exe de WAPT (interpréteur embarqué qui n'ajoute pas le dossier du script
+    # à sys.path) et l'alias du Microsoft Store. Aucun des deux n'est utilisable pour cet outil.
+    exe = (sys.executable or "").lower()
+    if "\\wapt" in exe or "\\windowsapps" in exe:
+        err(f"Cet interpréteur n'est pas utilisable : {sys.executable}")
+        err("C'est le python de WAPT ou l'alias du Microsoft Store. Relancez Test_pr_install.bat (il les ignore")
+        err("et mémorise un vrai Python dans python_exe.txt), ou installez Python depuis https://www.python.org.")
+        return False
+
     if (v.major, v.minor) < MIN_PYTHON:
         err(f"Python {vstr} trop ancien. Version minimale requise : {MIN_PYTHON[0]}.{MIN_PYTHON[1]}")
         err("Installez une version récente depuis https://www.python.org et relancez Test_pr_install.bat.")

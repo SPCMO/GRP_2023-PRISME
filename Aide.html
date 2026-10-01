@@ -87,7 +87,7 @@
 </head>
 <body>
 <header>
-  <h1>GRP_2023-PRISME v3.23 — Campagnes de calage GRP</h1>
+  <h1>GRP_2023-PRISME v3.24 — Campagnes de calage GRP</h1>
   <p>Documentation d'utilisation, d'architecture et de suivi des évolutions</p>
 </header>
 <nav>
@@ -108,6 +108,7 @@
 
   <h3>Premier lancement</h3>
   <p>Double-cliquer sur <code>Test_pr_install.bat</code> (vérifie/installe l'environnement Python), puis sur <code>Lancer_GRP_2023-PRISME.bat</code>.</p>
+  <p class="muted"><b>Postes gérés (WAPT, Microsoft Store)</b> : le premier <code>python</code> du PATH est souvent celui de <b>WAPT</b> (interpréteur embarqué de l'outil de déploiement, inutilisable ici : « No module named … », « EPyImportError ») ou l'alias du <b>Microsoft Store</b>. <code>Test_pr_install.bat</code> et <code>Lancer_GRP_2023-PRISME.bat</code> les <b>ignorent</b> : ils retiennent un vrai Python (lanceur <code>py</code>, sinon premier Python utilisable du PATH) et le mémorisent dans <code>python_exe.txt</code>. Si aucun vrai Python n'est installé, l'installer depuis python.org.</p>
 
   <h3>Onglet Configuration</h3>
   <p><b>Dossiers de travail</b> : 4 boutons Parcourir pour désigner <code>00_GRP_v2023</code>, <code>00_Donnees_&lt;station&gt;</code>, <code>00_BDDTR_&lt;station&gt;</code> et <code>00_Resultats_&lt;station&gt;</code> — leurs sous-arborescences sont fixes (imposées par les exécutables GRP), l'outil les déduit automatiquement une fois ces 4 chemins renseignés.</p>
@@ -273,7 +274,7 @@
   <h2>Architecture</h2>
 
   <h3>Numéro de version</h3>
-  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.23</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
+  <p>Affiché dans le titre de la fenêtre (<code>config.VERSION</code>, ex. <code>GRP_2023-PRISME v3.24</code>) — utile pour repérer d'un coup d'œil la version en cours sur un poste donné (ex. distinguer un collègue resté sur une version plus ancienne). Format <b>MAJEUR.MINEUR</b> (pas de patch), sans lien direct avec le nombre d'entrées du changelog ci-dessous (repère macro, pas un décompte exhaustif) :</p>
   <ul>
     <li><b>MAJEUR</b> incrémenté à un changement <b>structurel</b> de l'outil — qui redéfinit le fonctionnement ou la fiabilité de tout l'outil, pas juste un onglet (ex. v2.0 = isolation des bases de résultats par station, 26 août 2026 ; v3.0 = recalcul automatique du dQP/dTP + score composite en médiane, 1<sup>er</sup> septembre 2026).</li>
     <li><b>MINEUR</b> incrémenté à chaque <b>lot de déploiement</b> suivant le dernier changement majeur — un même jour peut donc contenir plusieurs incréments MINEUR si plusieurs livraisons distinctes s'y succèdent.</li>
@@ -506,6 +507,20 @@
 
   <div class="chg-timeline" data-timeline>
   <div class="chg-groupe chg-ouvert" data-groupe>
+    <button class="chg-entete" type="button" data-toggle-groupe>
+      <span class="chg-puce"></span>
+      <span class="chg-date-lbl">1er octobre 2026</span>
+      <span class="chg-compte"></span>
+      <span class="chg-chevron">▾</span>
+    </button>
+    <div class="chg-corps">
+      <article class="chg-item" data-nature="tag-fix" data-imp="majeur">
+        <div class="chg-meta"><span class="tag tag-fix">Correctif</span><span class="chg-imp">★ Majeur</span></div>
+        <p><b>Démarrage impossible sur les postes où le <code>python.exe</code> de WAPT (ou l'alias du Microsoft Store) est le premier du PATH.</b> <code>Test_pr_install.bat</code> les écarte (y compris s'ils sont déjà mémorisés ou saisis à la main), prend le lanceur <code>py</code> puis le premier vrai Python du PATH, et mémorise le bon dans <code>python_exe.txt</code> ; <code>Lancer_GRP_2023-PRISME.bat</code> refuse un Python mémorisé invalide (WAPT, Store, introuvable) et en cherche un vrai. <code>Test_pr_install.py</code> signale aussi ces interpréteurs.</p>
+      </article>
+    </div>
+  </div>
+  <div class="chg-groupe" data-groupe>
     <button class="chg-entete" type="button" data-toggle-groupe>
       <span class="chg-puce"></span>
       <span class="chg-date-lbl">24 septembre 2026</span>
