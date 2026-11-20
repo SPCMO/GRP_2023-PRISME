@@ -395,6 +395,87 @@ def supprimer_combinaisons(conn, combinaison_ids):
     conn.execute(f"DELETE FROM combinaisons WHERE id IN ({marqueurs})", ids)
 
 
+def resume_contenu(conn):
+    """(nombre de combinaisons, nombre de résultats de référence) actuellement en base —
+    sert à savoir s'il y a quelque chose à effacer avant « Nouvelle campagne »."""
+    nb_comb = conn.execute("SELECT COUNT(*) FROM combinaisons").fetchone()[0]
+    nb_res = conn.execute(
+        "SELECT COUNT(*) FROM resultats_crues WHERE instant_label = 'reference'"
+    ).fetchone()[0]
+    return nb_comb, nb_res
+
+
+def sauvegarder_base(db_path, etiquette="avant-nouvelle-campagne"):
+    """Copie cohérente de la base (API de sauvegarde de sqlite3, sûre même si la base est
+    ouverte ailleurs) vers `<base>.<etiquette>-<AAAAMMJJ-HHMMSS>.bak` — filet de sécurité
+    avant toute purge (voir purger_station) : l'effacement est irréversible, cette copie
+    permet de revenir en arrière. Retourne le chemin de la copie ; l'enlève si la copie
+    échoue (jamais de .bak à moitié écrit pris pour une vraie sauvegarde)."""
+    chemin = f"{db_path}.{etiquette}-{datetime.now().strftime('%Y%m%d-%H%M%S')}.bak"
+    source = sqlite3.connect(db_path)
+    destination = sqlite3.connect(chemin)
+    try:
+        source.backup(destination)
+    except Exception:
+        destination.close()
+        source.close()
+        if os.path.exists(chemin):
+            os.remove(chemin)
+        raise
+    destination.close()
+    source.close()
+    return chemin
+
+
+def purger_station(conn):
+    """Efface TOUS les résultats de la station (combinaisons, résultats de crue, séries
+    archivées, séries observées archivées) — « Repartir de zéro » de « Nouvelle
+    campagne » : nécessaire quand les données d'entrée (débits...) ou la détection des
+    crues ont changé, car relancer une campagne n'écrase que les lignes (combinaison,
+    crue) rejouées : les combinaisons absentes de la nouvelle matrice et les crues
+    disparues de la détection gardaient leurs anciens résultats, mélangés aux nouveaux
+    dans tout le Dashboard (constaté sur Trèbes, 20 novembre 2026). La table `meta`
+    (suivi de NJ) est conservée. Irréversible : appeler sauvegarder_base() avant.
+    Retourne {"combinaisons", "resultats", "series_observees"} (lignes effacées)."""
+    nb_comb, nb_res = resume_contenu(conn)
+    nb_obs = conn.execute("SELECT COUNT(*) FROM series_observees_completes").fetchone()[0]
+    # Suppressions explicites plutôt que de compter sur ON DELETE CASCADE seul.
+    conn.execute("DELETE FROM series_archivees")
+    conn.execute("DELETE FROM resultats_crues")
+    conn.execute("DELETE FROM combinaisons")
+    conn.execute("DELETE FROM series_observees_completes")
+    return {"combinaisons": nb_comb, "resultats": nb_res, "series_observees": nb_obs}
+
+
+def purger_resultats_avant(conn, limite_iso):
+    """Efface les résultats (toutes lignes `resultats_crues`, et leurs séries archivées)
+    dont `date_maj` est antérieure à `limite_iso`, puis les combinaisons plus anciennes
+    que cette limite qui n'ont plus aucun résultat. Garde tout ce qui a été (re)calculé
+    depuis — sert à ne conserver que les résultats d'un lancement récent après un
+    changement de données d'entrée, sans repartir de zéro. Les séries observées
+    archivées (sans date de mise à jour) ne sont pas touchées. Irréversible :
+    sauvegarder_base() avant. Retourne {"resultats", "combinaisons"} (lignes effacées)."""
+    conn.execute(
+        """
+        DELETE FROM series_archivees
+        WHERE EXISTS (
+            SELECT 1 FROM resultats_crues r
+            WHERE r.combinaison_id = series_archivees.combinaison_id
+              AND r.crue_date = series_archivees.crue_date
+              AND r.instant_label = series_archivees.instant_label
+              AND r.date_maj < ?)
+        """, (limite_iso,))
+    nb_res = conn.execute("DELETE FROM resultats_crues WHERE date_maj < ?",
+                           (limite_iso,)).rowcount
+    nb_comb = conn.execute(
+        """
+        DELETE FROM combinaisons
+        WHERE date_maj < ?
+          AND NOT EXISTS (SELECT 1 FROM resultats_crues r WHERE r.combinaison_id = combinaisons.id)
+        """, (limite_iso,)).rowcount
+    return {"resultats": nb_res, "combinaisons": nb_comb}
+
+
 def upsert_resultat_crue(conn, combinaison_id, crue_date, statut, dqp=None, dtp=None,
                           ve=None, kge=None, suspects=None, erreur=None,
                           instant_label=INSTANT_REFERENCE):

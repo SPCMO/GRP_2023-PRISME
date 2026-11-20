@@ -1,6 +1,10 @@
 {
-  "version": "3.24",
+  "version": "3.25",
   "changelog": [
+    {
+      "version": "3.25",
+      "resume": "« Nouvelle campagne (tout relancer) » propose de repartir de zéro : effacement des résultats de la station (avec copie de sauvegarde .bak automatique) pour ne plus mélanger anciens et nouveaux résultats quand les données d'entrée ont changé."
+    },
     {
       "version": "3.24",
       "resume": "Correctif : le python.exe de WAPT et l'alias du Microsoft Store (premiers du PATH sur les postes gérés) sont ignorés. Test_pr_install.bat mémorise un vrai Python dans python_exe.txt ; Lancer_GRP_2023-PRISME.bat refuse un Python mémorisé invalide et cherche un vrai Python."

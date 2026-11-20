@@ -25,6 +25,7 @@
 Chaque test utilise une base sqlite temporaire (tmp_path) — jamais une base réelle."""
 import os
 import sqlite3
+from datetime import datetime
 
 import pytest
 
@@ -386,6 +387,78 @@ def test_list_combinaisons_completes_exclut_les_combinaisons_avec_un_echec(tmp_p
         completes = results_store.list_combinaisons_completes(conn)
     horizons = {c["horizon"] for c in completes}
     assert horizons == {"01J00H00M"}
+
+
+# -- purge (Nouvelle campagne : repartir de zéro) ------------------------------------------
+
+def _base_avec_anciens_et_recents(tmp_path):
+    """c_ancien : combinaison jamais retouchée ; c_recent : combinaison relancée, mais
+    avec une crue (2020) NON rejouée depuis (ancienne ligne) et une crue (2024) rejouée."""
+    chemin = str(tmp_path / "base.sqlite3")
+    results_store.init_db(chemin)
+    with results_store.db_session(chemin) as conn:
+        c_ancien = results_store.upsert_combinaison(conn, "01J00H00M", 5.0, "T", statut="success")
+        results_store.upsert_resultat_crue(conn, c_ancien, "2024-01-01T00:00:00", "success")
+        results_store.archiver_serie(conn, c_ancien, "2024-01-01T00:00:00", "sim",
+                                      [("2024-01-01T00:00:00", 1.0, 0.0)])
+        c_recent = results_store.upsert_combinaison(conn, "02J00H00M", 5.0, "T", statut="success")
+        results_store.upsert_resultat_crue(conn, c_recent, "2020-01-01T00:00:00", "success")
+        results_store.archiver_serie(conn, c_recent, "2020-01-01T00:00:00", "sim",
+                                      [("2020-01-01T00:00:00", 2.0, 0.0)])
+        results_store.upsert_resultat_crue(conn, c_recent, "2024-01-01T00:00:00", "success")
+        results_store.archiver_serie(conn, c_recent, "2024-01-01T00:00:00", "sim",
+                                      [("2024-01-01T00:00:00", 3.0, 0.0)])
+        results_store.archiver_serie_observee_complete(
+            conn, "00J01H00M", "2024-01-01T00:00:00",
+            [(datetime(2024, 1, 1), 0.0, 4.0)])
+        # Anciennes dates de mise à jour : tout sauf (c_recent, crue 2024).
+        conn.execute("UPDATE combinaisons SET date_maj = '2026-09-01T10:00:00' WHERE id = ?",
+                     (c_ancien,))
+        conn.execute("UPDATE resultats_crues SET date_maj = '2026-09-01T10:00:00' "
+                     "WHERE combinaison_id = ? OR crue_date = '2020-01-01T00:00:00'", (c_ancien,))
+        conn.execute("UPDATE combinaisons SET date_maj = '2026-11-19T09:00:00' WHERE id = ?",
+                     (c_recent,))
+        conn.execute("UPDATE resultats_crues SET date_maj = '2026-11-19T09:30:00' "
+                     "WHERE combinaison_id = ? AND crue_date = '2024-01-01T00:00:00'", (c_recent,))
+    return chemin, c_ancien, c_recent
+
+
+def test_purger_station_efface_tout_sauf_meta(tmp_path):
+    chemin, _c_ancien, _c_recent = _base_avec_anciens_et_recents(tmp_path)
+    with results_store.db_session(chemin) as conn:
+        results_store.ecrire_meta(conn, "nj_dernier_lancement", 4)
+        bilan = results_store.purger_station(conn)
+    assert bilan == {"combinaisons": 2, "resultats": 3, "series_observees": 1}
+    with results_store.db_session(chemin) as conn:
+        assert results_store.resume_contenu(conn) == (0, 0)
+        assert conn.execute("SELECT COUNT(*) FROM series_archivees").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM series_observees_completes").fetchone()[0] == 0
+        assert results_store.lire_meta(conn, "nj_dernier_lancement") == "4"
+
+
+def test_purger_resultats_avant_garde_uniquement_le_recent(tmp_path):
+    chemin, c_ancien, c_recent = _base_avec_anciens_et_recents(tmp_path)
+    with results_store.db_session(chemin) as conn:
+        bilan = results_store.purger_resultats_avant(conn, "2026-11-19T08:58:00")
+    assert bilan == {"resultats": 2, "combinaisons": 1}
+    with results_store.db_session(chemin) as conn:
+        assert {c["id"] for c in results_store.list_combinaisons(conn)} == {c_recent}
+        restants = results_store.list_resultats(conn)
+        assert [(r["combinaison_id"], r["crue_date"]) for r in restants] == [
+            (c_recent, "2024-01-01T00:00:00")]
+        # la série de la crue 2020 périmée est partie, celle de 2024 reste
+        assert results_store.charger_serie(conn, c_recent, "2020-01-01T00:00:00", "sim") == []
+        assert len(results_store.charger_serie(conn, c_recent, "2024-01-01T00:00:00", "sim")) == 1
+        # les séries observées archivées ne sont pas touchées
+        assert conn.execute("SELECT COUNT(*) FROM series_observees_completes").fetchone()[0] == 1
+
+
+def test_sauvegarder_base_produit_une_copie_lisible(tmp_path):
+    chemin, _c_ancien, _c_recent = _base_avec_anciens_et_recents(tmp_path)
+    copie = results_store.sauvegarder_base(chemin)
+    assert copie.startswith(chemin) and copie.endswith(".bak") and os.path.isfile(copie)
+    with results_store.db_session(copie) as conn:
+        assert results_store.resume_contenu(conn) == (2, 3)
 
 
 # -- supprimer_combinaisons ---------------------------------------------------------------

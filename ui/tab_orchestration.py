@@ -159,7 +159,7 @@ def build_tab_orchestration(tab_frame, app):
         crues_dates = [datetime.fromisoformat(iso) for iso in crues_iso]
         return (code_pdt, combinaisons, crues_dates), None
 
-    def _reconcilier_crues(paths, code_pdt, crues_dates, db_path):
+    def _reconcilier_crues(paths, code_pdt, crues_dates, db_path, ignorer_base=False):
         """Rapproche les crues sélectionnées (dates de début du CRITERES_PERF.DAT
         ACTUEL) de celles DÉJÀ calées en base, par l'heure de leur pic — voir
         modules.appariement_crues pour le pourquoi : la date de début d'une crue dépend
@@ -182,13 +182,14 @@ def build_tab_orchestration(tab_frame, app):
             pass
         connues = {}
         try:
-            with results_store.db_session(db_path) as conn:
-                avec_resultats = results_store.dates_avec_resultats(conn)
-                resume = results_store.resume_series_observees_archivees(conn, code_pdt)
-            for iso in avec_resultats:
-                metriques = resume.get(iso)
-                if metriques is not None:
-                    connues[datetime.fromisoformat(iso)] = metriques["pic_date"]
+            if not ignorer_base:  # « repartir de zéro » : la base va être vidée, rien de connu
+                with results_store.db_session(db_path) as conn:
+                    avec_resultats = results_store.dates_avec_resultats(conn)
+                    resume = results_store.resume_series_observees_archivees(conn, code_pdt)
+                for iso in avec_resultats:
+                    metriques = resume.get(iso)
+                    if metriques is not None:
+                        connues[datetime.fromisoformat(iso)] = metriques["pic_date"]
         except Exception:
             connues = {}
         bilan = appariement_crues.reconcilier_selection(crues_dates, pics_selection, connues)
@@ -311,7 +312,37 @@ def build_tab_orchestration(tab_frame, app):
         #     actuel — dQP/dTP non recalculables, instants avant le pic ignorés pour elles ;
         #  3. champ NJ de LISTE_BASSINS.DAT différent de celui du dernier lancement.
         results_store.init_db(db_path)
-        bilan, pics_selection, connues = _reconcilier_crues(paths, code_pdt, crues_dates, db_path)
+
+        # ── « Nouvelle campagne » : repartir de zéro ? (demandé, 20 novembre 2026, après
+        # un incident réel sur Trèbes : débits d'entrée modifiés, « tout relancer » ne
+        # remplace que les lignes (combinaison, crue) rejouées — 141 anciennes
+        # combinaisons et des crues disparues de la détection restaient en base, mêlées
+        # aux nouveaux résultats dans tout le Dashboard.) Jamais proposé en reprise
+        # (« Compléter la campagne »), dont le but est justement de conserver l'acquis.
+        # L'effacement n'a lieu qu'APRÈS les dernières confirmations ci-dessous.
+        repartir_de_zero = False
+        if not seulement_echecs:
+            with results_store.db_session(db_path) as conn:
+                nb_comb_base, nb_res_base = results_store.resume_contenu(conn)
+            if nb_comb_base:
+                choix = messagebox.askyesnocancel(
+                    "Nouvelle campagne — repartir de zéro ?",
+                    f"La base de cette station contient déjà {nb_comb_base} combinaison(s) "
+                    f"et {nb_res_base} résultat(s) de crue.\n\n"
+                    "• OUI : effacer d'abord TOUS les résultats de la station, puis lancer "
+                    "la campagne. À choisir si les données d'entrée (débits, pluies) ou la "
+                    "détection des crues ont changé : sinon les anciens résultats restent "
+                    "mélangés aux nouveaux dans le Dashboard. Une copie de sauvegarde "
+                    "(.bak) de la base est faite automatiquement avant.\n\n"
+                    "• NON : garder l'existant — seules les combinaisons et crues "
+                    "rejouées sont écrasées, le reste est conservé.\n\n"
+                    "• ANNULER : ne rien lancer.")
+                if choix is None:
+                    return
+                repartir_de_zero = bool(choix)
+
+        bilan, pics_selection, connues = _reconcilier_crues(
+            paths, code_pdt, crues_dates, db_path, ignorer_base=repartir_de_zero)
         nj_courant = lire_nj(paths.liste_bassins_dat, paths.code_site)
         with results_store.db_session(db_path) as conn:
             nj_precedent_txt = results_store.lire_meta(conn, "nj_dernier_lancement")
@@ -325,7 +356,8 @@ def build_tab_orchestration(tab_frame, app):
             return txt + (f" … (+{len(dates) - n})" if len(dates) > n else "")
 
         avertissements = []
-        if nj_precedent is not None and nj_courant is not None and nj_precedent != nj_courant:
+        if (not repartir_de_zero and nj_precedent is not None and nj_courant is not None
+                and nj_precedent != nj_courant):
             avertissements.append(
                 f"• NJ (durée de la fenêtre d'événement, LISTE_BASSINS.DAT) est passé de "
                 f"{nj_precedent} à {nj_courant} depuis le dernier lancement : GRP redécoupe "
@@ -356,6 +388,27 @@ def build_tab_orchestration(tab_frame, app):
             return
 
         crues_dates = bilan.dates_effectives
+
+        message_purge = None
+        if repartir_de_zero:
+            # Sauvegarde PUIS effacement ; si la sauvegarde échoue, rien n'est effacé et la
+            # campagne ne démarre pas (jamais d'effacement irréversible sans filet).
+            try:
+                chemin_bak = results_store.sauvegarder_base(db_path)
+                with results_store.db_session(db_path) as conn:
+                    bilan_purge = results_store.purger_station(conn)
+            except Exception as e:
+                logging.getLogger("grp_2023.orchestrateur").exception(
+                    "Échec de la sauvegarde/purge avant nouvelle campagne")
+                messagebox.showerror(
+                    "Campagne", f"Impossible de repartir de zéro : {e}\n\n"
+                    "Rien n'a été lancé (si une copie .bak a été créée, elle reste à côté de la base).")
+                return
+            message_purge = (
+                f"--- Repartir de zéro : {bilan_purge['combinaisons']} combinaison(s) et "
+                f"{bilan_purge['resultats']} résultat(s) effacés — copie de sauvegarde : "
+                f"{chemin_bak} ---")
+            app.on_resultats_changed()  # Dashboard / badges : la base vient d'être vidée
         if nj_courant is not None:
             with results_store.db_session(db_path) as conn:
                 results_store.ecrire_meta(conn, "nj_dernier_lancement", nj_courant)
@@ -422,6 +475,8 @@ def build_tab_orchestration(tab_frame, app):
         _log(f"--- Campagne lancée : {len(combinaisons)} combinaison(s) × "
              f"{len(crues_dates)} crue(s) — pas de temps {code_pdt} "
              f"{'(reprise échecs)' if seulement_echecs else ''} ---")
+        if message_purge:
+            _log(message_purge)
         if nj_courant is not None:
             _log(f"--- NJ (fenêtre d'événement, LISTE_BASSINS.DAT) = {nj_courant} jour(s) ---")
         if bilan.remplacements or bilan.nouvelles or bilan.sans_pic:
