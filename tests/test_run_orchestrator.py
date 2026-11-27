@@ -362,7 +362,7 @@ def _mocker_frontieres_externes(monkeypatch, *, calage_echoue=False, rejeu_echou
     monkeypatch.setattr(run_orchestrator, "set_calage_params", lambda *a, **k: None)
     monkeypatch.setattr(run_orchestrator, "write_liste_bassins", lambda *a, **k: None)
 
-    def _run_calage(exe):
+    def _run_calage(exe, timeout=None):
         if calage_echoue:
             raise GrpRunError("échec calage simulé")
     monkeypatch.setattr(run_orchestrator, "run_calage", _run_calage)
@@ -416,7 +416,7 @@ def test_lancer_campagne_echec_calage_continue_avec_les_autres_combinaisons(tmp_
     _mocker_frontieres_externes(monkeypatch)
     appels_calage = []
 
-    def _run_calage_echoue_au_premier_appel(exe):
+    def _run_calage_echoue_au_premier_appel(exe, timeout=None):
         appels_calage.append(exe)
         if len(appels_calage) == 1:
             raise GrpRunError("échec calage simulé (1ère combinaison)")
@@ -456,7 +456,8 @@ def test_lancer_campagne_reprise_ne_relance_pas_un_calage_deja_reussi(tmp_path, 
     paths = _paths_test(tmp_path)
     _mocker_frontieres_externes(monkeypatch)
     appels_calage = []
-    monkeypatch.setattr(run_orchestrator, "run_calage", lambda exe: appels_calage.append(exe))
+    monkeypatch.setattr(run_orchestrator, "run_calage",
+                        lambda exe, timeout=None: appels_calage.append(exe))
 
     # calage_deja_ok exige aussi la présence physique de config_prevision.ini (voir
     # lancer_campagne, garde-fou contre le bug réel du nettoyage BDTR de fin de
@@ -485,7 +486,8 @@ def test_lancer_campagne_annulation_avant_traitement_stoppe_proprement(tmp_path,
     paths = _paths_test(tmp_path)
     appels_calage = []
     _mocker_frontieres_externes(monkeypatch)
-    monkeypatch.setattr(run_orchestrator, "run_calage", lambda exe: appels_calage.append(exe))
+    monkeypatch.setattr(run_orchestrator, "run_calage",
+                        lambda exe, timeout=None: appels_calage.append(exe))
     nettoyages = []
     monkeypatch.setattr(run_orchestrator, "nettoyer_bddtr",
                          lambda dossier: nettoyages.append(dossier))
@@ -614,3 +616,22 @@ def test_serie_observee_complete_repli_sur_larchive_si_date_absente_du_fichier(t
     # Date jamais archivée ni dans le fichier : None (jamais d'exception).
     assert _serie_observee_complete(
         paths, "00J00H15M", datetime(2019, 1, 1, 0, 0), chemin_db) is None
+
+
+# -- timeout_calage : délai maximal du calage par méthode ----------------------------------
+
+def test_timeout_calage_defauts_par_methode():
+    assert run_orchestrator.timeout_calage("T") == 3600
+    assert run_orchestrator.timeout_calage("R") == 5400
+    # méthode inconnue : défaut large plutôt qu'un délai trop court
+    assert run_orchestrator.timeout_calage("X") == run_orchestrator.TIMEOUT_CALAGE_AUTRE_METHODE
+
+
+def test_timeout_calage_surcharge_et_valeurs_invalides():
+    assert run_orchestrator.timeout_calage("R", {"R": 7200}) == 7200
+    assert run_orchestrator.timeout_calage("R", {"R": "9000"}) == 9000
+    # surcharge d'une autre méthode : sans effet
+    assert run_orchestrator.timeout_calage("T", {"R": 7200}) == 3600
+    # valeurs inutilisables : retour au défaut, jamais d'exception
+    for mauvaise in (0, -5, None, "abc", [], {}):
+        assert run_orchestrator.timeout_calage("R", {"R": mauvaise}) == 5400

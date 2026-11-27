@@ -33,6 +33,30 @@ class GrpRunError(Exception):
     immédiat, jamais un simple "quelque chose a échoué"."""
 
 
+DELAI_ATTENTE_APRES_ARRET = 30  # s : attente max de la fermeture des tubes après un arrêt forcé
+
+
+def _tuer_arbre_processus(processus):
+    """Arrête le processus ET tous ses descendants (Rscript du calage RNA/incertitude...).
+
+    `subprocess.run(..., timeout=...)` ne tue, sous Windows, que l'exécutable lancé, puis
+    attend SANS limite la fermeture de ses tubes de sortie : les processus R restés
+    ouverts les tiennent, et l'appel pouvait donc rester bloqué des heures APRÈS
+    l'expiration du délai (constaté dans les journaux : « timeout 1800 s » mesurés à 2-5 h,
+    tous pendant que deux instances de l'outil calaient en même temps). `taskkill /T /F`
+    coupe l'arbre entier, y compris les processus R orphelins qui auraient gêné le calage
+    suivant. Repli sur `kill()` si taskkill est indisponible ou échoue."""
+    try:
+        subprocess.run(["taskkill", "/PID", str(processus.pid), "/T", "/F"],
+                       capture_output=True, timeout=DELAI_ATTENTE_APRES_ARRET)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        processus.kill()
+    except OSError:
+        pass
+
+
 def run_calage(exe04_path, timeout=1800):
     """Lance 04-Creation_Base_Temps_reel_GRP.exe (calage + régénération de la BDTR).
 
@@ -59,24 +83,31 @@ def run_calage(exe04_path, timeout=1800):
     t0 = time.monotonic()
     logger.info("Lancement du calage : %s (cwd=%s, timeout=%ss)",
                 exe04_path, exe04_path.parent, timeout)
+    processus = subprocess.Popen(
+        [str(exe04_path)],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding=ENCODING_CONSOLE_GRP, errors="replace",
+        cwd=exe04_path.parent,
+    )
     try:
-        result = subprocess.run(
-            [str(exe04_path)],
-            input="2\no\n\n",
-            capture_output=True,
-            text=True,
-            encoding=ENCODING_CONSOLE_GRP,
-            errors="replace",
-            timeout=timeout,
-            cwd=exe04_path.parent,
-        )
+        stdout, stderr = processus.communicate(input="2\no\n\n", timeout=timeout)
     except subprocess.TimeoutExpired as e:
-        logger.error("Calage %s : timeout dépassé après %.0fs (limite %ss) — l'exécutable "
-                     "est probablement bloqué (écran de confirmation Windows resté ouvert ?)",
+        _tuer_arbre_processus(processus)
+        try:  # récupère ce qui reste, mais JAMAIS d'attente illimitée (voir _tuer_arbre_processus)
+            processus.communicate(timeout=DELAI_ATTENTE_APRES_ARRET)
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            pass
+        logger.error("Calage %s : timeout dépassé après %.0fs (limite %ss) — calage arrêté "
+                     "(arbre de processus tué). Soit il est plus long que la limite "
+                     "(voir parametrage.timeouts_calage), soit il est bloqué.",
                      exe04_path.name, time.monotonic() - t0, timeout)
         raise GrpRunError(
             f"L'exécutable de calage {exe04_path.name} n'a pas terminé en {timeout}s."
         ) from e
+    except BaseException:
+        _tuer_arbre_processus(processus)  # ex. Ctrl+C : ne jamais laisser un calage orphelin
+        raise
+    result = subprocess.CompletedProcess(processus.args, processus.returncode, stdout, stderr)
 
     duree = time.monotonic() - t0
     if result.returncode != 0:

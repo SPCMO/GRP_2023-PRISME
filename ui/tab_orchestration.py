@@ -479,8 +479,12 @@ def build_tab_orchestration(tab_frame, app):
             _log(message_purge)
         if nj_courant is not None:
             _log(f"--- NJ (fenêtre d'événement, LISTE_BASSINS.DAT) = {nj_courant} jour(s) ---")
+        _surcharges_timeouts = app.config_data.get("parametrage", {}).get("timeouts_calage")
+        _log("--- Délai maximal d'un calage : " + ", ".join(
+            f"{m} {run_orchestrator.timeout_calage(m, _surcharges_timeouts)} s"
+            for m in sorted({m for _h, _s, m in combinaisons})) + " ---")
         if bilan.remplacements or bilan.nouvelles or bilan.sans_pic:
-            _log(f"--- Crues : {len(bilan.deja_connues) + len(bilan.remplacements)} déjà calée(s) "
+            _log(f"--- Crues :{len(bilan.deja_connues) + len(bilan.remplacements)} déjà calée(s) "
                  f"en base ({len(bilan.remplacements)} reconnue(s) par leur pic sous une autre "
                  f"date de début), {len(bilan.nouvelles)} nouvelle(s), "
                  f"{len(bilan.sans_pic)} sans pic connu ---")
@@ -506,6 +510,8 @@ def build_tab_orchestration(tab_frame, app):
                     annulation=etat["annulation"],
                     decalages_pic_heures=decalages_pic_heures,
                     dates_qmax=dates_qmax,
+                    timeouts_calage=app.config_data.get("parametrage", {}).get(
+                        "timeouts_calage"),
                 )
             except Exception as e:
                 logging.getLogger("grp_2023.orchestrateur").exception("Erreur fatale de campagne")

@@ -59,6 +59,30 @@ class ProgressionEvent:
 ProgressionCallback = Callable[[ProgressionEvent], None]
 
 
+# Délai maximal d'un calage (exe 04), en secondes, par méthode de correction. Avant la
+# v3.26, 1800 s pour tout (valeur arbitraire de la version initiale, jamais mesurée) :
+# les journaux de 1 261 calages montrent un calage T médian à ~1 200 s mais un calage R
+# (RNA) médian à ~1 600 s, ~1 700 s sur Trèbes — le plafond de 1800 s coupait 21 % des
+# calages R « juste avant la fin » (88 % des timeouts R tombaient entre 1801 et 1900 s).
+# Surchargeable par station : parametrage.timeouts_calage = {"R": 7200, ...} dans
+# config_<code_station>.json. Un vrai blocage coûte désormais au plus ce délai (le
+# processus et ses descendants sont tués, voir grp_runner._tuer_arbre_processus).
+TIMEOUTS_CALAGE_DEFAUT = {"T": 3600, "R": 5400}
+TIMEOUT_CALAGE_AUTRE_METHODE = 5400
+
+
+def timeout_calage(methode: str, surcharges: Optional[Dict[str, float]] = None) -> int:
+    """Délai maximal (s) du calage pour `methode` : valeur de `surcharges` si elle est un
+    nombre > 0, sinon le défaut de la méthode (TIMEOUTS_CALAGE_DEFAUT). Ne lève jamais."""
+    try:
+        valeur = float((surcharges or {}).get(methode))
+        if valeur > 0:
+            return int(valeur)
+    except (TypeError, ValueError):
+        pass
+    return TIMEOUTS_CALAGE_DEFAUT.get(methode, TIMEOUT_CALAGE_AUTRE_METHODE)
+
+
 def generer_combinaisons(horizons: List[str], seuils: List[float], methodes: List[str]
                           ) -> List[Tuple[str, float, str]]:
     """Produit la matrice de test à partir des sélections de l'onglet Paramétrage
@@ -285,8 +309,10 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                      seulement_echecs: bool = False,
                      annulation=None,
                      decalages_pic_heures: Optional[List[float]] = None,
-                     dates_qmax: Optional[Dict[datetime, datetime]] = None):
-    """Lance la campagne complète. N'interrompt jamais la boucle sur une erreur
+                     dates_qmax: Optional[Dict[datetime, datetime]] = None,
+                     timeouts_calage: Optional[Dict[str, float]] = None):
+    """Lance la campagne complète. `timeouts_calage` : délai maximal du calage par méthode
+    (voir timeout_calage), None = défauts. N'interrompt jamais la boucle sur une erreur
     individuelle : chaque combinaison/crue en échec est loguée et signalée, la campagne
     continue avec la suivante — c'est à l'utilisateur de décider, une fois la campagne
     terminée, s'il relance les échecs (`seulement_echecs=True`).
@@ -406,7 +432,8 @@ def lancer_campagne(paths: GrpPaths, pas_de_temps: str,
                     )
                 set_calage_params(bassins[code], hor1=horizon, seuil_c1=seuil_c1, methode=methode)
                 write_liste_bassins(paths.liste_bassins_dat, _lignes_brutes, bassins)
-                run_calage(paths.exe_calage_bddtr)
+                run_calage(paths.exe_calage_bddtr,
+                           timeout=timeout_calage(methode, timeouts_calage))
             except (ListeBassinsFormatError, GrpRunError, FileNotFoundError) as e:
                 message = f"Échec du calage : {e}"
                 logger.error("Combinaison %s/%s/%s — %s\n%s", horizon, seuil_c1, methode,
